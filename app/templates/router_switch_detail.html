@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+
+{% block title %}{{ router_switch.hostname }} - Router Switch Detail{% endblock %}
+{% block header %}{{ router_switch.hostname }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <!-- Device Information -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Device Information</h5>
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-sm btn-outline-success" onclick="checkStatus({{ router_switch.id }})">
+                        <i class="bi bi-arrow-clockwise"></i> Check Status
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-info" onclick="backupConfig({{ router_switch.id }})">
+                        <i class="bi bi-download"></i> Backup Config
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning" onclick="updateFirmware({{ router_switch.id }})">
+                        <i class="bi bi-upload"></i> Update Firmware
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Hostname:</strong></td>
+                                <td>{{ router_switch.hostname }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>IP Address:</strong></td>
+                                <td>{{ router_switch.ip_address }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Device Type:</strong></td>
+                                <td><span class="badge bg-secondary">{{ router_switch.device_type.title() }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Model:</strong></td>
+                                <td>{{ router_switch.model or 'Unknown' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Serial Number:</strong></td>
+                                <td>{{ router_switch.serial_number or 'Unknown' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>MAC Address:</strong></td>
+                                <td>{{ router_switch.mac_address or 'Unknown' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td>
+                                    {% if router_switch.status == 'online' %}
+                                        <span class="badge bg-success">Online</span>
+                                    {% elif router_switch.status == 'offline' %}
+                                        <span class="badge bg-danger">Offline</span>
+                                    {% elif router_switch.status == 'maintenance' %}
+                                        <span class="badge bg-warning">Maintenance</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ router_switch.status.title() }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Health Score:</strong></td>
+                                <td>
+                                    <div class="progress" style="width: 100px; height: 20px;">
+                                        <div class="progress-bar 
+                                            {% if router_switch.health_score >= 80 %}bg-success
+                                            {% elif router_switch.health_score >= 60 %}bg-warning
+                                            {% else %}bg-danger{% endif %}" 
+                                            role="progressbar" 
+                                            style="width: {{ router_switch.health_score }}%"
+                                            aria-valuenow="{{ router_switch.health_score }}" 
+                                            aria-valuemin="0" 
+                                            aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                    <small>{{ router_switch.health_score }}%</small>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Uptime:</strong></td>
+                                <td>
+                                    {% if router_switch.uptime_days > 0 %}
+                                        {{ router_switch.uptime_days }} days, {{ router_switch.uptime_hours }} hours
+                                    {% else %}
+                                        {{ router_switch.uptime_hours }} hours
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Last Seen:</strong></td>
+                                <td>{{ router_switch.last_seen.strftime('%Y-%m-%d %H:%M:%S') if router_switch.last_seen else 'Never' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Location:</strong></td>
+                                <td>{{ router_switch.location or 'Not specified' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Contact Person:</strong></td>
+                                <td>{{ router_switch.contact_person or 'Not specified' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Firmware Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Firmware & Software</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>Firmware Version</h6>
+                            <p class="text-muted">{{ router_switch.firmware_version or 'Unknown' }}</p>
+                        </div>
+                    </div>
+                    {% if router_switch.is_mikrotik %}
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>RouterOS Version</h6>
+                            <p class="text-muted">{{ router_switch.routeros_version or 'Unknown' }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>Bootloader Version</h6>
+                            <p class="text-muted">{{ router_switch.bootloader_version or 'Unknown' }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hardware Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Hardware Specifications</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h6>CPU Model</h6>
+                            <p class="text-muted">{{ router_switch.cpu_model or 'Unknown' }}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h6>CPU Frequency</h6>
+                            <p class="text-muted">{{ router_switch.cpu_frequency_mhz or 'Unknown' }} MHz</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h6>Memory</h6>
+                            <p class="text-muted">{{ router_switch.total_memory_mb or 'Unknown' }} MB</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h6>Ports</h6>
+                            <p class="text-muted">{{ router_switch.port_count or 'Unknown' }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        {% if router_switch.cpu_load_percent is not none or router_switch.memory_usage_percent is not none or router_switch.temperature_celsius is not none %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Performance Metrics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% if router_switch.cpu_load_percent is not none %}
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>CPU Load</h6>
+                            <div class="progress mb-2">
+                                <div class="progress-bar 
+                                    {% if router_switch.cpu_load_percent > 80 %}bg-danger
+                                    {% elif router_switch.cpu_load_percent > 60 %}bg-warning
+                                    {% else %}bg-success{% endif %}" 
+                                    role="progressbar" 
+                                    style="width: {{ router_switch.cpu_load_percent }}%"
+                                    aria-valuenow="{{ router_switch.cpu_load_percent }}" 
+                                    aria-valuemin="0" 
+                                    aria-valuemax="100">
+                                </div>
+                            </div>
+                            <small>{{ router_switch.cpu_load_percent }}%</small>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if router_switch.memory_usage_percent is not none %}
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>Memory Usage</h6>
+                            <div class="progress mb-2">
+                                <div class="progress-bar 
+                                    {% if router_switch.memory_usage_percent > 90 %}bg-danger
+                                    {% elif router_switch.memory_usage_percent > 75 %}bg-warning
+                                    {% else %}bg-success{% endif %}" 
+                                    role="progressbar" 
+                                    style="width: {{ router_switch.memory_usage_percent }}%"
+                                    aria-valuenow="{{ router_switch.memory_usage_percent }}" 
+                                    aria-valuemin="0" 
+                                    aria-valuemax="100">
+                                </div>
+                            </div>
+                            <small>{{ router_switch.memory_usage_percent }}%</small>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if router_switch.temperature_celsius is not none %}
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <h6>Temperature</h6>
+                            <p class="text-muted">
+                                {{ router_switch.temperature_celsius }}°C
+                                {% if router_switch.temperature_celsius > 70 %}
+                                    <i class="bi bi-thermometer-high text-danger"></i>
+                                {% elif router_switch.temperature_celsius > 60 %}
+                                    <i class="bi bi-thermometer-half text-warning"></i>
+                                {% else %}
+                                    <i class="bi bi-thermometer-low text-success"></i>
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-md-4">
+        <!-- Recent Operations -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Recent Operations</h5>
+            </div>
+            <div class="card-body">
+                {% if operations %}
+                <div class="list-group list-group-flush">
+                    {% for operation in operations %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ operation.operation_name }}</h6>
+                            <small>
+                                {% if operation.status == 'completed' %}
+                                    <span class="badge bg-success">Completed</span>
+                                {% elif operation.status == 'failed' %}
+                                    <span class="badge bg-danger">Failed</span>
+                                {% elif operation.status == 'running' %}
+                                    <span class="badge bg-primary">Running</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ operation.status.title() }}</span>
+                                {% endif %}
+                            </small>
+                        </div>
+                        <p class="mb-1">{{ operation.description or 'No description' }}</p>
+                        <small>{{ operation.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">No recent operations found.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Notes -->
+        {% if router_switch.notes %}
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Notes</h5>
+            </div>
+            <div class="card-body">
+                <p>{{ router_switch.notes }}</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Tags -->
+        {% if router_switch.tags %}
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Tags</h5>
+            </div>
+            <div class="card-body">
+                {% for tag in router_switch.tags.split(',') %}
+                <span class="badge bg-light text-dark me-1">{{ tag.strip() }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function checkStatus(routerSwitchId) {
+    fetch(`/api/router-switches/${routerSwitchId}/check-status`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            alert('Status check initiated successfully');
+            setTimeout(() => location.reload(), 2000);
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+    });
+}
+
+function backupConfig(routerSwitchId) {
+    fetch(`/api/router-switches/${routerSwitchId}/backup-config`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            alert('Configuration backup initiated successfully');
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error.message);
+    });
+}
+
+function updateFirmware(routerSwitchId) {
+    const firmwareVersion = prompt('Enter firmware version (leave empty for latest):');
+    if (firmwareVersion !== null) {
+        fetch(`/api/router-switches/${routerSwitchId}/update-firmware`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ firmware_version: firmwareVersion })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                alert('Firmware update initiated successfully');
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+    }
+}
+</script>
+{% endblock %}

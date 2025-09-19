@@ -1,0 +1,106 @@
+---
+- name: Update Router Switch Firmware
+  hosts: router_switches
+  gather_facts: no
+  vars:
+    firmware_version: "{{ target_firmware_version | default('latest') }}"
+  
+  tasks:
+    - name: Check current firmware version
+      block:
+        - name: Get current RouterOS version
+          community.routeros.command:
+            commands:
+              - system resource print
+          register: current_version
+          when: device_type == "mikrotik"
+        
+        - name: Display current version
+          debug:
+            msg: "Current RouterOS version: {{ current_version.stdout_lines[0] | regex_search('version: (.+)', '\\1') }}"
+          when: device_type == "mikrotik"
+      
+      rescue:
+        - name: Handle version check failure
+          debug:
+            msg: "Failed to get current firmware version"
+          failed_when: true
+    
+    - name: Update firmware
+      block:
+        - name: Check for available updates (MikroTik)
+          community.routeros.command:
+            commands:
+              - system package update print
+          register: update_check
+          when: device_type == "mikrotik"
+        
+        - name: Install specific firmware version (MikroTik)
+          community.routeros.command:
+            commands:
+              - system package update install={{ firmware_version }}
+          when: device_type == "mikrotik" and firmware_version != "latest"
+        
+        - name: Install latest firmware (MikroTik)
+          community.routeros.command:
+            commands:
+              - system package update install
+          when: device_type == "mikrotik" and firmware_version == "latest"
+        
+        - name: Reboot device after firmware update
+          community.routeros.command:
+            commands:
+              - system reboot
+          when: device_type == "mikrotik"
+          async: 60
+          poll: 0
+        
+        - name: Wait for device to come back online
+          wait_for:
+            host: "{{ ansible_host }}"
+            port: "{{ ansible_port | default(22) }}"
+            delay: 30
+            timeout: 300
+          when: device_type == "mikrotik"
+      
+      rescue:
+        - name: Handle firmware update failure
+          debug:
+            msg: "Failed to update firmware for {{ inventory_hostname }}"
+          failed_when: true
+    
+    - name: Verify firmware update
+      block:
+        - name: Check new firmware version
+          community.routeros.command:
+            commands:
+              - system resource print
+          register: new_version
+          when: device_type == "mikrotik"
+        
+        - name: Display new version
+          debug:
+            msg: "New RouterOS version: {{ new_version.stdout_lines[0] | regex_search('version: (.+)', '\\1') }}"
+          when: device_type == "mikrotik"
+        
+        - name: Update database with new firmware version
+          local_action:
+            module: uri
+            url: "{{ api_base_url }}/router-switches/{{ node_id }}/update"
+            method: PUT
+            body_format: json
+            body:
+              routeros_version: "{{ new_version.stdout_lines[0] | regex_search('version: (.+)', '\\1') }}"
+              firmware_version: "{{ new_version.stdout_lines[0] | regex_search('version: (.+)', '\\1') }}"
+              status: "online"
+              last_seen: "{{ ansible_date_time.iso8601 }}"
+            headers:
+              Content-Type: "application/json"
+          delegate_to: localhost
+          when: device_type == "mikrotik" and node_id is defined
+      
+      rescue:
+        - name: Handle verification failure
+          debug:
+            msg: "Failed to verify firmware update"
+          failed_when: true

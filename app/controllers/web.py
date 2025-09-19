@@ -2,7 +2,7 @@
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
 
 bp = Blueprint('web', __name__)
 
@@ -11,18 +11,22 @@ def dashboard():
     """Main dashboard."""
     clusters = Cluster.query.all()
     nodes = Node.query.all()
+    router_switches = RouterSwitch.query.all()
     recent_operations = Operation.query.order_by(Operation.created_at.desc()).limit(10).all()
     
     stats = {
         'total_clusters': len(clusters),
         'total_nodes': len(nodes),
         'online_nodes': len([n for n in nodes if n.status == 'online']),
+        'total_router_switches': len(router_switches),
+        'online_router_switches': len([rs for rs in router_switches if rs.status == 'online']),
         'recent_operations': len(recent_operations)
     }
     
     return render_template('dashboard.html', 
                          clusters=clusters, 
                          nodes=nodes, 
+                         router_switches=router_switches,
                          recent_operations=recent_operations,
                          stats=stats)
 
@@ -96,3 +100,47 @@ def operation_detail(operation_id):
     """Operation detail page."""
     operation = Operation.query.get_or_404(operation_id)
     return render_template('operation_detail.html', operation=operation)
+
+# Router/Switch routes
+@bp.route('/router-switches')
+def router_switches():
+    """Router switches management page."""
+    router_switches = RouterSwitch.query.all()
+    return render_template('router_switches.html', router_switches=router_switches)
+
+@bp.route('/router-switches/add', methods=['GET', 'POST'])
+def add_router_switch():
+    """Add a new router switch."""
+    if request.method == 'POST':
+        try:
+            router_switch = RouterSwitch(
+                hostname=request.form['hostname'],
+                ip_address=request.form['ip_address'],
+                device_type=request.form.get('device_type', 'mikrotik'),
+                model=request.form.get('model'),
+                serial_number=request.form.get('serial_number'),
+                mac_address=request.form.get('mac_address'),
+                management_port=int(request.form.get('management_port', 22)),
+                cluster_id=request.form.get('cluster_id') or None,
+                location=request.form.get('location'),
+                contact_person=request.form.get('contact_person'),
+                notes=request.form.get('notes'),
+                tags=request.form.get('tags')
+            )
+            db.session.add(router_switch)
+            db.session.commit()
+            flash('Router switch added successfully!', 'success')
+            return redirect(url_for('web.router_switches'))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error adding router switch: {str(e)}', 'error')
+    
+    clusters = Cluster.query.all()
+    return render_template('add_router_switch.html', clusters=clusters)
+
+@bp.route('/router-switches/<int:router_switch_id>')
+def router_switch_detail(router_switch_id):
+    """Router switch detail page."""
+    router_switch = RouterSwitch.query.get_or_404(router_switch_id)
+    operations = Operation.query.filter_by(router_switch_id=router_switch_id).order_by(Operation.created_at.desc()).limit(10).all()
+    return render_template('router_switch_detail.html', router_switch=router_switch, operations=operations)

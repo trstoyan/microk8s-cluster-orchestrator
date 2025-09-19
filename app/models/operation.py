@@ -32,8 +32,10 @@ class Operation(Base):
     # Relationships
     node_id = Column(Integer, ForeignKey('nodes.id'))
     cluster_id = Column(Integer, ForeignKey('clusters.id'))
+    router_switch_id = Column(Integer, ForeignKey('router_switches.id'))
     node = relationship("Node", back_populates="operations")
     cluster = relationship("Cluster", back_populates="operations")
+    router_switch = relationship("RouterSwitch", back_populates="operations")
     
     # Metadata
     created_by = Column(String(100), default='system')
@@ -41,7 +43,14 @@ class Operation(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):
-        target = f"Node {self.node.hostname}" if self.node else f"Cluster {self.cluster.name}"
+        if self.node:
+            target = f"Node {self.node.hostname}"
+        elif self.cluster:
+            target = f"Cluster {self.cluster.name}"
+        elif self.router_switch:
+            target = f"RouterSwitch {self.router_switch.hostname}"
+        else:
+            target = "Unknown target"
         return f'<Operation {self.operation_name} on {target}>'
     
     @property
@@ -69,6 +78,7 @@ class Operation(Base):
             'error_message': self.error_message,
             'node_id': self.node_id,
             'cluster_id': self.cluster_id,
+            'router_switch_id': self.router_switch_id,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

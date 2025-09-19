@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Add Router Switch - MicroK8s Cluster Orchestrator{% endblock %}
+{% block header %}Add Router Switch{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Add New Router Switch</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="hostname" class="form-label">Hostname *</label>
+                                <input type="text" class="form-control" id="hostname" name="hostname" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="ip_address" class="form-label">IP Address *</label>
+                                <input type="text" class="form-control" id="ip_address" name="ip_address" required>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="device_type" class="form-label">Device Type</label>
+                                <select class="form-select" id="device_type" name="device_type">
+                                    <option value="mikrotik" selected>MikroTik</option>
+                                    <option value="cisco">Cisco</option>
+                                    <option value="ubiquiti">Ubiquiti</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="model" class="form-label">Model</label>
+                                <input type="text" class="form-control" id="model" name="model" placeholder="e.g., RB4011iGS+RM">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="serial_number" class="form-label">Serial Number</label>
+                                <input type="text" class="form-control" id="serial_number" name="serial_number">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="mac_address" class="form-label">MAC Address</label>
+                                <input type="text" class="form-control" id="mac_address" name="mac_address" placeholder="00:11:22:33:44:55">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="management_port" class="form-label">Management Port</label>
+                                <input type="number" class="form-control" id="management_port" name="management_port" value="22">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="cluster_id" class="form-label">Associated Cluster</label>
+                                <select class="form-select" id="cluster_id" name="cluster_id">
+                                    <option value="">None</option>
+                                    {% for cluster in clusters %}
+                                    <option value="{{ cluster.id }}">{{ cluster.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="location" class="form-label">Location</label>
+                                <input type="text" class="form-control" id="location" name="location" placeholder="e.g., Data Center A, Rack 1">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="contact_person" class="form-label">Contact Person</label>
+                                <input type="text" class="form-control" id="contact_person" name="contact_person">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="tags" class="form-label">Tags</label>
+                        <input type="text" class="form-control" id="tags" name="tags" placeholder="core,gateway,production (comma-separated)">
+                        <div class="form-text">Optional tags for categorization</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="3" placeholder="Additional notes about this router switch..."></textarea>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('web.router_switches') }}" class="btn btn-secondary me-md-2">Cancel</a>
+                        <button type="submit" class="btn btn-primary">Add Router Switch</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

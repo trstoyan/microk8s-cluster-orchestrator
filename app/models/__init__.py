@@ -4,5 +4,6 @@ from .node import Node
 from .cluster import Cluster
 from .operation import Operation
 from .configuration import Configuration
+from .router_switch import RouterSwitch
 
-__all__ = ['Node', 'Cluster', 'Operation', 'Configuration']
+__all__ = ['Node', 'Cluster', 'Operation', 'Configuration', 'RouterSwitch']

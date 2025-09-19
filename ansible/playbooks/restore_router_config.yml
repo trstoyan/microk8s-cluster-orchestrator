@@ -1,0 +1,104 @@
+---
+- name: Restore Router Switch Configuration
+  hosts: router_switches
+  gather_facts: no
+  vars:
+    backup_file: "{{ backup_file_path | basename }}"
+    local_backup_path: "{{ backup_file_path }}"
+  
+  tasks:
+    - name: Verify backup file exists
+      local_action:
+        module: stat
+        path: "{{ local_backup_path }}"
+      register: backup_file_stat
+      delegate_to: localhost
+    
+    - name: Fail if backup file doesn't exist
+      fail:
+        msg: "Backup file {{ local_backup_path }} does not exist"
+      when: not backup_file_stat.stat.exists
+    
+    - name: Restore configuration from backup
+      block:
+        - name: Upload backup file to device
+          local_action:
+            module: copy
+            src: "{{ local_backup_path }}"
+            dest: "/tmp/{{ backup_file }}"
+          delegate_to: localhost
+        
+        - name: Copy backup file to device
+          community.routeros.command:
+            commands:
+              - file copy source="/tmp/{{ backup_file }}" destination="restore_config.rsc"
+          when: device_type == "mikrotik"
+        
+        - name: Import configuration from backup
+          community.routeros.command:
+            commands:
+              - import file=restore_config.rsc
+          when: device_type == "mikrotik"
+          register: import_result
+        
+        - name: Clean up temporary files
+          block:
+            - name: Remove temporary file from device
+              community.routeros.command:
+                commands:
+                  - file remove [find name="restore_config.rsc"]
+              when: device_type == "mikrotik"
+            
+            - name: Remove temporary file from localhost
+              local_action:
+                module: file
+                path: "/tmp/{{ backup_file }}"
+                state: absent
+              delegate_to: localhost
+        
+        - name: Reboot device to apply configuration
+          community.routeros.command:
+            commands:
+              - system reboot
+          when: device_type == "mikrotik"
+          async: 60
+          poll: 0
+        
+        - name: Wait for device to come back online
+          wait_for:
+            host: "{{ ansible_host }}"
+            port: "{{ ansible_port | default(22) }}"
+            delay: 30
+            timeout: 300
+          when: device_type == "mikrotik"
+        
+        - name: Verify configuration restoration
+          community.routeros.command:
+            commands:
+              - system resource print
+          register: verify_result
+          when: device_type == "mikrotik"
+        
+        - name: Update database with restoration status
+          local_action:
+            module: uri
+            url: "{{ api_base_url }}/router-switches/{{ node_id }}/update"
+            method: PUT
+            body_format: json
+            body:
+              status: "online"
+              last_seen: "{{ ansible_date_time.iso8601 }}"
+            headers:
+              Content-Type: "application/json"
+          delegate_to: localhost
+          when: device_type == "mikrotik" and node_id is defined
+        
+        - name: Display restoration success
+          debug:
+            msg: "Configuration successfully restored for {{ inventory_hostname }}"
+      
+      rescue:
+        - name: Handle restoration failure
+          debug:
+            msg: "Failed to restore configuration for {{ inventory_hostname }}"
+          failed_when: true

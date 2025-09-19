@@ -25,13 +25,13 @@ def init_database(app=None):
         
         with app.app_context():
             # Import models to register them with Flask-SQLAlchemy
-            from . import node, cluster, operation, configuration
+            from . import node, cluster, operation, configuration, router_switch
             db.create_all()
     else:
         # For standalone usage
         engine = create_engine(DATABASE_URL)
         # Import models to register them with SQLAlchemy Base
-        from . import node, cluster, operation, configuration
+        from . import node, cluster, operation, configuration, router_switch
         Base.metadata.create_all(engine)
         return sessionmaker(bind=engine)
 

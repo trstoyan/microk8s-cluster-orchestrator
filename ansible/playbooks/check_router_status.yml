@@ -1,0 +1,90 @@
+---
+- name: Check Router Switch Status
+  hosts: router_switches
+  gather_facts: no
+  
+  tasks:
+    - name: Ping test connectivity
+      ping:
+      register: ping_result
+    
+    - name: Get system information from MikroTik device
+      block:
+        - name: Get system resource information
+          community.routeros.command:
+            commands:
+              - system resource print
+          register: system_resource
+          when: device_type == "mikrotik"
+        
+        - name: Get system identity
+          community.routeros.command:
+            commands:
+              - system identity print
+          register: system_identity
+          when: device_type == "mikrotik"
+        
+        - name: Get system clock
+          community.routeros.command:
+            commands:
+              - system clock print
+          register: system_clock
+          when: device_type == "mikrotik"
+        
+        - name: Parse system resource information
+          set_fact:
+            device_status: "online"
+            uptime_seconds: "{{ (system_resource.stdout_lines[0] | regex_search('uptime: (.+)', '\\1')) | default('0') }}"
+            cpu_load: "{{ (system_resource.stdout_lines[0] | regex_search('cpu-load: (\\d+)%', '\\1')) | default('0') }}"
+            free_memory: "{{ (system_resource.stdout_lines[0] | regex_search('free-memory: (\\d+)', '\\1')) | default('0') }}"
+            total_memory: "{{ (system_resource.stdout_lines[0] | regex_search('total-memory: (\\d+)', '\\1')) | default('0') }}"
+          when: device_type == "mikrotik"
+        
+        - name: Calculate memory usage percentage
+          set_fact:
+            memory_usage_percent: "{{ ((total_memory | int - free_memory | int) / total_memory | int * 100) | round(1) }}"
+          when: device_type == "mikrotik" and total_memory | int > 0
+        
+        - name: Set default values for non-MikroTik devices
+          set_fact:
+            device_status: "online"
+            uptime_seconds: "0"
+            cpu_load: "0"
+            memory_usage_percent: "0"
+          when: device_type != "mikrotik"
+      
+      rescue:
+        - name: Handle device communication failure
+          set_fact:
+            device_status: "error"
+            uptime_seconds: "0"
+            cpu_load: "0"
+            memory_usage_percent: "0"
+    
+    - name: Update database with status information
+      local_action:
+        module: uri
+        url: "{{ api_base_url }}/router-switches/{{ node_id }}/update"
+        method: PUT
+        body_format: json
+        body:
+          status: "{{ device_status }}"
+          uptime_seconds: "{{ uptime_seconds | int }}"
+          cpu_load_percent: "{{ cpu_load | float }}"
+          memory_usage_percent: "{{ memory_usage_percent | float }}"
+          last_seen: "{{ ansible_date_time.iso8601 }}"
+        headers:
+          Content-Type: "application/json"
+      delegate_to: localhost
+      when: node_id is defined
+    
+    - name: Display status summary
+      debug:
+        msg: |
+          Router Switch Status Summary:
+          - Device: {{ inventory_hostname }}
+          - IP: {{ ansible_host }}
+          - Status: {{ device_status }}
+          - Uptime: {{ uptime_seconds }} seconds
+          - CPU Load: {{ cpu_load }}%
+          - Memory Usage: {{ memory_usage_percent }}%

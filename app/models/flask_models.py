@@ -158,6 +158,7 @@ class Operation(db.Model):
     # Relationships
     node_id = db.Column(db.Integer, db.ForeignKey('nodes.id'))
     cluster_id = db.Column(db.Integer, db.ForeignKey('clusters.id'))
+    router_switch_id = db.Column(db.Integer, db.ForeignKey('router_switches.id'))
     
     # Metadata
     created_by = db.Column(db.String(100), default='system')
@@ -165,7 +166,14 @@ class Operation(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):
-        target = f"Node {self.node.hostname}" if self.node else f"Cluster {self.cluster.name}" if self.cluster else "System"
+        if self.node:
+            target = f"Node {self.node.hostname}"
+        elif self.cluster:
+            target = f"Cluster {self.cluster.name}"
+        elif self.router_switch:
+            target = f"RouterSwitch {self.router_switch.hostname}"
+        else:
+            target = "System"
         return f'<Operation {self.operation_name} on {target}>'
     
     @property
@@ -193,6 +201,7 @@ class Operation(db.Model):
             'error_message': self.error_message,
             'node_id': self.node_id,
             'cluster_id': self.cluster_id,
+            'router_switch_id': self.router_switch_id,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -217,3 +226,173 @@ class Configuration(db.Model):
     
     def __repr__(self):
         return f'<Configuration {self.config_type}.{self.config_name}.{self.config_key}>'
+
+class RouterSwitch(db.Model):
+    """Flask-SQLAlchemy RouterSwitch model."""
+    
+    __tablename__ = 'router_switches'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    hostname = db.Column(db.String(255), unique=True, nullable=False)
+    ip_address = db.Column(db.String(45), nullable=False)
+    management_port = db.Column(db.Integer, default=22)
+    
+    # Device identification
+    device_type = db.Column(db.String(100), default='mikrotik')
+    model = db.Column(db.String(100))
+    serial_number = db.Column(db.String(100), unique=True)
+    mac_address = db.Column(db.String(17))
+    
+    # Firmware and software
+    firmware_version = db.Column(db.String(50))
+    routeros_version = db.Column(db.String(50))
+    bootloader_version = db.Column(db.String(50))
+    architecture = db.Column(db.String(50))
+    
+    # Hardware specifications
+    cpu_model = db.Column(db.String(100))
+    cpu_frequency_mhz = db.Column(db.Integer)
+    total_memory_mb = db.Column(db.Integer)
+    total_disk_mb = db.Column(db.Integer)
+    port_count = db.Column(db.Integer, default=0)
+    
+    # Network configuration
+    management_vlan = db.Column(db.Integer)
+    default_gateway = db.Column(db.String(45))
+    dns_servers = db.Column(db.Text)
+    
+    # Device status
+    status = db.Column(db.String(50), default='unknown')
+    uptime_seconds = db.Column(db.Integer, default=0)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
+    cpu_load_percent = db.Column(db.Float, default=0.0)
+    memory_usage_percent = db.Column(db.Float, default=0.0)
+    temperature_celsius = db.Column(db.Float)
+    
+    # Configuration management
+    config_backup_enabled = db.Column(db.Boolean, default=True)
+    last_config_backup = db.Column(db.DateTime)
+    config_backup_path = db.Column(db.String(500))
+    auto_update_enabled = db.Column(db.Boolean, default=False)
+    
+    # VLAN and switching
+    vlan_count = db.Column(db.Integer, default=0)
+    stp_enabled = db.Column(db.Boolean, default=False)
+    lldp_enabled = db.Column(db.Boolean, default=True)
+    
+    # Wireless (if applicable)
+    wireless_enabled = db.Column(db.Boolean, default=False)
+    wireless_standard = db.Column(db.String(20))
+    wireless_channels = db.Column(db.Text)
+    
+    # Relationships
+    cluster_id = db.Column(db.Integer, db.ForeignKey('clusters.id'), nullable=True)
+    
+    # Metadata
+    tags = db.Column(db.Text)
+    notes = db.Column(db.Text)
+    location = db.Column(db.String(255))
+    contact_person = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<RouterSwitch {self.hostname} ({self.device_type}:{self.model})>'
+    
+    @property
+    def is_mikrotik(self):
+        """Check if this is a MikroTik device."""
+        return self.device_type.lower() == 'mikrotik'
+    
+    @property
+    def uptime_days(self):
+        """Get uptime in days."""
+        return self.uptime_seconds // 86400 if self.uptime_seconds else 0
+    
+    @property
+    def uptime_hours(self):
+        """Get uptime in hours."""
+        return (self.uptime_seconds % 86400) // 3600 if self.uptime_seconds else 0
+    
+    @property
+    def health_score(self):
+        """Calculate device health score based on various factors."""
+        score = 100
+        
+        # Deduct points for high resource usage
+        if self.cpu_load_percent > 80:
+            score -= 20
+        elif self.cpu_load_percent > 60:
+            score -= 10
+            
+        if self.memory_usage_percent > 90:
+            score -= 20
+        elif self.memory_usage_percent > 75:
+            score -= 10
+            
+        # Deduct points for high temperature
+        if self.temperature_celsius and self.temperature_celsius > 70:
+            score -= 15
+        elif self.temperature_celsius and self.temperature_celsius > 60:
+            score -= 5
+            
+        # Deduct points for offline status
+        if self.status == 'offline':
+            score -= 50
+        elif self.status == 'error':
+            score -= 30
+        elif self.status == 'maintenance':
+            score -= 10
+            
+        return max(0, score)
+    
+    def to_dict(self):
+        """Convert router switch to dictionary representation."""
+        return {
+            'id': self.id,
+            'hostname': self.hostname,
+            'ip_address': self.ip_address,
+            'management_port': self.management_port,
+            'device_type': self.device_type,
+            'model': self.model,
+            'serial_number': self.serial_number,
+            'mac_address': self.mac_address,
+            'firmware_version': self.firmware_version,
+            'routeros_version': self.routeros_version,
+            'bootloader_version': self.bootloader_version,
+            'architecture': self.architecture,
+            'cpu_model': self.cpu_model,
+            'cpu_frequency_mhz': self.cpu_frequency_mhz,
+            'total_memory_mb': self.total_memory_mb,
+            'total_disk_mb': self.total_disk_mb,
+            'port_count': self.port_count,
+            'management_vlan': self.management_vlan,
+            'default_gateway': self.default_gateway,
+            'dns_servers': self.dns_servers,
+            'status': self.status,
+            'uptime_seconds': self.uptime_seconds,
+            'uptime_days': self.uptime_days,
+            'uptime_hours': self.uptime_hours,
+            'last_seen': self.last_seen.isoformat() if self.last_seen else None,
+            'cpu_load_percent': self.cpu_load_percent,
+            'memory_usage_percent': self.memory_usage_percent,
+            'temperature_celsius': self.temperature_celsius,
+            'health_score': self.health_score,
+            'config_backup_enabled': self.config_backup_enabled,
+            'last_config_backup': self.last_config_backup.isoformat() if self.last_config_backup else None,
+            'config_backup_path': self.config_backup_path,
+            'auto_update_enabled': self.auto_update_enabled,
+            'vlan_count': self.vlan_count,
+            'stp_enabled': self.stp_enabled,
+            'lldp_enabled': self.lldp_enabled,
+            'wireless_enabled': self.wireless_enabled,
+            'wireless_standard': self.wireless_standard,
+            'wireless_channels': self.wireless_channels,
+            'cluster_id': self.cluster_id,
+            'tags': self.tags,
+            'notes': self.notes,
+            'location': self.location,
+            'contact_person': self.contact_person,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }

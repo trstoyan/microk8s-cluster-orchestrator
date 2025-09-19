@@ -72,6 +72,41 @@
     </div>
 </div>
 
+<!-- Second row of stats -->
+<div class="row mb-4">
+    <div class="col-md-6 mb-3">
+        <div class="card card-stats" style="border-left-color: #6f42c1;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title text-muted">Router Switches</h5>
+                        <h2 class="mb-0">{{ stats.total_router_switches }}</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-router fs-1 text-purple"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-3">
+        <div class="card card-stats" style="border-left-color: #20c997;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title text-muted">Online Router Switches</h5>
+                        <h2 class="mb-0">{{ stats.online_router_switches }}</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-wifi fs-1 text-teal"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <!-- Clusters Overview -->
     <div class="col-md-6 mb-4">
@@ -200,6 +235,78 @@
             </div>
         </div>
     </div>
+
+    <!-- Router Switches Overview -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Router Switches</h5>
+                <a href="{{ url_for('web.add_router_switch') }}" class="btn btn-primary btn-sm">
+                    <i class="bi bi-plus"></i> Add Router Switch
+                </a>
+            </div>
+            <div class="card-body">
+                {% if router_switches %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Hostname</th>
+                                    <th>Status</th>
+                                    <th>Type</th>
+                                    <th>Health</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for rs in router_switches[:5] %}
+                                <tr>
+                                    <td>{{ rs.hostname }}</td>
+                                    <td>
+                                        {% if rs.status == 'online' %}
+                                            <span class="badge bg-success status-badge">{{ rs.status }}</span>
+                                        {% elif rs.status == 'offline' %}
+                                            <span class="badge bg-danger status-badge">{{ rs.status }}</span>
+                                        {% elif rs.status == 'maintenance' %}
+                                            <span class="badge bg-warning status-badge">{{ rs.status }}</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary status-badge">{{ rs.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ rs.device_type.title() }}</td>
+                                    <td>
+                                        <div class="progress" style="width: 60px; height: 15px;">
+                                            <div class="progress-bar 
+                                                {% if rs.health_score >= 80 %}bg-success
+                                                {% elif rs.health_score >= 60 %}bg-warning
+                                                {% else %}bg-danger{% endif %}" 
+                                                role="progressbar" 
+                                                style="width: {{ rs.health_score }}%"
+                                                aria-valuenow="{{ rs.health_score }}" 
+                                                aria-valuemin="0" 
+                                                aria-valuemax="100">
+                                            </div>
+                                        </div>
+                                        <small>{{ rs.health_score }}%</small>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if router_switches|length > 5 %}
+                        <div class="text-center">
+                            <a href="{{ url_for('web.router_switches') }}" class="btn btn-outline-primary btn-sm">View All Router Switches</a>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center text-muted">
+                        <i class="bi bi-router fs-1"></i>
+                        <p>No router switches found. <a href="{{ url_for('web.add_router_switch') }}">Add your first router switch</a>.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Recent Operations -->
@@ -233,6 +340,8 @@
                                             <i class="bi bi-server"></i> {{ operation.node.hostname }}
                                         {% elif operation.cluster %}
                                             <i class="bi bi-diagram-3"></i> {{ operation.cluster.name }}
+                                        {% elif operation.router_switch %}
+                                            <i class="bi bi-router"></i> {{ operation.router_switch.hostname }}
                                         {% endif %}
                                     </td>
                                     <td>

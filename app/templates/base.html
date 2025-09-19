@@ -53,6 +53,12 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.router_switches' %}active{% endif %}" href="{{ url_for('web.router_switches') }}">
+                                <i class="bi bi-router"></i>
+                                Router Switches
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'web.operations' %}active{% endif %}" href="{{ url_for('web.operations') }}">
                                 <i class="bi bi-list-task"></i>
                                 Operations

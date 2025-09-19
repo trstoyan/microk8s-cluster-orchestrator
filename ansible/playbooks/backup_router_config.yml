@@ -1,0 +1,60 @@
+---
+- name: Backup Router Switch Configuration
+  hosts: router_switches
+  gather_facts: no
+  vars:
+    backup_dir: "{{ playbook_dir }}/../../backups"
+    backup_filename: "backup_{{ inventory_hostname }}_{{ ansible_date_time.epoch }}.rsc"
+  
+  tasks:
+    - name: Ensure backup directory exists
+      local_action:
+        module: file
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+  
+    - name: Create configuration backup on MikroTik device
+      block:
+        - name: Export configuration
+          community.routeros.command:
+            commands:
+              - export file=backup_config
+          register: export_result
+          when: device_type == "mikrotik"
+        
+        - name: Download configuration backup
+          local_action:
+            module: fetch
+            src: "backup_config.rsc"
+            dest: "{{ backup_dir }}/{{ backup_filename }}"
+            flat: yes
+          delegate_to: localhost
+          when: device_type == "mikrotik"
+        
+        - name: Clean up backup file on device
+          community.routeros.command:
+            commands:
+              - file remove [find name="backup_config.rsc"]
+          when: device_type == "mikrotik"
+        
+      rescue:
+        - name: Handle backup failure
+          debug:
+            msg: "Failed to backup configuration for {{ inventory_hostname }}"
+          failed_when: true
+  
+    - name: Update database with backup information
+      local_action:
+        module: uri
+        url: "{{ api_base_url }}/router-switches/{{ node_id }}/update"
+        method: PUT
+        body_format: json
+        body:
+          last_config_backup: "{{ ansible_date_time.iso8601 }}"
+          config_backup_path: "{{ backup_dir }}/{{ backup_filename }}"
+        headers:
+          Content-Type: "application/json"
+      delegate_to: localhost
+      when: node_id is defined
