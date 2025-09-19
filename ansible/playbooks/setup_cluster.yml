@@ -1,0 +1,137 @@
+---
+- name: Setup MicroK8s cluster
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  serial: 1
+  
+  vars:
+    control_plane_nodes: "{{ groups['microk8s_nodes'] | select('match', '.*control.*') | list }}"
+    worker_nodes: "{{ groups['microk8s_nodes'] | difference(control_plane_nodes) | list }}"
+    
+  tasks:
+    - name: Identify control plane node
+      set_fact:
+        is_control_plane: "{{ inventory_hostname == groups['microk8s_nodes'][0] or 'control' in inventory_hostname }}"
+    
+    - name: Wait for MicroK8s to be ready
+      command: microk8s status --wait-ready
+      timeout: 300
+      changed_when: false
+    
+    # Control plane setup
+    - name: Enable HA on control plane (if HA is enabled)
+      command: microk8s enable ha-cluster
+      when: 
+        - is_control_plane
+        - ha_enabled | default(false)
+        - groups['microk8s_nodes'] | length > 1
+      register: ha_result
+      changed_when: "'already enabled' not in ha_result.stdout"
+    
+    - name: Get cluster join token from control plane
+      command: microk8s add-node
+      register: join_token_output
+      when: is_control_plane and groups['microk8s_nodes'] | length > 1
+      changed_when: false
+    
+    - name: Extract join command
+      set_fact:
+        join_command: "{{ join_token_output.stdout_lines | select('match', 'microk8s join.*') | first }}"
+      when: is_control_plane and groups['microk8s_nodes'] | length > 1
+    
+    - name: Store join command for other nodes
+      set_fact:
+        cluster_join_command: "{{ hostvars[groups['microk8s_nodes'][0]]['join_command'] }}"
+      when: not is_control_plane and groups['microk8s_nodes'] | length > 1
+    
+    # Worker nodes join
+    - name: Join worker nodes to cluster
+      command: "{{ cluster_join_command }}"
+      when: 
+        - not is_control_plane
+        - groups['microk8s_nodes'] | length > 1
+        - cluster_join_command is defined
+      register: join_result
+      changed_when: "'already known to dqlite' not in join_result.stderr"
+      failed_when: 
+        - join_result.rc != 0
+        - "'already known to dqlite' not in join_result.stderr"
+    
+    # Enable addons on control plane
+    - name: Enable DNS addon
+      command: microk8s enable dns
+      when: is_control_plane
+      register: dns_result
+      changed_when: "'already enabled' not in dns_result.stdout"
+    
+    - name: Enable storage addon
+      command: microk8s enable storage
+      when: is_control_plane
+      register: storage_result
+      changed_when: "'already enabled' not in storage_result.stdout"
+    
+    - name: Enable ingress addon
+      command: microk8s enable ingress
+      when: is_control_plane
+      register: ingress_result
+      changed_when: "'already enabled' not in ingress_result.stdout"
+    
+    - name: Enable dashboard addon
+      command: microk8s enable dashboard
+      when: is_control_plane
+      register: dashboard_result
+      changed_when: "'already enabled' not in dashboard_result.stdout"
+    
+    - name: Configure network CIDR (if specified)
+      command: "microk8s kubectl patch configmap -n kube-system kube-proxy -p '{\"data\":{\"config.conf\":\"clusterCIDR: {{ network_cidr | default('10.1.0.0/16') }}\"}}}'"
+      when: 
+        - is_control_plane
+        - network_cidr is defined
+      failed_when: false
+      changed_when: false
+    
+    # Wait for cluster to be ready
+    - name: Wait for all nodes to be ready
+      command: microk8s kubectl get nodes
+      register: nodes_status
+      until: 
+        - nodes_status.stdout_lines | length >= groups['microk8s_nodes'] | length + 1
+        - "'NotReady' not in nodes_status.stdout"
+      retries: 30
+      delay: 10
+      when: is_control_plane
+      changed_when: false
+    
+    - name: Get cluster status
+      command: microk8s status
+      register: final_status
+      when: is_control_plane
+      changed_when: false
+    
+    - name: Get cluster nodes
+      command: microk8s kubectl get nodes -o wide
+      register: cluster_nodes
+      when: is_control_plane
+      changed_when: false
+    
+    - name: Display cluster information
+      debug:
+        msg:
+          - "Cluster setup completed!"
+          - "Status: {{ final_status.stdout_lines }}"
+          - "Nodes: {{ cluster_nodes.stdout_lines }}"
+      when: is_control_plane
+    
+    - name: Create kubeconfig for external access
+      command: microk8s config
+      register: kubeconfig_content
+      when: is_control_plane
+      changed_when: false
+    
+    - name: Save kubeconfig to file
+      copy:
+        content: "{{ kubeconfig_content.stdout }}"
+        dest: "/tmp/kubeconfig_{{ cluster_name | default('microk8s') }}"
+        mode: '0600'
+      when: is_control_plane

@@ -1,0 +1,59 @@
+---
+# Default configuration for MicroK8s Cluster Orchestrator
+
+# Database settings
+database:
+  path: "cluster_data.db"
+  echo: false  # Set to true for SQL debugging
+
+# Flask settings
+flask:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+  secret_key: "change-this-in-production"
+
+# Ansible settings
+ansible:
+  config_file: "ansible/ansible.cfg"
+  playbooks_dir: "ansible/playbooks"
+  inventory_dir: "ansible/inventory"
+  timeout: 300
+  
+# MicroK8s settings
+microk8s:
+  default_channel: "1.28/stable"
+  default_addons:
+    - dns
+    - storage
+    - ingress
+  network:
+    cluster_cidr: "10.1.0.0/16"
+    service_cidr: "10.152.183.0/24"
+
+# SSH settings
+ssh:
+  default_user: "ubuntu"
+  default_port: 22
+  connection_timeout: 30
+  key_directory: "~/.ssh"
+
+# Logging settings
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/orchestrator.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# Monitoring settings
+monitoring:
+  health_check_interval: 300  # seconds
+  node_timeout: 60  # seconds
+  cluster_timeout: 120  # seconds
+
+# Security settings
+security:
+  encrypt_sensitive_data: true
+  allowed_hosts: []  # Empty means all hosts allowed
+  max_failed_operations: 5

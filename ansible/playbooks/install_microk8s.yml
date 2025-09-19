@@ -1,0 +1,88 @@
+---
+- name: Install MicroK8s on nodes
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    microk8s_channel: "1.28/stable"
+    
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+    
+    - name: Install snapd
+      package:
+        name: snapd
+        state: present
+    
+    - name: Start and enable snapd service
+      systemd:
+        name: snapd
+        state: started
+        enabled: yes
+    
+    - name: Wait for snapd to be ready
+      command: snap wait system seed.loaded
+      changed_when: false
+    
+    - name: Install MicroK8s snap
+      snap:
+        name: microk8s
+        channel: "{{ microk8s_channel }}"
+        classic: yes
+        state: present
+    
+    - name: Add user to microk8s group
+      user:
+        name: "{{ ansible_user }}"
+        groups: microk8s
+        append: yes
+    
+    - name: Wait for MicroK8s to be ready
+      command: microk8s status --wait-ready
+      timeout: 300
+      changed_when: false
+    
+    - name: Enable basic addons
+      command: "microk8s enable {{ item }}"
+      loop:
+        - dns
+        - storage
+      register: addon_result
+      changed_when: "'already enabled' not in addon_result.stdout"
+    
+    - name: Get MicroK8s status
+      command: microk8s status
+      register: microk8s_status
+      changed_when: false
+    
+    - name: Display MicroK8s status
+      debug:
+        var: microk8s_status.stdout_lines
+    
+    - name: Get system information
+      setup:
+        gather_subset:
+          - hardware
+          - network
+          - virtual
+    
+    - name: Store node information
+      set_fact:
+        node_info:
+          hostname: "{{ ansible_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          os_version: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          kernel_version: "{{ ansible_kernel }}"
+          cpu_cores: "{{ ansible_processor_vcpus }}"
+          memory_gb: "{{ (ansible_memtotal_mb / 1024) | round(2) }}"
+          disk_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first / 1024 / 1024 / 1024) | round(2) }}"
+          microk8s_version: "{{ microk8s_status.stdout | regex_search('microk8s is running.*') }}"
+    
+    - name: Display collected node information
+      debug:
+        var: node_info

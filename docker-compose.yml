@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  orchestrator:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./cluster_data.db:/app/cluster_data.db
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ~/.ssh:/root/.ssh:ro
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_PATH=/app/cluster_data.db
+      - ORCHESTRATOR_CONFIG=/app/config/production.yml
+    restart: unless-stopped
+    
+  # Optional: Add a monitoring service
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #     - '--web.console.libraries=/etc/prometheus/console_libraries'
+  #     - '--web.console.templates=/etc/prometheus/consoles'

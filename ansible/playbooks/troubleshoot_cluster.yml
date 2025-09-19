@@ -1,0 +1,130 @@
+---
+- name: Troubleshoot MicroK8s cluster issues
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Check MicroK8s service status
+      systemd:
+        name: "{{ item }}"
+      register: service_status
+      loop:
+        - snap.microk8s.daemon-cluster-agent
+        - snap.microk8s.daemon-containerd
+        - snap.microk8s.daemon-kubelite
+      failed_when: false
+    
+    - name: Display service status
+      debug:
+        msg: "Service {{ item.item }} is {{ item.status.ActiveState }}"
+      loop: "{{ service_status.results }}"
+    
+    - name: Check MicroK8s logs
+      command: "journalctl -u {{ item }} --no-pager -n 50"
+      register: service_logs
+      loop:
+        - snap.microk8s.daemon-cluster-agent
+        - snap.microk8s.daemon-containerd
+        - snap.microk8s.daemon-kubelite
+      failed_when: false
+      changed_when: false
+    
+    - name: Check disk space
+      command: df -h
+      register: disk_space
+      changed_when: false
+    
+    - name: Check memory usage
+      command: free -h
+      register: memory_usage
+      changed_when: false
+    
+    - name: Check network interfaces
+      command: ip addr show
+      register: network_interfaces
+      changed_when: false
+    
+    - name: Check iptables rules
+      command: iptables -L -n
+      register: iptables_rules
+      failed_when: false
+      changed_when: false
+    
+    - name: Test DNS resolution
+      command: nslookup kubernetes.default.svc.cluster.local
+      register: dns_test
+      failed_when: false
+      changed_when: false
+    
+    - name: Check pod status in all namespaces
+      command: microk8s kubectl get pods --all-namespaces
+      register: all_pods
+      failed_when: false
+      changed_when: false
+    
+    - name: Check events for errors
+      command: microk8s kubectl get events --all-namespaces --sort-by='.lastTimestamp'
+      register: cluster_events
+      failed_when: false
+      changed_when: false
+    
+    - name: Check node conditions
+      command: microk8s kubectl describe nodes
+      register: node_conditions
+      failed_when: false
+      changed_when: false
+    
+    - name: Generate troubleshooting report
+      set_fact:
+        troubleshoot_report:
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ ansible_hostname }}"
+          services_status: "{{ service_status.results | map(attribute='status') | map(attribute='ActiveState') | list }}"
+          disk_space: "{{ disk_space.stdout_lines }}"
+          memory_usage: "{{ memory_usage.stdout_lines }}"
+          dns_working: "{{ dns_test.rc == 0 }}"
+          pods_count: "{{ all_pods.stdout_lines | length - 1 if all_pods.rc == 0 else 0 }}"
+          error_events: "{{ cluster_events.stdout_lines | select('search', 'Error|Failed|Warning') | list if cluster_events.rc == 0 else [] }}"
+    
+    - name: Display troubleshooting summary
+      debug:
+        var: troubleshoot_report
+    
+    - name: Save detailed troubleshooting report
+      copy:
+        content: |
+          # MicroK8s Troubleshooting Report - {{ ansible_hostname }}
+          Generated: {{ ansible_date_time.iso8601 }}
+          
+          ## Service Status
+          {% for result in service_status.results %}
+          {{ result.item }}: {{ result.status.ActiveState }}
+          {% endfor %}
+          
+          ## Disk Space
+          {{ disk_space.stdout }}
+          
+          ## Memory Usage
+          {{ memory_usage.stdout }}
+          
+          ## Network Interfaces
+          {{ network_interfaces.stdout }}
+          
+          ## All Pods
+          {{ all_pods.stdout if all_pods.rc == 0 else 'Failed to get pods' }}
+          
+          ## Recent Events
+          {{ cluster_events.stdout if cluster_events.rc == 0 else 'Failed to get events' }}
+          
+          ## Node Details
+          {{ node_conditions.stdout if node_conditions.rc == 0 else 'Failed to get node details' }}
+          
+          ## Service Logs
+          {% for log in service_logs.results %}
+          ### {{ log.item }}
+          {{ log.stdout if log.rc == 0 else 'Failed to get logs' }}
+          
+          {% endfor %}
+        dest: "/tmp/troubleshoot_{{ ansible_hostname }}_{{ ansible_date_time.epoch }}.txt"
+        mode: '0644'

@@ -1,0 +1,88 @@
+---
+- name: Check MicroK8s node status and health
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Check if MicroK8s is installed
+      command: which microk8s
+      register: microk8s_installed
+      failed_when: false
+      changed_when: false
+    
+    - name: Get MicroK8s status
+      command: microk8s status
+      register: microk8s_status
+      failed_when: false
+      changed_when: false
+      when: microk8s_installed.rc == 0
+    
+    - name: Check MicroK8s service status
+      systemd:
+        name: snap.microk8s.daemon-cluster-agent
+      register: service_status
+      failed_when: false
+      when: microk8s_installed.rc == 0
+    
+    - name: Get node resources
+      command: microk8s kubectl top node
+      register: node_resources
+      failed_when: false
+      changed_when: false
+      when: microk8s_installed.rc == 0 and microk8s_status.rc == 0
+    
+    - name: Get running pods
+      command: microk8s kubectl get pods --all-namespaces
+      register: running_pods
+      failed_when: false
+      changed_when: false
+      when: microk8s_installed.rc == 0 and microk8s_status.rc == 0
+    
+    - name: Check disk usage
+      command: df -h /
+      register: disk_usage
+      changed_when: false
+    
+    - name: Check memory usage
+      command: free -h
+      register: memory_usage
+      changed_when: false
+    
+    - name: Check system load
+      command: uptime
+      register: system_load
+      changed_when: false
+    
+    - name: Check network connectivity
+      command: ping -c 3 8.8.8.8
+      register: network_check
+      failed_when: false
+      changed_when: false
+    
+    - name: Compile health report
+      set_fact:
+        health_report:
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ ansible_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          microk8s_installed: "{{ microk8s_installed.rc == 0 }}"
+          microk8s_running: "{{ microk8s_status.rc == 0 if microk8s_installed.rc == 0 else false }}"
+          microk8s_status: "{{ microk8s_status.stdout if microk8s_installed.rc == 0 else 'Not installed' }}"
+          service_active: "{{ service_status.status.ActiveState == 'active' if microk8s_installed.rc == 0 else false }}"
+          disk_usage: "{{ disk_usage.stdout }}"
+          memory_usage: "{{ memory_usage.stdout }}"
+          system_load: "{{ system_load.stdout }}"
+          network_ok: "{{ network_check.rc == 0 }}"
+          node_resources: "{{ node_resources.stdout if node_resources is defined and node_resources.rc == 0 else 'N/A' }}"
+          pod_count: "{{ running_pods.stdout_lines | length - 1 if running_pods is defined and running_pods.rc == 0 else 0 }}"
+    
+    - name: Display health report
+      debug:
+        var: health_report
+    
+    - name: Write health report to file
+      copy:
+        content: "{{ health_report | to_nice_json }}"
+        dest: "/tmp/microk8s_health_{{ ansible_hostname }}.json"
+        mode: '0644'
