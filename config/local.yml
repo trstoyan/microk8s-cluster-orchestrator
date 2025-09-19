@@ -1,0 +1,41 @@
+ansible:
+  config_file: ansible/ansible.cfg
+  inventory_dir: ansible/inventory
+  playbooks_dir: ansible/playbooks
+  timeout: 300
+database:
+  echo: false
+  path: cluster_data.db
+flask:
+  debug: false
+  host: 0.0.0.0
+  port: 5000
+  secret_key: change-this-in-production
+logging:
+  backup_count: 5
+  file: logs/orchestrator.log
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+  max_size: 10MB
+microk8s:
+  default_addons:
+  - dns
+  - storage
+  - ingress
+  default_channel: 1.28/stable
+  network:
+    cluster_cidr: 10.1.0.0/16
+    service_cidr: 10.152.183.0/24
+monitoring:
+  cluster_timeout: 120
+  health_check_interval: 300
+  node_timeout: 60
+security:
+  allowed_hosts: []
+  encrypt_sensitive_data: true
+  max_failed_operations: 5
+ssh:
+  connection_timeout: 30
+  default_port: 22
+  default_user: ubuntu
+  key_directory: ~/.ssh

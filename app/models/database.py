@@ -6,10 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# Database instance
+# Database instance for Flask
 db = SQLAlchemy()
 
-# Base model class
+# Base model class for standalone usage
 Base = declarative_base()
 
 # Database configuration
@@ -24,10 +24,14 @@ def init_database(app=None):
         db.init_app(app)
         
         with app.app_context():
+            # Import models to register them with Flask-SQLAlchemy
+            from . import node, cluster, operation, configuration
             db.create_all()
     else:
         # For standalone usage
         engine = create_engine(DATABASE_URL)
+        # Import models to register them with SQLAlchemy Base
+        from . import node, cluster, operation, configuration
         Base.metadata.create_all(engine)
         return sessionmaker(bind=engine)
 

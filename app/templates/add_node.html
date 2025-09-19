@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Add Node - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}Add Node{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Add New Node</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="hostname" class="form-label">Hostname *</label>
+                            <input type="text" class="form-control" id="hostname" name="hostname" required
+                                   placeholder="e.g., node1">
+                            <div class="form-text">Unique hostname for the node</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="ip_address" class="form-label">IP Address *</label>
+                            <input type="text" class="form-control" id="ip_address" name="ip_address" required
+                                   placeholder="e.g., 192.168.1.10">
+                            <div class="form-text">IP address or FQDN for SSH connection</div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="ssh_user" class="form-label">SSH User</label>
+                            <input type="text" class="form-control" id="ssh_user" name="ssh_user" 
+                                   value="ubuntu" placeholder="ubuntu">
+                            <div class="form-text">SSH username (default: ubuntu)</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="ssh_port" class="form-label">SSH Port</label>
+                            <input type="number" class="form-control" id="ssh_port" name="ssh_port" 
+                                   value="22" min="1" max="65535">
+                            <div class="form-text">SSH port (default: 22)</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="ssh_key_path" class="form-label">SSH Private Key Path</label>
+                        <input type="text" class="form-control" id="ssh_key_path" name="ssh_key_path"
+                               placeholder="e.g., ~/.ssh/id_rsa">
+                        <div class="form-text">Path to SSH private key file (optional if using SSH agent)</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="cluster_id" class="form-label">Assign to Cluster</label>
+                        <select class="form-select" id="cluster_id" name="cluster_id">
+                            <option value="">No cluster (assign later)</option>
+                            {% for cluster in clusters %}
+                                <option value="{{ cluster.id }}">{{ cluster.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">You can assign the node to a cluster later</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="3"
+                                  placeholder="Optional notes about this node..."></textarea>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('web.nodes') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Back to Nodes
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus"></i> Add Node
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Help Card -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> Prerequisites</h6>
+            </div>
+            <div class="card-body">
+                <p class="mb-2">Before adding a node, ensure:</p>
+                <ul class="mb-0">
+                    <li>The target machine is running Ubuntu 20.04+ or similar Linux distribution</li>
+                    <li>SSH access is configured with key-based authentication</li>
+                    <li>The SSH user has sudo privileges without password prompt</li>
+                    <li>The machine has internet connectivity for downloading packages</li>
+                    <li>Ports 22 (SSH), 16443 (Kubernetes API), and 10250-10259 (Kubelet) are accessible</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('hostname').addEventListener('input', function() {
+    // Auto-suggest IP based on hostname pattern
+    const hostname = this.value;
+    const ipInput = document.getElementById('ip_address');
+    
+    if (hostname && !ipInput.value) {
+        // Simple pattern matching for common naming conventions
+        const match = hostname.match(/(\d+)$/);
+        if (match) {
+            const nodeNumber = match[1];
+            ipInput.placeholder = `e.g., 192.168.1.${nodeNumber}`;
+        }
+    }
+});
+</script>
+{% endblock %}

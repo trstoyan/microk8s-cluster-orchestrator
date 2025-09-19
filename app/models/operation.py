@@ -5,7 +5,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Bool
 from sqlalchemy.orm import relationship
 from .database import Base, db
 
-class Operation(Base if not hasattr(db, 'Model') else db.Model):
+class Operation(Base):
     """Represents an operation performed on nodes or clusters."""
     
     __tablename__ = 'operations'

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Create Cluster - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}Create Cluster{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Create New Cluster</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Cluster Name *</label>
+                        <input type="text" class="form-control" id="name" name="name" required
+                               placeholder="e.g., production, development">
+                        <div class="form-text">Unique name for the cluster</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3"
+                                  placeholder="Optional description of the cluster..."></textarea>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="network_cidr" class="form-label">Network CIDR</label>
+                            <input type="text" class="form-control" id="network_cidr" name="network_cidr" 
+                                   value="10.1.0.0/16" placeholder="10.1.0.0/16">
+                            <div class="form-text">Pod network CIDR block</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="service_cidr" class="form-label">Service CIDR</label>
+                            <input type="text" class="form-control" id="service_cidr" name="service_cidr" 
+                                   value="10.152.183.0/24" placeholder="10.152.183.0/24">
+                            <div class="form-text">Service network CIDR block</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="ha_enabled" name="ha_enabled">
+                            <label class="form-check-label" for="ha_enabled">
+                                <strong>Enable High Availability (HA)</strong>
+                            </label>
+                            <div class="form-text">
+                                Requires at least 3 nodes for proper HA setup. 
+                                Provides cluster resilience and automatic failover.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('web.clusters') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Back to Clusters
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus"></i> Create Cluster
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Help Cards -->
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-info-circle"></i> Network Configuration</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-2"><strong>Network CIDR:</strong> Defines the IP range for pods in the cluster.</p>
+                        <p class="mb-2"><strong>Service CIDR:</strong> Defines the IP range for services in the cluster.</p>
+                        <p class="mb-0">Ensure these ranges don't conflict with your existing network infrastructure.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-shield-check"></i> High Availability</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-2"><strong>HA Mode:</strong> Provides cluster resilience with multiple control plane nodes.</p>
+                        <p class="mb-2"><strong>Requirements:</strong> Minimum 3 nodes for proper HA setup.</p>
+                        <p class="mb-0"><strong>Benefits:</strong> Automatic failover and increased cluster reliability.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-list-check"></i> Next Steps</h6>
+            </div>
+            <div class="card-body">
+                <p class="mb-2">After creating the cluster:</p>
+                <ol class="mb-0">
+                    <li>Add nodes to the cluster</li>
+                    <li>Install MicroK8s on each node</li>
+                    <li>Run the cluster setup to join nodes together</li>
+                    <li>Enable additional addons as needed</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('name').addEventListener('input', function() {
+    // Auto-generate network CIDRs based on cluster name
+    const name = this.value.toLowerCase();
+    const networkInput = document.getElementById('network_cidr');
+    const serviceInput = document.getElementById('service_cidr');
+    
+    if (name && networkInput.value === '10.1.0.0/16') {
+        // Simple hash to generate different network ranges
+        let hash = 0;
+        for (let i = 0; i < name.length; i++) {
+            hash = ((hash << 5) - hash + name.charCodeAt(i)) & 0xffffffff;
+        }
+        
+        const networkOctet = 1 + (Math.abs(hash) % 254); // 1-254
+        const serviceOctet = 1 + (Math.abs(hash >> 8) % 254); // 1-254
+        
+        networkInput.value = `10.${networkOctet}.0.0/16`;
+        serviceInput.value = `10.152.${serviceOctet}.0/24`;
+    }
+});
+</script>
+{% endblock %}

@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
 from .database import Base, db
 
-class Configuration(Base if not hasattr(db, 'Model') else db.Model):
+class Configuration(Base):
     """Represents configuration settings for the orchestrator and clusters."""
     
     __tablename__ = 'configurations'

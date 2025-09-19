@@ -5,7 +5,14 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Foreign
 from sqlalchemy.orm import relationship
 from .database import Base, db
 
-class Node(Base if not hasattr(db, 'Model') else db.Model):
+try:
+    # Check if we're in a Flask context
+    from flask import has_app_context
+    use_flask = has_app_context()
+except:
+    use_flask = False
+
+class Node(Base):
     """Represents a single node in the cluster."""
     
     __tablename__ = 'nodes'

@@ -3,9 +3,7 @@
 from flask import Blueprint, request, jsonify
 from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
-from ..models.node import Node
-from ..models.cluster import Cluster
-from ..models.operation import Operation
+from ..models.flask_models import Node, Cluster, Operation
 from ..services.orchestrator import OrchestrationService
 
 bp = Blueprint('api', __name__)

@@ -5,7 +5,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from .database import Base, db
 
-class Cluster(Base if not hasattr(db, 'Model') else db.Model):
+class Cluster(Base):
     """Represents a MicroK8s cluster."""
     
     __tablename__ = 'clusters'

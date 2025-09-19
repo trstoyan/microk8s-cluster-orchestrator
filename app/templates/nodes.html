@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Nodes - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}Nodes{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <p class="text-muted">Manage your cluster nodes</p>
+    </div>
+    <a href="{{ url_for('web.add_node') }}" class="btn btn-primary">
+        <i class="bi bi-plus"></i> Add Node
+    </a>
+</div>
+
+{% if nodes %}
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Hostname</th>
+                            <th>IP Address</th>
+                            <th>Status</th>
+                            <th>MicroK8s Status</th>
+                            <th>Cluster</th>
+                            <th>Control Plane</th>
+                            <th>Last Seen</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for node in nodes %}
+                        <tr>
+                            <td>{{ node.id }}</td>
+                            <td>
+                                <strong>{{ node.hostname }}</strong>
+                                {% if node.notes %}
+                                    <br><small class="text-muted">{{ node.notes[:50] }}{% if node.notes|length > 50 %}...{% endif %}</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ node.ip_address }}</td>
+                            <td>
+                                {% if node.status == 'online' %}
+                                    <span class="badge bg-success">{{ node.status }}</span>
+                                {% elif node.status == 'offline' %}
+                                    <span class="badge bg-danger">{{ node.status }}</span>
+                                {% elif node.status == 'error' %}
+                                    <span class="badge bg-danger">{{ node.status }}</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ node.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if node.microk8s_status == 'running' %}
+                                    <span class="badge bg-success">{{ node.microk8s_status }}</span>
+                                {% elif node.microk8s_status == 'installed' %}
+                                    <span class="badge bg-info">{{ node.microk8s_status }}</span>
+                                {% elif node.microk8s_status == 'not_installed' %}
+                                    <span class="badge bg-secondary">not installed</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ node.microk8s_status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if node.cluster %}
+                                    <a href="{{ url_for('web.clusters') }}" class="text-decoration-none">{{ node.cluster.name }}</a>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if node.is_control_plane %}
+                                    <i class="bi bi-check-circle text-success" title="Control Plane"></i>
+                                {% else %}
+                                    <i class="bi bi-dash-circle text-muted" title="Worker Node"></i>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if node.last_seen %}
+                                    {{ node.last_seen.strftime('%Y-%m-%d %H:%M') }}
+                                {% else %}
+                                    <span class="text-muted">Never</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+                                        Actions
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="#" onclick="checkStatus({{ node.id }})">
+                                            <i class="bi bi-arrow-clockwise"></i> Check Status
+                                        </a></li>
+                                        {% if node.microk8s_status == 'not_installed' %}
+                                        <li><a class="dropdown-item" href="#" onclick="installMicroK8s({{ node.id }})">
+                                            <i class="bi bi-download"></i> Install MicroK8s
+                                        </a></li>
+                                        {% endif %}
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-danger" href="#" onclick="deleteNode({{ node.id }}, '{{ node.hostname }}')">
+                                            <i class="bi bi-trash"></i> Delete
+                                        </a></li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% else %}
+    <div class="card">
+        <div class="card-body text-center">
+            <i class="bi bi-server fs-1 text-muted"></i>
+            <h4 class="mt-3">No Nodes Found</h4>
+            <p class="text-muted">Get started by adding your first node to the cluster.</p>
+            <a href="{{ url_for('web.add_node') }}" class="btn btn-primary">
+                <i class="bi bi-plus"></i> Add Your First Node
+            </a>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function checkStatus(nodeId) {
+    if (confirm('Check the status of this node?')) {
+        fetch(`/api/nodes/${nodeId}/check-status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Status check started. Check the operations page for results.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting status check: ' + error);
+        });
+    }
+}
+
+function installMicroK8s(nodeId) {
+    if (confirm('Install MicroK8s on this node? This may take several minutes.')) {
+        fetch(`/api/nodes/${nodeId}/install-microk8s`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('MicroK8s installation started. Check the operations page for progress.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting installation: ' + error);
+        });
+    }
+}
+
+function deleteNode(nodeId, hostname) {
+    if (confirm(`Are you sure you want to delete node '${hostname}'? This action cannot be undone.`)) {
+        fetch(`/api/nodes/${nodeId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (response.ok) {
+                alert('Node deleted successfully.');
+                location.reload();
+            } else {
+                alert('Error deleting node.');
+            }
+        })
+        .catch(error => {
+            alert('Error deleting node: ' + error);
+        });
+    }
+}
+</script>
+{% endblock %}

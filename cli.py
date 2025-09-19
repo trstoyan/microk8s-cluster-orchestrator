@@ -20,7 +20,7 @@ from app.models.database import get_session, init_database
 from app.models.node import Node
 from app.models.cluster import Cluster
 from app.models.operation import Operation
-from app.services.orchestrator import OrchestrationService
+from app.services.cli_orchestrator import CLIOrchestrationService
 from app.utils.config import config
 
 # Initialize colorama for colored output
@@ -181,7 +181,7 @@ def remove_node(node_id, force):
 def check_node_status(node_id):
     """Check node status."""
     session = get_session()
-    orchestrator = OrchestrationService()
+    orchestrator = CLIOrchestrationService()
     
     try:
         node = session.query(Node).filter_by(id=node_id).first()
@@ -206,7 +206,7 @@ def check_node_status(node_id):
 def install_microk8s(node_id):
     """Install MicroK8s on a node."""
     session = get_session()
-    orchestrator = OrchestrationService()
+    orchestrator = CLIOrchestrationService()
     
     try:
         node = session.query(Node).filter_by(id=node_id).first()
@@ -309,7 +309,7 @@ def add_cluster(name, description, ha, network_cidr, service_cidr):
 def setup_cluster(cluster_id):
     """Setup a cluster."""
     session = get_session()
-    orchestrator = OrchestrationService()
+    orchestrator = CLIOrchestrationService()
     
     try:
         cluster = session.query(Cluster).filter_by(id=cluster_id).first()
@@ -455,10 +455,18 @@ def init_system(force):
             os.makedirs(directory, exist_ok=True)
             print_success(f"Created directory: {directory}")
         
-        # Initialize database
+        # Initialize database using the proper script
+        import subprocess
+        script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'init_db.py')
         if force or not os.path.exists(config.get('database.path', 'cluster_data.db')):
-            init_database()
-            print_success("Database initialized.")
+            cmd = [sys.executable, script_path]
+            if force:
+                cmd.append('--force')
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                print_success("Database initialized.")
+            else:
+                print_error(f"Database initialization failed: {result.stderr}")
         else:
             print_warning("Database already exists. Use --force to reinitialize.")
         

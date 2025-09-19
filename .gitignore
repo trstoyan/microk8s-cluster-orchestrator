@@ -70,3 +70,4 @@ Thumbs.db
 # Backup files
 *.bak
 *.backup
+ansible/inventory/dynamic_inventory.ini

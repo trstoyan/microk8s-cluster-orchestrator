@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}Operation {{ operation.id }} - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}Operation Details{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{{ url_for('web.operations') }}">Operations</a></li>
+            <li class="breadcrumb-item active">{{ operation.id }}</li>
+        </ol>
+    </nav>
+    <a href="{{ url_for('web.operations') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back to Operations
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <!-- Operation Information -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">{{ operation.operation_name }}</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Basic Information</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>ID:</strong></td>
+                                <td>{{ operation.id }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Type:</strong></td>
+                                <td><span class="badge bg-secondary">{{ operation.operation_type }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td>
+                                    {% if operation.status == 'completed' %}
+                                        <span class="badge bg-success">{{ operation.status }}</span>
+                                    {% elif operation.status == 'failed' %}
+                                        <span class="badge bg-danger">{{ operation.status }}</span>
+                                    {% elif operation.status == 'running' %}
+                                        <span class="badge bg-primary">
+                                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                            {{ operation.status }}
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-warning">{{ operation.status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Success:</strong></td>
+                                <td>
+                                    {% if operation.success == True %}
+                                        <i class="bi bi-check-circle text-success"></i> Yes
+                                    {% elif operation.success == False %}
+                                        <i class="bi bi-x-circle text-danger"></i> No
+                                    {% else %}
+                                        <i class="bi bi-dash-circle text-muted"></i> Pending
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Created By:</strong></td>
+                                <td>{{ operation.created_by or 'System' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Timing Information</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Created:</strong></td>
+                                <td>{{ operation.created_at.strftime('%Y-%m-%d %H:%M:%S') if operation.created_at else '-' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Started:</strong></td>
+                                <td>{{ operation.started_at.strftime('%Y-%m-%d %H:%M:%S') if operation.started_at else 'Not started' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Completed:</strong></td>
+                                <td>{{ operation.completed_at.strftime('%Y-%m-%d %H:%M:%S') if operation.completed_at else 'Not completed' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Duration:</strong></td>
+                                <td>
+                                    {% if operation.duration %}
+                                        {{ "%.2f"|format(operation.duration) }} seconds
+                                    {% elif operation.started_at and not operation.completed_at %}
+                                        <span class="text-primary">Running...</span>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                {% if operation.description %}
+                <div class="mt-3">
+                    <h6>Description</h6>
+                    <p class="text-muted">{{ operation.description }}</p>
+                </div>
+                {% endif %}
+
+                {% if operation.playbook_path %}
+                <div class="mt-3">
+                    <h6>Playbook</h6>
+                    <code>{{ operation.playbook_path }}</code>
+                </div>
+                {% endif %}
+
+                {% if operation.ansible_extra_vars %}
+                <div class="mt-3">
+                    <h6>Extra Variables</h6>
+                    <pre class="bg-light p-2 rounded"><code>{{ operation.ansible_extra_vars }}</code></pre>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Output Section -->
+        {% if operation.output %}
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Output</h6>
+                <button class="btn btn-outline-secondary btn-sm" onclick="toggleOutput()">
+                    <i class="bi bi-arrows-expand" id="toggleIcon"></i> <span id="toggleText">Expand</span>
+                </button>
+            </div>
+            <div class="card-body">
+                <pre id="operationOutput" class="bg-dark text-light p-3 rounded" style="max-height: 300px; overflow-y: auto;"><code>{{ operation.output }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Error Section -->
+        {% if operation.error_message %}
+        <div class="card mt-4 border-danger">
+            <div class="card-header bg-danger text-white">
+                <h6 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Error Details</h6>
+            </div>
+            <div class="card-body">
+                <pre class="text-danger"><code>{{ operation.error_message }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-md-4">
+        <!-- Target Information -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">Target</h6>
+            </div>
+            <div class="card-body">
+                {% if operation.node %}
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-server fs-3 text-primary me-3"></i>
+                        <div>
+                            <h6 class="mb-0">{{ operation.node.hostname }}</h6>
+                            <small class="text-muted">Node</small>
+                        </div>
+                    </div>
+                    <table class="table table-sm">
+                        <tr>
+                            <td><strong>IP Address:</strong></td>
+                            <td>{{ operation.node.ip_address }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>SSH User:</strong></td>
+                            <td>{{ operation.node.ssh_user }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Status:</strong></td>
+                            <td>
+                                {% if operation.node.status == 'online' %}
+                                    <span class="badge bg-success">{{ operation.node.status }}</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ operation.node.status }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>MicroK8s:</strong></td>
+                            <td>
+                                {% if operation.node.microk8s_status == 'running' %}
+                                    <span class="badge bg-success">{{ operation.node.microk8s_status }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ operation.node.microk8s_status }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                {% elif operation.cluster %}
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="bi bi-diagram-3 fs-3 text-success me-3"></i>
+                        <div>
+                            <h6 class="mb-0">{{ operation.cluster.name }}</h6>
+                            <small class="text-muted">Cluster</small>
+                        </div>
+                    </div>
+                    <table class="table table-sm">
+                        <tr>
+                            <td><strong>Status:</strong></td>
+                            <td>
+                                {% if operation.cluster.status == 'active' %}
+                                    <span class="badge bg-success">{{ operation.cluster.status }}</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ operation.cluster.status }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><strong>Nodes:</strong></td>
+                            <td>{{ operation.cluster.node_count }}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>HA Enabled:</strong></td>
+                            <td>
+                                {% if operation.cluster.ha_enabled %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% else %}
+                                    <i class="bi bi-x-circle text-muted"></i>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0">Quick Actions</h6>
+            </div>
+            <div class="card-body">
+                {% if operation.status == 'running' %}
+                    <button class="btn btn-warning btn-sm w-100 mb-2" disabled>
+                        <i class="bi bi-stop-circle"></i> Cancel Operation
+                        <br><small>Not implemented</small>
+                    </button>
+                {% endif %}
+                
+                {% if operation.node %}
+                    <a href="{{ url_for('web.nodes') }}" class="btn btn-outline-primary btn-sm w-100 mb-2">
+                        <i class="bi bi-server"></i> View Node
+                    </a>
+                {% elif operation.cluster %}
+                    <a href="{{ url_for('web.clusters') }}" class="btn btn-outline-primary btn-sm w-100 mb-2">
+                        <i class="bi bi-diagram-3"></i> View Cluster
+                    </a>
+                {% endif %}
+                
+                <button class="btn btn-outline-secondary btn-sm w-100" onclick="location.reload()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleOutput() {
+    const output = document.getElementById('operationOutput');
+    const icon = document.getElementById('toggleIcon');
+    const text = document.getElementById('toggleText');
+    
+    if (output.style.maxHeight === '300px') {
+        output.style.maxHeight = 'none';
+        icon.className = 'bi bi-arrows-collapse';
+        text.textContent = 'Collapse';
+    } else {
+        output.style.maxHeight = '300px';
+        icon.className = 'bi bi-arrows-expand';
+        text.textContent = 'Expand';
+    }
+}
+
+// Auto-refresh if operation is running
+{% if operation.status == 'running' %}
+setTimeout(function() {
+    location.reload();
+}, 5000);
+{% endif %}
+</script>
+{% endblock %}

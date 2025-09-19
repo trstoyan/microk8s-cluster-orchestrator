@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Stats Cards -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card card-stats">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title text-muted">Total Clusters</h5>
+                        <h2 class="mb-0">{{ stats.total_clusters }}</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-diagram-3 fs-1 text-primary"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card card-stats" style="border-left-color: #28a745;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title text-muted">Total Nodes</h5>
+                        <h2 class="mb-0">{{ stats.total_nodes }}</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-server fs-1 text-success"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card card-stats" style="border-left-color: #17a2b8;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title text-muted">Online Nodes</h5>
+                        <h2 class="mb-0">{{ stats.online_nodes }}</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-check-circle fs-1 text-info"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
+        <div class="card card-stats" style="border-left-color: #ffc107;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title text-muted">Recent Operations</h5>
+                        <h2 class="mb-0">{{ stats.recent_operations }}</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-list-task fs-1 text-warning"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Clusters Overview -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Clusters</h5>
+                <a href="{{ url_for('web.add_cluster') }}" class="btn btn-primary btn-sm">
+                    <i class="bi bi-plus"></i> Add Cluster
+                </a>
+            </div>
+            <div class="card-body">
+                {% if clusters %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Status</th>
+                                    <th>Nodes</th>
+                                    <th>HA</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cluster in clusters[:5] %}
+                                <tr>
+                                    <td>{{ cluster.name }}</td>
+                                    <td>
+                                        {% if cluster.status == 'active' %}
+                                            <span class="badge bg-success status-badge">{{ cluster.status }}</span>
+                                        {% elif cluster.status == 'error' %}
+                                            <span class="badge bg-danger status-badge">{{ cluster.status }}</span>
+                                        {% else %}
+                                            <span class="badge bg-warning status-badge">{{ cluster.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ cluster.node_count }}</td>
+                                    <td>
+                                        {% if cluster.ha_enabled %}
+                                            <i class="bi bi-check-circle text-success"></i>
+                                        {% else %}
+                                            <i class="bi bi-x-circle text-muted"></i>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if clusters|length > 5 %}
+                        <div class="text-center">
+                            <a href="{{ url_for('web.clusters') }}" class="btn btn-outline-primary btn-sm">View All Clusters</a>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center text-muted">
+                        <i class="bi bi-diagram-3 fs-1"></i>
+                        <p>No clusters found. <a href="{{ url_for('web.add_cluster') }}">Create your first cluster</a>.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Nodes Overview -->
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Nodes</h5>
+                <a href="{{ url_for('web.add_node') }}" class="btn btn-primary btn-sm">
+                    <i class="bi bi-plus"></i> Add Node
+                </a>
+            </div>
+            <div class="card-body">
+                {% if nodes %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Hostname</th>
+                                    <th>Status</th>
+                                    <th>MicroK8s</th>
+                                    <th>Cluster</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for node in nodes[:5] %}
+                                <tr>
+                                    <td>{{ node.hostname }}</td>
+                                    <td>
+                                        {% if node.status == 'online' %}
+                                            <span class="badge bg-success status-badge">{{ node.status }}</span>
+                                        {% elif node.status == 'offline' %}
+                                            <span class="badge bg-danger status-badge">{{ node.status }}</span>
+                                        {% else %}
+                                            <span class="badge bg-warning status-badge">{{ node.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if node.microk8s_status == 'running' %}
+                                            <span class="badge bg-success status-badge">{{ node.microk8s_status }}</span>
+                                        {% elif node.microk8s_status == 'installed' %}
+                                            <span class="badge bg-info status-badge">{{ node.microk8s_status }}</span>
+                                        {% elif node.microk8s_status == 'not_installed' %}
+                                            <span class="badge bg-secondary status-badge">not installed</span>
+                                        {% else %}
+                                            <span class="badge bg-warning status-badge">{{ node.microk8s_status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ node.cluster.name if node.cluster else '-' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if nodes|length > 5 %}
+                        <div class="text-center">
+                            <a href="{{ url_for('web.nodes') }}" class="btn btn-outline-primary btn-sm">View All Nodes</a>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center text-muted">
+                        <i class="bi bi-server fs-1"></i>
+                        <p>No nodes found. <a href="{{ url_for('web.add_node') }}">Add your first node</a>.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Operations -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Recent Operations</h5>
+                <a href="{{ url_for('web.operations') }}" class="btn btn-outline-primary btn-sm">View All</a>
+            </div>
+            <div class="card-body">
+                {% if recent_operations %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Operation</th>
+                                    <th>Target</th>
+                                    <th>Status</th>
+                                    <th>Success</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for operation in recent_operations %}
+                                <tr>
+                                    <td>{{ operation.operation_name }}</td>
+                                    <td>
+                                        {% if operation.node %}
+                                            <i class="bi bi-server"></i> {{ operation.node.hostname }}
+                                        {% elif operation.cluster %}
+                                            <i class="bi bi-diagram-3"></i> {{ operation.cluster.name }}
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if operation.status == 'completed' %}
+                                            <span class="badge bg-success status-badge">{{ operation.status }}</span>
+                                        {% elif operation.status == 'failed' %}
+                                            <span class="badge bg-danger status-badge">{{ operation.status }}</span>
+                                        {% elif operation.status == 'running' %}
+                                            <span class="badge bg-primary status-badge">{{ operation.status }}</span>
+                                        {% else %}
+                                            <span class="badge bg-warning status-badge">{{ operation.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if operation.success == True %}
+                                            <i class="bi bi-check-circle text-success"></i>
+                                        {% elif operation.success == False %}
+                                            <i class="bi bi-x-circle text-danger"></i>
+                                        {% else %}
+                                            <i class="bi bi-dash-circle text-muted"></i>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ operation.created_at.strftime('%Y-%m-%d %H:%M') if operation.created_at else '-' }}</td>
+                                    <td>
+                                        <a href="{{ url_for('web.operation_detail', operation_id=operation.id) }}" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted">
+                        <i class="bi bi-list-task fs-1"></i>
+                        <p>No operations found.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Auto-refresh dashboard every 30 seconds
+    setTimeout(function() {
+        location.reload();
+    }, 30000);
+</script>
+{% endblock %}

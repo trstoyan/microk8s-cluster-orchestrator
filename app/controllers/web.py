@@ -2,9 +2,7 @@
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from ..models.database import db
-from ..models.node import Node
-from ..models.cluster import Cluster
-from ..models.operation import Operation
+from ..models.flask_models import Node, Cluster, Operation
 
 bp = Blueprint('web', __name__)
 
