@@ -3,7 +3,7 @@
 from flask import Blueprint, request, jsonify
 from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
 from ..services.orchestrator import OrchestrationService
 
 bp = Blueprint('api', __name__)
@@ -278,4 +278,279 @@ def restore_router_config(router_switch_id):
         operation = orchestrator.restore_router_config(router_switch, backup_path)
         return jsonify(operation.to_dict()), 202
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Network Lease endpoints
+@bp.route('/network-leases', methods=['GET'])
+def list_network_leases():
+    """List all network leases."""
+    try:
+        # Query parameters for filtering
+        router_switch_id = request.args.get('router_switch_id', type=int)
+        node_id = request.args.get('node_id', type=int)
+        status = request.args.get('status')
+        is_active = request.args.get('is_active')
+        is_cluster_node = request.args.get('is_cluster_node')
+        
+        query = NetworkLease.query
+        
+        # Apply filters
+        if router_switch_id:
+            query = query.filter(NetworkLease.router_switch_id == router_switch_id)
+        if node_id:
+            query = query.filter(NetworkLease.node_id == node_id)
+        if status:
+            query = query.filter(NetworkLease.status == status)
+        if is_active is not None:
+            is_active_bool = is_active.lower() in ('true', '1', 'yes')
+            query = query.filter(NetworkLease.is_active == is_active_bool)
+        if is_cluster_node is not None:
+            is_cluster_node_bool = is_cluster_node.lower() in ('true', '1', 'yes')
+            if is_cluster_node_bool:
+                query = query.filter(NetworkLease.node_id.isnot(None))
+            else:
+                query = query.filter(NetworkLease.node_id.is_(None))
+        
+        # Order by last activity descending
+        leases = query.order_by(NetworkLease.last_activity.desc()).all()
+        return jsonify([lease.to_dict() for lease in leases])
+    except SQLAlchemyError as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/network-leases', methods=['POST'])
+def create_network_lease():
+    """Create a new network lease."""
+    try:
+        data = request.get_json()
+        from datetime import datetime, timedelta
+        
+        # Calculate lease end time
+        lease_duration = data.get('lease_duration_seconds', 86400)
+        lease_start = datetime.utcnow()
+        lease_end = lease_start + timedelta(seconds=lease_duration)
+        
+        lease = NetworkLease(
+            mac_address=data['mac_address'],
+            ip_address=data['ip_address'],
+            hostname=data.get('hostname'),
+            lease_start=lease_start,
+            lease_end=lease_end,
+            lease_duration_seconds=lease_duration,
+            is_active=data.get('is_active', True),
+            is_static=data.get('is_static', False),
+            vlan_id=data.get('vlan_id'),
+            subnet=data.get('subnet'),
+            gateway=data.get('gateway'),
+            dns_servers=data.get('dns_servers'),
+            vendor_class=data.get('vendor_class'),
+            client_id=data.get('client_id'),
+            user_class=data.get('user_class'),
+            device_type=data.get('device_type'),
+            os_version=data.get('os_version'),
+            device_model=data.get('device_model'),
+            status=data.get('status', 'active'),
+            router_switch_id=data['router_switch_id'],
+            node_id=data.get('node_id'),
+            discovered_by=data.get('discovered_by', 'manual'),
+            tags=data.get('tags'),
+            notes=data.get('notes')
+        )
+        db.session.add(lease)
+        db.session.commit()
+        return jsonify(lease.to_dict()), 201
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/network-leases/<int:lease_id>', methods=['GET'])
+def get_network_lease(lease_id):
+    """Get a specific network lease."""
+    lease = NetworkLease.query.get_or_404(lease_id)
+    return jsonify(lease.to_dict())
+
+@bp.route('/network-leases/<int:lease_id>', methods=['PUT'])
+def update_network_lease(lease_id):
+    """Update a network lease."""
+    try:
+        lease = NetworkLease.query.get_or_404(lease_id)
+        data = request.get_json()
+        
+        # Update fields
+        for key, value in data.items():
+            if hasattr(lease, key) and key not in ['id', 'created_at']:
+                setattr(lease, key, value)
+        
+        # Update last activity
+        from datetime import datetime
+        lease.last_activity = datetime.utcnow()
+        
+        db.session.commit()
+        return jsonify(lease.to_dict())
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/network-leases/<int:lease_id>', methods=['DELETE'])
+def delete_network_lease(lease_id):
+    """Delete a network lease."""
+    try:
+        lease = NetworkLease.query.get_or_404(lease_id)
+        db.session.delete(lease)
+        db.session.commit()
+        return '', 204
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Network Interface endpoints
+@bp.route('/network-interfaces', methods=['GET'])
+def list_network_interfaces():
+    """List all network interfaces."""
+    try:
+        router_switch_id = request.args.get('router_switch_id', type=int)
+        interface_type = request.args.get('interface_type')
+        status = request.args.get('status')
+        
+        query = NetworkInterface.query
+        
+        if router_switch_id:
+            query = query.filter(NetworkInterface.router_switch_id == router_switch_id)
+        if interface_type:
+            query = query.filter(NetworkInterface.interface_type == interface_type)
+        if status:
+            query = query.filter(NetworkInterface.status == status)
+        
+        interfaces = query.order_by(NetworkInterface.name).all()
+        return jsonify([interface.to_dict() for interface in interfaces])
+    except SQLAlchemyError as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/network-interfaces', methods=['POST'])
+def create_network_interface():
+    """Create a new network interface."""
+    try:
+        data = request.get_json()
+        interface = NetworkInterface(
+            name=data['name'],
+            interface_type=data['interface_type'],
+            mac_address=data.get('mac_address'),
+            enabled=data.get('enabled', True),
+            mtu=data.get('mtu', 1500),
+            speed_mbps=data.get('speed_mbps'),
+            duplex=data.get('duplex'),
+            ip_addresses=data.get('ip_addresses'),
+            dhcp_server_enabled=data.get('dhcp_server_enabled', False),
+            dhcp_pool_start=data.get('dhcp_pool_start'),
+            dhcp_pool_end=data.get('dhcp_pool_end'),
+            dhcp_lease_time=data.get('dhcp_lease_time', 86400),
+            vlan_id=data.get('vlan_id'),
+            vlan_mode=data.get('vlan_mode'),
+            allowed_vlans=data.get('allowed_vlans'),
+            status=data.get('status', 'unknown'),
+            router_switch_id=data['router_switch_id'],
+            description=data.get('description'),
+            tags=data.get('tags')
+        )
+        db.session.add(interface)
+        db.session.commit()
+        return jsonify(interface.to_dict()), 201
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/network-interfaces/<int:interface_id>', methods=['GET'])
+def get_network_interface(interface_id):
+    """Get a specific network interface."""
+    interface = NetworkInterface.query.get_or_404(interface_id)
+    return jsonify(interface.to_dict())
+
+@bp.route('/network-interfaces/<int:interface_id>', methods=['PUT'])
+def update_network_interface(interface_id):
+    """Update a network interface."""
+    try:
+        interface = NetworkInterface.query.get_or_404(interface_id)
+        data = request.get_json()
+        
+        for key, value in data.items():
+            if hasattr(interface, key) and key not in ['id', 'created_at']:
+                setattr(interface, key, value)
+        
+        db.session.commit()
+        return jsonify(interface.to_dict())
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/network-interfaces/<int:interface_id>', methods=['DELETE'])
+def delete_network_interface(interface_id):
+    """Delete a network interface."""
+    try:
+        interface = NetworkInterface.query.get_or_404(interface_id)
+        db.session.delete(interface)
+        db.session.commit()
+        return '', 204
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# Network discovery and monitoring endpoints
+@bp.route('/router-switches/<int:router_switch_id>/scan-leases', methods=['POST'])
+def scan_router_leases(router_switch_id):
+    """Scan router for DHCP leases and update database."""
+    try:
+        router_switch = RouterSwitch.query.get_or_404(router_switch_id)
+        operation = orchestrator.scan_dhcp_leases(router_switch)
+        return jsonify(operation.to_dict()), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/router-switches/<int:router_switch_id>/scan-interfaces', methods=['POST'])
+def scan_router_interfaces(router_switch_id):
+    """Scan router for network interfaces and update database."""
+    try:
+        router_switch = RouterSwitch.query.get_or_404(router_switch_id)
+        operation = orchestrator.scan_network_interfaces(router_switch)
+        return jsonify(operation.to_dict()), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/network/topology', methods=['GET'])
+def get_network_topology():
+    """Get network topology information including nodes and their connections."""
+    try:
+        # Get all active leases with node relationships
+        leases = NetworkLease.query.filter(NetworkLease.is_active == True).all()
+        
+        # Get all router switches with their interfaces
+        router_switches = RouterSwitch.query.all()
+        
+        # Get all cluster nodes
+        nodes = Node.query.all()
+        
+        # Build topology data
+        topology = {
+            'router_switches': [rs.to_dict() for rs in router_switches],
+            'network_leases': [lease.to_dict() for lease in leases],
+            'cluster_nodes': [node.to_dict() for node in nodes],
+            'connections': []
+        }
+        
+        # Add connection information
+        for lease in leases:
+            if lease.node_id:
+                topology['connections'].append({
+                    'type': 'dhcp_lease',
+                    'source': f'router_{lease.router_switch_id}',
+                    'target': f'node_{lease.node_id}',
+                    'lease_info': {
+                        'ip_address': lease.ip_address,
+                        'mac_address': lease.mac_address,
+                        'hostname': lease.hostname,
+                        'is_active': lease.is_active,
+                        'time_remaining': lease.time_remaining
+                    }
+                })
+        
+        return jsonify(topology)
+    except SQLAlchemyError as e:
         return jsonify({'error': str(e)}), 500

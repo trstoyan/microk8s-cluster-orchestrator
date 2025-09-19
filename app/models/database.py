@@ -19,7 +19,11 @@ DATABASE_URL = f'sqlite:///{DATABASE_PATH}'
 def init_database(app=None):
     """Initialize the database with the Flask app."""
     if app:
-        app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+        # Use absolute path to ensure Flask-SQLAlchemy uses the same database file
+        import os
+        abs_database_path = os.path.abspath(DATABASE_PATH)
+        abs_database_url = f'sqlite:///{abs_database_path}'
+        app.config['SQLALCHEMY_DATABASE_URI'] = abs_database_url
         app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
         db.init_app(app)
         

@@ -21,6 +21,7 @@ from app.models.node import Node
 from app.models.cluster import Cluster
 from app.models.operation import Operation
 from app.models.router_switch import RouterSwitch
+from app.models.network_lease import NetworkLease, NetworkInterface
 from app.services.cli_orchestrator import CLIOrchestrationService
 from app.utils.config import config
 
@@ -708,6 +709,209 @@ def show_operation(operation_id):
         if operation.error_message:
             click.echo(f"\n{Fore.RED}Error:{Style.RESET_ALL}")
             click.echo(operation.error_message)
+    
+    finally:
+        session.close()
+
+@cli.group()
+def network():
+    """Manage network leases and interfaces."""
+    pass
+
+@network.command('scan-leases')
+@click.argument('router_switch_id', type=int)
+def scan_network_leases(router_switch_id):
+    """Scan router for DHCP leases."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        router_switch = session.query(RouterSwitch).filter_by(id=router_switch_id).first()
+        if not router_switch:
+            print_error(f"Router switch with ID {router_switch_id} not found.")
+            return
+        
+        print_info(f"Scanning DHCP leases on '{router_switch.hostname}'...")
+        operation = orchestrator.scan_dhcp_leases(router_switch)
+        
+        print_info(f"Lease scan started with operation ID {operation.id}")
+        print_info("Check the operations list for results.")
+    
+    except Exception as e:
+        print_error(f"Failed to scan leases: {e}")
+    
+    finally:
+        session.close()
+
+@network.command('scan-interfaces')
+@click.argument('router_switch_id', type=int)
+def scan_network_interfaces(router_switch_id):
+    """Scan router for network interfaces."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        router_switch = session.query(RouterSwitch).filter_by(id=router_switch_id).first()
+        if not router_switch:
+            print_error(f"Router switch with ID {router_switch_id} not found.")
+            return
+        
+        print_info(f"Scanning network interfaces on '{router_switch.hostname}'...")
+        operation = orchestrator.scan_network_interfaces(router_switch)
+        
+        print_info(f"Interface scan started with operation ID {operation.id}")
+        print_info("Check the operations list for results.")
+    
+    except Exception as e:
+        print_error(f"Failed to scan interfaces: {e}")
+    
+    finally:
+        session.close()
+
+@network.command('list-leases')
+@click.option('--router-id', type=int, help='Filter by router switch ID')
+@click.option('--status', help='Filter by status')
+@click.option('--cluster-nodes-only', is_flag=True, help='Show only cluster node leases')
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table', help='Output format')
+def list_network_leases(router_id, status, cluster_nodes_only, format):
+    """List network leases."""
+    session = get_session()
+    try:
+        query = session.query(NetworkLease).order_by(NetworkLease.last_activity.desc())
+        
+        if router_id:
+            query = query.filter_by(router_switch_id=router_id)
+        if status:
+            query = query.filter_by(status=status)
+        if cluster_nodes_only:
+            query = query.filter(NetworkLease.node_id.isnot(None))
+        
+        leases = query.all()
+        
+        if format == 'json':
+            click.echo(json.dumps([lease.to_dict() for lease in leases], indent=2))
+        else:
+            if not leases:
+                print_info("No network leases found.")
+                return
+            
+            headers = ['ID', 'MAC Address', 'IP Address', 'Hostname', 'Router', 'Status', 'Node', 'Remaining', 'Last Seen']
+            rows = []
+            
+            for lease in leases:
+                router_name = lease.router_switch.hostname if lease.router_switch else 'Unknown'
+                node_name = lease.node.hostname if lease.node else '-'
+                remaining = f"{lease.time_remaining // 3600}h {(lease.time_remaining % 3600) // 60}m" if lease.time_remaining > 0 else 'Expired'
+                last_seen = lease.last_seen.strftime('%m-%d %H:%M') if lease.last_seen else 'Never'
+                
+                rows.append([
+                    lease.id,
+                    lease.mac_address,
+                    lease.ip_address,
+                    lease.hostname or '-',
+                    router_name,
+                    lease.status,
+                    node_name,
+                    remaining,
+                    last_seen
+                ])
+            
+            click.echo(tabulate(rows, headers=headers, tablefmt='grid'))
+            
+            # Show summary
+            active_count = len([l for l in leases if l.is_active])
+            cluster_count = len([l for l in leases if l.is_cluster_node])
+            expired_count = len([l for l in leases if l.is_expired])
+            
+            click.echo(f"\nSummary: {len(leases)} total, {active_count} active, {cluster_count} cluster nodes, {expired_count} expired")
+    
+    finally:
+        session.close()
+
+@network.command('match-nodes')
+def match_leases_to_nodes():
+    """Match network leases to cluster nodes by IP address."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        print_info("Matching network leases to cluster nodes...")
+        result = orchestrator.match_leases_to_nodes()
+        
+        if result.get('success'):
+            matched_count = result.get('matched_count', 0)
+            print_success(f"Successfully matched {matched_count} leases to cluster nodes.")
+        else:
+            print_error(f"Failed to match leases: {result.get('error')}")
+    
+    except Exception as e:
+        print_error(f"Failed to match leases to nodes: {e}")
+    
+    finally:
+        session.close()
+
+@network.command('show-lease')
+@click.argument('lease_id', type=int)
+def show_network_lease(lease_id):
+    """Show network lease details."""
+    session = get_session()
+    try:
+        lease = session.query(NetworkLease).filter_by(id=lease_id).first()
+        if not lease:
+            print_error(f"Network lease with ID {lease_id} not found.")
+            return
+        
+        click.echo(f"\n{Fore.CYAN}Network Lease Details:{Style.RESET_ALL}")
+        click.echo(f"ID: {lease.id}")
+        click.echo(f"MAC Address: {lease.mac_address}")
+        click.echo(f"IP Address: {lease.ip_address}")
+        click.echo(f"Hostname: {lease.hostname or 'Unknown'}")
+        click.echo(f"Status: {lease.status}")
+        click.echo(f"Active: {'Yes' if lease.is_active else 'No'}")
+        click.echo(f"Static: {'Yes' if lease.is_static else 'No'}")
+        click.echo(f"Expired: {'Yes' if lease.is_expired else 'No'}")
+        
+        if lease.router_switch:
+            click.echo(f"Router Switch: {lease.router_switch.hostname} ({lease.router_switch.ip_address})")
+        
+        if lease.node:
+            click.echo(f"Cluster Node: {lease.node.hostname} ({lease.node.ip_address})")
+            click.echo(f"Control Plane: {'Yes' if lease.node.is_control_plane else 'No'}")
+        
+        click.echo(f"Lease Start: {lease.lease_start}")
+        click.echo(f"Lease End: {lease.lease_end}")
+        click.echo(f"Duration: {lease.lease_duration_seconds // 3600}h {(lease.lease_duration_seconds % 3600) // 60}m")
+        
+        if lease.time_remaining > 0:
+            click.echo(f"Time Remaining: {lease.time_remaining // 3600}h {(lease.time_remaining % 3600) // 60}m")
+        else:
+            click.echo(f"Time Remaining: Expired")
+        
+        click.echo(f"First Seen: {lease.first_seen}")
+        click.echo(f"Last Seen: {lease.last_seen}")
+        click.echo(f"Last Activity: {lease.last_activity}")
+        click.echo(f"Connection Count: {lease.connection_count}")
+        click.echo(f"Uptime: {lease.uptime_hours} hours")
+        
+        if lease.vlan_id:
+            click.echo(f"VLAN ID: {lease.vlan_id}")
+        if lease.subnet:
+            click.echo(f"Subnet: {lease.subnet}")
+        if lease.gateway:
+            click.echo(f"Gateway: {lease.gateway}")
+        
+        if lease.device_type:
+            click.echo(f"Device Type: {lease.device_type}")
+        if lease.os_version:
+            click.echo(f"OS Version: {lease.os_version}")
+        if lease.vendor_class:
+            click.echo(f"Vendor Class: {lease.vendor_class}")
+        
+        click.echo(f"Discovered By: {lease.discovered_by}")
+        
+        if lease.notes:
+            click.echo(f"\n{Fore.CYAN}Notes:{Style.RESET_ALL}")
+            click.echo(lease.notes)
     
     finally:
         session.close()

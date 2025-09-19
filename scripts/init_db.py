@@ -15,6 +15,7 @@ from app.models.node import Node
 from app.models.cluster import Cluster
 from app.models.operation import Operation
 from app.models.configuration import Configuration
+from app.models.router_switch import RouterSwitch
 
 def init_database(force=False):
     """Initialize the database with all tables."""

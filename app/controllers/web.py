@@ -2,7 +2,7 @@
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
 
 bp = Blueprint('web', __name__)
 
@@ -144,3 +144,256 @@ def router_switch_detail(router_switch_id):
     router_switch = RouterSwitch.query.get_or_404(router_switch_id)
     operations = Operation.query.filter_by(router_switch_id=router_switch_id).order_by(Operation.created_at.desc()).limit(10).all()
     return render_template('router_switch_detail.html', router_switch=router_switch, operations=operations)
+
+@bp.route('/router-switches/<int:router_switch_id>/edit', methods=['GET', 'POST'])
+def edit_router_switch(router_switch_id):
+    """Edit a router switch."""
+    router_switch = RouterSwitch.query.get_or_404(router_switch_id)
+    
+    if request.method == 'POST':
+        try:
+            router_switch.hostname = request.form['hostname']
+            router_switch.ip_address = request.form['ip_address']
+            router_switch.device_type = request.form.get('device_type', 'mikrotik')
+            router_switch.model = request.form.get('model')
+            router_switch.serial_number = request.form.get('serial_number')
+            router_switch.mac_address = request.form.get('mac_address')
+            router_switch.management_port = int(request.form.get('management_port', 22))
+            router_switch.cluster_id = request.form.get('cluster_id') or None
+            router_switch.location = request.form.get('location')
+            router_switch.contact_person = request.form.get('contact_person')
+            router_switch.notes = request.form.get('notes')
+            router_switch.tags = request.form.get('tags')
+            
+            # Update firmware information if provided
+            if request.form.get('firmware_version'):
+                router_switch.firmware_version = request.form.get('firmware_version')
+            if request.form.get('routeros_version'):
+                router_switch.routeros_version = request.form.get('routeros_version')
+            if request.form.get('bootloader_version'):
+                router_switch.bootloader_version = request.form.get('bootloader_version')
+            if request.form.get('architecture'):
+                router_switch.architecture = request.form.get('architecture')
+            
+            # Update hardware information if provided
+            if request.form.get('cpu_model'):
+                router_switch.cpu_model = request.form.get('cpu_model')
+            if request.form.get('cpu_frequency_mhz'):
+                router_switch.cpu_frequency_mhz = int(request.form.get('cpu_frequency_mhz'))
+            if request.form.get('total_memory_mb'):
+                router_switch.total_memory_mb = int(request.form.get('total_memory_mb'))
+            if request.form.get('total_disk_mb'):
+                router_switch.total_disk_mb = int(request.form.get('total_disk_mb'))
+            if request.form.get('port_count'):
+                router_switch.port_count = int(request.form.get('port_count'))
+            
+            # Update network configuration if provided
+            if request.form.get('management_vlan'):
+                router_switch.management_vlan = int(request.form.get('management_vlan'))
+            if request.form.get('default_gateway'):
+                router_switch.default_gateway = request.form.get('default_gateway')
+            if request.form.get('dns_servers'):
+                router_switch.dns_servers = request.form.get('dns_servers')
+            
+            # Update configuration settings
+            router_switch.config_backup_enabled = 'config_backup_enabled' in request.form
+            router_switch.auto_update_enabled = 'auto_update_enabled' in request.form
+            router_switch.stp_enabled = 'stp_enabled' in request.form
+            router_switch.lldp_enabled = 'lldp_enabled' in request.form
+            router_switch.wireless_enabled = 'wireless_enabled' in request.form
+            
+            if request.form.get('wireless_standard'):
+                router_switch.wireless_standard = request.form.get('wireless_standard')
+            if request.form.get('wireless_channels'):
+                router_switch.wireless_channels = request.form.get('wireless_channels')
+            
+            db.session.commit()
+            flash('Router switch updated successfully!', 'success')
+            return redirect(url_for('web.router_switch_detail', router_switch_id=router_switch.id))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error updating router switch: {str(e)}', 'error')
+    
+    clusters = Cluster.query.all()
+    return render_template('edit_router_switch.html', router_switch=router_switch, clusters=clusters)
+
+@bp.route('/router-switches/<int:router_switch_id>/delete', methods=['POST'])
+def delete_router_switch(router_switch_id):
+    """Delete a router switch."""
+    router_switch = RouterSwitch.query.get_or_404(router_switch_id)
+    
+    try:
+        # Delete associated operations first
+        Operation.query.filter_by(router_switch_id=router_switch_id).delete()
+        
+        # Delete the router switch
+        db.session.delete(router_switch)
+        db.session.commit()
+        flash(f'Router switch "{router_switch.hostname}" deleted successfully!', 'success')
+        return redirect(url_for('web.router_switches'))
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting router switch: {str(e)}', 'error')
+        return redirect(url_for('web.router_switch_detail', router_switch_id=router_switch.id))
+
+# Network Lease routes
+@bp.route('/network-leases')
+def network_leases():
+    """Network leases management page."""
+    # Get filter parameters
+    router_switch_id = request.args.get('router_switch_id', type=int)
+    status = request.args.get('status')
+    is_cluster_node = request.args.get('is_cluster_node')
+    
+    query = NetworkLease.query
+    
+    # Apply filters
+    if router_switch_id:
+        query = query.filter(NetworkLease.router_switch_id == router_switch_id)
+    if status:
+        query = query.filter(NetworkLease.status == status)
+    if is_cluster_node:
+        if is_cluster_node.lower() in ('true', '1', 'yes'):
+            query = query.filter(NetworkLease.node_id.isnot(None))
+        else:
+            query = query.filter(NetworkLease.node_id.is_(None))
+    
+    leases = query.order_by(NetworkLease.last_activity.desc()).all()
+    router_switches = RouterSwitch.query.all()
+    
+    # Get statistics
+    stats = {
+        'total_leases': len(leases),
+        'active_leases': len([l for l in leases if l.is_active]),
+        'cluster_node_leases': len([l for l in leases if l.is_cluster_node]),
+        'expired_leases': len([l for l in leases if l.is_expired])
+    }
+    
+    return render_template('network_leases.html', 
+                         leases=leases, 
+                         router_switches=router_switches,
+                         stats=stats,
+                         current_filters={
+                             'router_switch_id': router_switch_id,
+                             'status': status,
+                             'is_cluster_node': is_cluster_node
+                         })
+
+@bp.route('/network-leases/<int:lease_id>')
+def network_lease_detail(lease_id):
+    """Network lease detail page."""
+    lease = NetworkLease.query.get_or_404(lease_id)
+    return render_template('network_lease_detail.html', lease=lease)
+
+@bp.route('/network-interfaces')
+def network_interfaces():
+    """Network interfaces management page."""
+    router_switch_id = request.args.get('router_switch_id', type=int)
+    interface_type = request.args.get('interface_type')
+    
+    query = NetworkInterface.query
+    
+    if router_switch_id:
+        query = query.filter(NetworkInterface.router_switch_id == router_switch_id)
+    if interface_type:
+        query = query.filter(NetworkInterface.interface_type == interface_type)
+    
+    interfaces = query.order_by(NetworkInterface.name).all()
+    router_switches = RouterSwitch.query.all()
+    
+    # Get statistics
+    stats = {
+        'total_interfaces': len(interfaces),
+        'up_interfaces': len([i for i in interfaces if i.status == 'up']),
+        'down_interfaces': len([i for i in interfaces if i.status == 'down']),
+        'dhcp_enabled_interfaces': len([i for i in interfaces if i.dhcp_server_enabled])
+    }
+    
+    return render_template('network_interfaces.html', 
+                         interfaces=interfaces, 
+                         router_switches=router_switches,
+                         stats=stats,
+                         current_filters={
+                             'router_switch_id': router_switch_id,
+                             'interface_type': interface_type
+                         })
+
+@bp.route('/network-interfaces/<int:interface_id>')
+def network_interface_detail(interface_id):
+    """Network interface detail page."""
+    interface = NetworkInterface.query.get_or_404(interface_id)
+    return render_template('network_interface_detail.html', interface=interface)
+
+@bp.route('/network/topology')
+def network_topology():
+    """Network topology visualization page."""
+    # Get all active leases with relationships
+    leases = NetworkLease.query.filter(NetworkLease.is_active == True).all()
+    
+    # Get all router switches
+    router_switches = RouterSwitch.query.all()
+    
+    # Get all cluster nodes
+    nodes = Node.query.all()
+    
+    # Get all clusters
+    clusters = Cluster.query.all()
+    
+    # Build topology data for visualization
+    topology_data = {
+        'nodes': [],
+        'edges': []
+    }
+    
+    # Add router switches as nodes
+    for rs in router_switches:
+        topology_data['nodes'].append({
+            'id': f'router_{rs.id}',
+            'label': rs.hostname,
+            'type': 'router',
+            'group': 'routers',
+            'data': {
+                'ip_address': rs.ip_address,
+                'device_type': rs.device_type,
+                'model': rs.model,
+                'status': rs.status,
+                'health_score': rs.health_score
+            }
+        })
+    
+    # Add cluster nodes
+    for node in nodes:
+        topology_data['nodes'].append({
+            'id': f'node_{node.id}',
+            'label': node.hostname,
+            'type': 'cluster_node',
+            'group': f'cluster_{node.cluster_id}' if node.cluster_id else 'unassigned',
+            'data': {
+                'ip_address': node.ip_address,
+                'status': node.status,
+                'microk8s_status': node.microk8s_status,
+                'is_control_plane': node.is_control_plane
+            }
+        })
+    
+    # Add connections based on leases
+    for lease in leases:
+        if lease.node_id:
+            topology_data['edges'].append({
+                'from': f'router_{lease.router_switch_id}',
+                'to': f'node_{lease.node_id}',
+                'label': lease.ip_address,
+                'data': {
+                    'mac_address': lease.mac_address,
+                    'hostname': lease.hostname,
+                    'lease_remaining': lease.time_remaining,
+                    'connection_type': 'dhcp_lease'
+                }
+            })
+    
+    return render_template('network_topology.html', 
+                         topology_data=topology_data,
+                         leases=leases,
+                         router_switches=router_switches,
+                         nodes=nodes,
+                         clusters=clusters)

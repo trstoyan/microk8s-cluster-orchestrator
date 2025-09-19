@@ -10,6 +10,7 @@ from ..models.node import Node
 from ..models.cluster import Cluster
 from ..models.operation import Operation
 from ..models.router_switch import RouterSwitch
+from .network_monitor import NetworkMonitorService
 
 class OrchestrationService:
     """Service for orchestrating MicroK8s operations using Ansible."""
@@ -18,6 +19,7 @@ class OrchestrationService:
         self.ansible_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'ansible')
         self.playbooks_dir = os.path.join(self.ansible_dir, 'playbooks')
         self.inventory_dir = os.path.join(self.ansible_dir, 'inventory')
+        self.network_monitor = NetworkMonitorService()
     
     def _create_operation(self, operation_type: str, operation_name: str, 
                          description: str, node: Optional[Node] = None, 
@@ -501,3 +503,97 @@ class OrchestrationService:
         except:
             pass
         return 0.0
+    
+    def scan_dhcp_leases(self, router_switch: RouterSwitch) -> Operation:
+        """Scan router for DHCP leases and update database."""
+        operation = self._create_operation(
+            operation_type='network_scan',
+            operation_name='Scan DHCP Leases',
+            description=f'Scan DHCP leases on {router_switch.hostname}',
+            router_switch=router_switch
+        )
+        
+        try:
+            operation.status = 'running'
+            operation.started_at = datetime.utcnow()
+            db.session.commit()
+            
+            # Perform the scan
+            result = self.network_monitor.scan_dhcp_leases(router_switch)
+            
+            # Update operation with results
+            operation.success = result.get('success', False)
+            operation.output = json.dumps(result, indent=2)
+            
+            if not operation.success:
+                operation.error_message = result.get('error', 'Unknown error occurred')
+                operation.status = 'failed'
+            else:
+                operation.status = 'completed'
+            
+            operation.completed_at = datetime.utcnow()
+            db.session.commit()
+            
+        except Exception as e:
+            operation.status = 'failed'
+            operation.success = False
+            operation.error_message = str(e)
+            operation.completed_at = datetime.utcnow()
+            db.session.commit()
+        
+        return operation
+    
+    def scan_network_interfaces(self, router_switch: RouterSwitch) -> Operation:
+        """Scan router for network interfaces and update database."""
+        operation = self._create_operation(
+            operation_type='network_scan',
+            operation_name='Scan Network Interfaces',
+            description=f'Scan network interfaces on {router_switch.hostname}',
+            router_switch=router_switch
+        )
+        
+        try:
+            operation.status = 'running'
+            operation.started_at = datetime.utcnow()
+            db.session.commit()
+            
+            # Perform the scan
+            result = self.network_monitor.scan_network_interfaces(router_switch)
+            
+            # Update operation with results
+            operation.success = result.get('success', False)
+            operation.output = json.dumps(result, indent=2)
+            
+            if not operation.success:
+                operation.error_message = result.get('error', 'Unknown error occurred')
+                operation.status = 'failed'
+            else:
+                operation.status = 'completed'
+            
+            operation.completed_at = datetime.utcnow()
+            db.session.commit()
+            
+        except Exception as e:
+            operation.status = 'failed'
+            operation.success = False
+            operation.error_message = str(e)
+            operation.completed_at = datetime.utcnow()
+            db.session.commit()
+        
+        return operation
+    
+    def match_leases_to_nodes(self) -> Dict[str, Any]:
+        """Match network leases to cluster nodes based on IP addresses."""
+        try:
+            matched_count = self.network_monitor.match_leases_to_nodes()
+            return {
+                'success': True,
+                'matched_count': matched_count,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }

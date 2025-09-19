@@ -1,0 +1,405 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ router_switch.hostname }} - Router Switch{% endblock %}
+{% block header %}Edit Router Switch{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Edit Router Switch: {{ router_switch.hostname }}</h5>
+                <div class="btn-group" role="group">
+                    <a href="{{ url_for('web.router_switch_detail', router_switch_id=router_switch.id) }}" 
+                       class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Detail
+                    </a>
+                    <a href="{{ url_for('web.router_switches') }}" 
+                       class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-list"></i> Back to List
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <!-- Basic Information -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary">Basic Information</h6>
+                            <hr>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="hostname" class="form-label">Hostname *</label>
+                                <input type="text" class="form-control" id="hostname" name="hostname" 
+                                       value="{{ router_switch.hostname }}" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="ip_address" class="form-label">IP Address *</label>
+                                <input type="text" class="form-control" id="ip_address" name="ip_address" 
+                                       value="{{ router_switch.ip_address }}" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="device_type" class="form-label">Device Type</label>
+                                <select class="form-select" id="device_type" name="device_type">
+                                    <option value="mikrotik" {% if router_switch.device_type == 'mikrotik' %}selected{% endif %}>MikroTik</option>
+                                    <option value="cisco" {% if router_switch.device_type == 'cisco' %}selected{% endif %}>Cisco</option>
+                                    <option value="ubiquiti" {% if router_switch.device_type == 'ubiquiti' %}selected{% endif %}>Ubiquiti</option>
+                                    <option value="other" {% if router_switch.device_type == 'other' %}selected{% endif %}>Other</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="model" class="form-label">Model</label>
+                                <input type="text" class="form-control" id="model" name="model" 
+                                       value="{{ router_switch.model or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="management_port" class="form-label">Management Port</label>
+                                <input type="number" class="form-control" id="management_port" name="management_port" 
+                                       value="{{ router_switch.management_port or 22 }}" min="1" max="65535">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="serial_number" class="form-label">Serial Number</label>
+                                <input type="text" class="form-control" id="serial_number" name="serial_number" 
+                                       value="{{ router_switch.serial_number or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="mac_address" class="form-label">MAC Address</label>
+                                <input type="text" class="form-control" id="mac_address" name="mac_address" 
+                                       value="{{ router_switch.mac_address or '' }}" 
+                                       pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Firmware Information -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary">Firmware & Software</h6>
+                            <hr>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="firmware_version" class="form-label">Firmware Version</label>
+                                <input type="text" class="form-control" id="firmware_version" name="firmware_version" 
+                                       value="{{ router_switch.firmware_version or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="routeros_version" class="form-label">RouterOS Version</label>
+                                <input type="text" class="form-control" id="routeros_version" name="routeros_version" 
+                                       value="{{ router_switch.routeros_version or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="bootloader_version" class="form-label">Bootloader Version</label>
+                                <input type="text" class="form-control" id="bootloader_version" name="bootloader_version" 
+                                       value="{{ router_switch.bootloader_version or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="architecture" class="form-label">Architecture</label>
+                                <input type="text" class="form-control" id="architecture" name="architecture" 
+                                       value="{{ router_switch.architecture or '' }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Hardware Specifications -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary">Hardware Specifications</h6>
+                            <hr>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="cpu_model" class="form-label">CPU Model</label>
+                                <input type="text" class="form-control" id="cpu_model" name="cpu_model" 
+                                       value="{{ router_switch.cpu_model or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="cpu_frequency_mhz" class="form-label">CPU Frequency (MHz)</label>
+                                <input type="number" class="form-control" id="cpu_frequency_mhz" name="cpu_frequency_mhz" 
+                                       value="{{ router_switch.cpu_frequency_mhz or '' }}" min="1">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="total_memory_mb" class="form-label">Total Memory (MB)</label>
+                                <input type="number" class="form-control" id="total_memory_mb" name="total_memory_mb" 
+                                       value="{{ router_switch.total_memory_mb or '' }}" min="1">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="port_count" class="form-label">Port Count</label>
+                                <input type="number" class="form-control" id="port_count" name="port_count" 
+                                       value="{{ router_switch.port_count or '' }}" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Network Configuration -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary">Network Configuration</h6>
+                            <hr>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="management_vlan" class="form-label">Management VLAN</label>
+                                <input type="number" class="form-control" id="management_vlan" name="management_vlan" 
+                                       value="{{ router_switch.management_vlan or '' }}" min="1" max="4094">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="default_gateway" class="form-label">Default Gateway</label>
+                                <input type="text" class="form-control" id="default_gateway" name="default_gateway" 
+                                       value="{{ router_switch.default_gateway or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="dns_servers" class="form-label">DNS Servers</label>
+                                <input type="text" class="form-control" id="dns_servers" name="dns_servers" 
+                                       value="{{ router_switch.dns_servers or '' }}" 
+                                       placeholder="8.8.8.8, 8.8.4.4">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Configuration Settings -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary">Configuration Settings</h6>
+                            <hr>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="config_backup_enabled" 
+                                           name="config_backup_enabled" {% if router_switch.config_backup_enabled %}checked{% endif %}>
+                                    <label class="form-check-label" for="config_backup_enabled">
+                                        Enable Configuration Backup
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="auto_update_enabled" 
+                                           name="auto_update_enabled" {% if router_switch.auto_update_enabled %}checked{% endif %}>
+                                    <label class="form-check-label" for="auto_update_enabled">
+                                        Enable Auto Updates
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="stp_enabled" 
+                                           name="stp_enabled" {% if router_switch.stp_enabled %}checked{% endif %}>
+                                    <label class="form-check-label" for="stp_enabled">
+                                        Enable STP (Spanning Tree Protocol)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="lldp_enabled" 
+                                           name="lldp_enabled" {% if router_switch.lldp_enabled %}checked{% endif %}>
+                                    <label class="form-check-label" for="lldp_enabled">
+                                        Enable LLDP (Link Layer Discovery Protocol)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="wireless_enabled" 
+                                           name="wireless_enabled" {% if router_switch.wireless_enabled %}checked{% endif %}>
+                                    <label class="form-check-label" for="wireless_enabled">
+                                        Enable Wireless
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Wireless Configuration -->
+                    <div class="row mb-4" id="wireless-config" style="{% if not router_switch.wireless_enabled %}display: none;{% endif %}">
+                        <div class="col-12">
+                            <h6 class="text-primary">Wireless Configuration</h6>
+                            <hr>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="wireless_standard" class="form-label">Wireless Standard</label>
+                                <select class="form-select" id="wireless_standard" name="wireless_standard">
+                                    <option value="">Select Standard</option>
+                                    <option value="802.11n" {% if router_switch.wireless_standard == '802.11n' %}selected{% endif %}>802.11n</option>
+                                    <option value="802.11ac" {% if router_switch.wireless_standard == '802.11ac' %}selected{% endif %}>802.11ac</option>
+                                    <option value="802.11ax" {% if router_switch.wireless_standard == '802.11ax' %}selected{% endif %}>802.11ax (Wi-Fi 6)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="wireless_channels" class="form-label">Wireless Channels</label>
+                                <input type="text" class="form-control" id="wireless_channels" name="wireless_channels" 
+                                       value="{{ router_switch.wireless_channels or '' }}" 
+                                       placeholder="1,6,11">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Location and Contact Information -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary">Location and Contact Information</h6>
+                            <hr>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="location" class="form-label">Location</label>
+                                <input type="text" class="form-control" id="location" name="location" 
+                                       value="{{ router_switch.location or '' }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="contact_person" class="form-label">Contact Person</label>
+                                <input type="text" class="form-control" id="contact_person" name="contact_person" 
+                                       value="{{ router_switch.contact_person or '' }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="cluster_id" class="form-label">Associated Cluster</label>
+                                <select class="form-select" id="cluster_id" name="cluster_id">
+                                    <option value="">No Cluster</option>
+                                    {% for cluster in clusters %}
+                                    <option value="{{ cluster.id }}" {% if router_switch.cluster_id == cluster.id %}selected{% endif %}>
+                                        {{ cluster.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="tags" class="form-label">Tags</label>
+                                <input type="text" class="form-control" id="tags" name="tags" 
+                                       value="{{ router_switch.tags or '' }}" 
+                                       placeholder="tag1, tag2, tag3">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Notes -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="mb-3">
+                                <label for="notes" class="form-label">Notes</label>
+                                <textarea class="form-control" id="notes" name="notes" rows="3">{{ router_switch.notes or '' }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Form Actions -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-check-circle"></i> Update Router Switch
+                                    </button>
+                                    <a href="{{ url_for('web.router_switch_detail', router_switch_id=router_switch.id) }}" 
+                                       class="btn btn-secondary">
+                                        <i class="bi bi-x-circle"></i> Cancel
+                                    </a>
+                                </div>
+                                <div>
+                                    <button type="button" class="btn btn-danger" onclick="confirmDelete({{ router_switch.id }})">
+                                        <i class="bi bi-trash"></i> Delete Router Switch
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Toggle wireless configuration section
+document.getElementById('wireless_enabled').addEventListener('change', function() {
+    const wirelessConfig = document.getElementById('wireless-config');
+    if (this.checked) {
+        wirelessConfig.style.display = 'block';
+    } else {
+        wirelessConfig.style.display = 'none';
+    }
+});
+
+// Confirm delete function
+function confirmDelete(routerSwitchId) {
+    if (confirm('Are you sure you want to delete this router switch? This action cannot be undone.')) {
+        // Create a form and submit it
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/router-switches/${routerSwitchId}/delete`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+</script>
+{% endblock %}

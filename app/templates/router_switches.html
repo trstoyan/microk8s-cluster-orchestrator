@@ -87,16 +87,24 @@
                                 <td>
                                     <div class="btn-group" role="group">
                                         <a href="{{ url_for('web.router_switch_detail', router_switch_id=rs.id) }}" 
-                                           class="btn btn-sm btn-outline-primary">
+                                           class="btn btn-sm btn-outline-primary" title="View Details">
                                             <i class="bi bi-eye"></i>
                                         </a>
+                                        <a href="{{ url_for('web.edit_router_switch', router_switch_id=rs.id) }}" 
+                                           class="btn btn-sm btn-outline-warning" title="Edit">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
                                         <button type="button" class="btn btn-sm btn-outline-success" 
-                                                onclick="checkStatus({{ rs.id }})">
+                                                onclick="checkStatus({{ rs.id }})" title="Check Status">
                                             <i class="bi bi-arrow-clockwise"></i>
                                         </button>
                                         <button type="button" class="btn btn-sm btn-outline-info" 
-                                                onclick="backupConfig({{ rs.id }})">
+                                                onclick="backupConfig({{ rs.id }})" title="Backup Config">
                                             <i class="bi bi-download"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" 
+                                                onclick="confirmDelete({{ rs.id }}, '{{ rs.hostname }}')" title="Delete">
+                                            <i class="bi bi-trash"></i>
                                         </button>
                                     </div>
                                 </td>
@@ -162,6 +170,17 @@ function backupConfig(routerSwitchId) {
     .catch(error => {
         alert('Error: ' + error.message);
     });
+}
+
+function confirmDelete(routerSwitchId, hostname) {
+    if (confirm(`Are you sure you want to delete router switch "${hostname}"? This action cannot be undone.`)) {
+        // Create a form and submit it
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/router-switches/${routerSwitchId}/delete`;
+        document.body.appendChild(form);
+        form.submit();
+    }
 }
 </script>
 {% endblock %}

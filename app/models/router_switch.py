@@ -66,6 +66,8 @@ class RouterSwitch(Base):
     # Relationships
     cluster_id = Column(Integer, ForeignKey('clusters.id'), nullable=True)
     operations = relationship("Operation", back_populates="router_switch")
+    leases = relationship("NetworkLease", back_populates="router_switch", cascade="all, delete-orphan")
+    interfaces = relationship("NetworkInterface", back_populates="router_switch", cascade="all, delete-orphan")
     
     # Metadata
     tags = Column(Text)  # JSON string for flexible tagging
