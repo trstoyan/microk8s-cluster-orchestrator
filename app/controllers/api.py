@@ -603,3 +603,161 @@ def cleanup_stuck_operations():
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Hardware report endpoints
+@bp.route('/hardware-report', methods=['POST'])
+@login_required
+def collect_hardware_report():
+    """Collect hardware report for all nodes or specific cluster/node."""
+    try:
+        data = request.get_json() or {}
+        cluster_id = data.get('cluster_id')
+        node_id = data.get('node_id')
+        
+        result = orchestrator.collect_hardware_report(cluster_id=cluster_id, node_id=node_id)
+        
+        if result['success']:
+            return jsonify({
+                'message': 'Hardware report collection started',
+                'operation_id': result['operation_id'],
+                'nodes_updated': result.get('nodes_updated', 0)
+            }), 200
+        else:
+            return jsonify({'error': result['error']}), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/hardware-report/cluster/<int:cluster_id>', methods=['GET'])
+@login_required
+def get_cluster_hardware_report(cluster_id):
+    """Get hardware report for a specific cluster."""
+    try:
+        cluster = Cluster.query.get_or_404(cluster_id)
+        nodes_data = []
+        
+        for node in cluster.nodes:
+            node_dict = node.to_dict()
+            
+            # Parse JSON fields for better display
+            try:
+                import json
+                if node.cpu_info:
+                    node_dict['cpu_info_parsed'] = json.loads(node.cpu_info)
+                if node.memory_info:
+                    node_dict['memory_info_parsed'] = json.loads(node.memory_info)
+                if node.disk_info:
+                    node_dict['disk_info_parsed'] = json.loads(node.disk_info)
+                if node.network_info:
+                    node_dict['network_info_parsed'] = json.loads(node.network_info)
+                if node.gpu_info:
+                    node_dict['gpu_info_parsed'] = json.loads(node.gpu_info)
+                if node.thermal_info:
+                    node_dict['thermal_info_parsed'] = json.loads(node.thermal_info)
+                if node.hardware_info:
+                    node_dict['hardware_info_parsed'] = json.loads(node.hardware_info)
+            except json.JSONDecodeError:
+                pass  # Keep original string if JSON parsing fails
+                
+            nodes_data.append(node_dict)
+        
+        return jsonify({
+            'cluster': cluster.to_dict(),
+            'nodes': nodes_data,
+            'summary': {
+                'total_nodes': len(nodes_data),
+                'total_cpu_cores': sum(node.cpu_cores or 0 for node in cluster.nodes),
+                'total_memory_gb': sum(node.memory_gb or 0 for node in cluster.nodes),
+                'total_disk_gb': sum(node.disk_gb or 0 for node in cluster.nodes),
+                'nodes_with_gpu': len([n for n in cluster.nodes if n.gpu_info and 'present": true' in n.gpu_info.lower()]),
+                'average_cpu_usage': sum(node.cpu_usage_percent or 0 for node in cluster.nodes) / len(cluster.nodes) if cluster.nodes else 0,
+                'average_memory_usage': sum(node.memory_usage_percent or 0 for node in cluster.nodes) / len(cluster.nodes) if cluster.nodes else 0,
+                'average_disk_usage': sum(node.disk_usage_percent or 0 for node in cluster.nodes) / len(cluster.nodes) if cluster.nodes else 0
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/hardware-report/node/<int:node_id>', methods=['GET'])
+@login_required
+def get_node_hardware_report(node_id):
+    """Get detailed hardware report for a specific node."""
+    try:
+        node = Node.query.get_or_404(node_id)
+        node_dict = node.to_dict()
+        
+        # Parse JSON fields for detailed view
+        try:
+            import json
+            if node.cpu_info:
+                node_dict['cpu_info_parsed'] = json.loads(node.cpu_info)
+            if node.memory_info:
+                node_dict['memory_info_parsed'] = json.loads(node.memory_info)
+            if node.disk_info:
+                node_dict['disk_info_parsed'] = json.loads(node.disk_info)
+            if node.network_info:
+                node_dict['network_info_parsed'] = json.loads(node.network_info)
+            if node.gpu_info:
+                node_dict['gpu_info_parsed'] = json.loads(node.gpu_info)
+            if node.thermal_info:
+                node_dict['thermal_info_parsed'] = json.loads(node.thermal_info)
+            if node.hardware_info:
+                node_dict['hardware_info_parsed'] = json.loads(node.hardware_info)
+        except json.JSONDecodeError:
+            pass  # Keep original string if JSON parsing fails
+        
+        return jsonify(node_dict)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/hardware-report', methods=['GET'])
+@login_required
+def get_all_hardware_report():
+    """Get hardware report for all nodes."""
+    try:
+        nodes = Node.query.all()
+        nodes_data = []
+        
+        for node in nodes:
+            node_dict = node.to_dict()
+            
+            # Parse JSON fields for better display
+            try:
+                import json
+                if node.cpu_info:
+                    node_dict['cpu_info_parsed'] = json.loads(node.cpu_info)
+                if node.memory_info:
+                    node_dict['memory_info_parsed'] = json.loads(node.memory_info)
+                if node.disk_info:
+                    node_dict['disk_info_parsed'] = json.loads(node.disk_info)
+                if node.network_info:
+                    node_dict['network_info_parsed'] = json.loads(node.network_info)
+                if node.gpu_info:
+                    node_dict['gpu_info_parsed'] = json.loads(node.gpu_info)
+                if node.thermal_info:
+                    node_dict['thermal_info_parsed'] = json.loads(node.thermal_info)
+                if node.hardware_info:
+                    node_dict['hardware_info_parsed'] = json.loads(node.hardware_info)
+            except json.JSONDecodeError:
+                pass  # Keep original string if JSON parsing fails
+                
+            nodes_data.append(node_dict)
+        
+        return jsonify({
+            'nodes': nodes_data,
+            'summary': {
+                'total_nodes': len(nodes_data),
+                'total_cpu_cores': sum(node.cpu_cores or 0 for node in nodes),
+                'total_memory_gb': sum(node.memory_gb or 0 for node in nodes),
+                'total_disk_gb': sum(node.disk_gb or 0 for node in nodes),
+                'nodes_with_gpu': len([n for n in nodes if n.gpu_info and 'present": true' in n.gpu_info.lower()]),
+                'average_cpu_usage': sum(node.cpu_usage_percent or 0 for node in nodes) / len(nodes) if nodes else 0,
+                'average_memory_usage': sum(node.memory_usage_percent or 0 for node in nodes) / len(nodes) if nodes else 0,
+                'average_disk_usage': sum(node.disk_usage_percent or 0 for node in nodes) / len(nodes) if nodes else 0
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

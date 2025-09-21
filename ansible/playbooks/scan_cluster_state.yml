@@ -13,6 +13,14 @@
       addons_status: {}
       network_status: {}
       configuration_drift: []
+    # Default expected configuration values
+    expected_addons: 
+      - dns
+      - storage
+      - ingress
+    expected_network_cidr: "10.1.0.0/16"
+    expected_service_cidr: "10.152.183.0/24"
+    expected_ha_enabled: false
     
   tasks:
     - name: Identify control plane node
@@ -68,11 +76,23 @@
         
         - name: Parse cluster nodes
           set_fact:
-            nodes_info: "{{ (cluster_nodes.stdout | from_json).items if cluster_nodes.rc == 0 else [] }}"
+            nodes_info: "{{ (cluster_nodes.stdout | from_json)['items'] if cluster_nodes.rc == 0 else [] }}"
         
-        - name: Check for NotReady nodes
+        - name: Initialize not ready nodes list
           set_fact:
-            not_ready_nodes: "{{ nodes_info | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'False') | list }}"
+            not_ready_nodes: []
+        
+        - name: Check each node readiness status
+          set_fact:
+            not_ready_nodes: "{{ not_ready_nodes + [item] }}"
+          loop: "{{ nodes_info }}"
+          vars:
+            ready_conditions: "{{ item.status.conditions | default([]) | selectattr('type', 'equalto', 'Ready') | list }}"
+            is_ready: "{{ ready_conditions | selectattr('status', 'equalto', 'True') | list | length > 0 }}"
+          when: 
+            - item.status is defined
+            - item.status.conditions is defined
+            - not is_ready
         
         - name: Get enabled addons
           command: microk8s status --format yaml
@@ -166,6 +186,12 @@
           }}
       when: is_control_plane
     
+    - name: Prepare issue lists
+      set_fact:
+        node_issues: "{{ not_ready_nodes | map(attribute='metadata.name') | map('regex_replace', '^(.*)$', 'Node \\1 is not ready') | list }}"
+        addon_issues: "{{ missing_addons | map('regex_replace', '^(.*)$', 'Missing addon: \\1') | list }}"
+      when: is_control_plane
+    
     - name: Compile final scan results
       set_fact:
         final_scan_results:
@@ -173,7 +199,7 @@
           health_score: "{{ [calculated_health_score | int, 0] | max }}"
           cluster_info: "{{ control_plane_results }}"
           nodes_status: "{{ all_nodes_status }}"
-          issues: "{{ (not_ready_nodes | map('regex_replace', '^(.*)$', 'Node \\1 is not ready') | list) + missing_addons | map('regex_replace', '^(.*)$', 'Missing addon: \\1') | list + network_drift }}"
+          issues: "{{ node_issues + addon_issues + network_drift }}"
           scan_timestamp: "{{ ansible_date_time.iso8601 }}"
           expected_config:
             ha_enabled: "{{ expected_ha_enabled }}"

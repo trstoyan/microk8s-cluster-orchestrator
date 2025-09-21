@@ -1,0 +1,292 @@
+---
+- name: Collect comprehensive hardware and resource information
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Install required packages for hardware detection
+      package:
+        name:
+          - lshw
+          - dmidecode
+          - smartmontools
+          - lm-sensors
+          - pciutils
+          - usbutils
+          - hdparm
+        state: present
+      ignore_errors: yes
+
+    - name: Initialize sensors (if available)
+      command: sensors-detect --auto
+      failed_when: false
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Get detailed CPU information
+      shell: |
+        echo "=== CPU MODEL ==="
+        cat /proc/cpuinfo | grep "model name" | head -1 | cut -d: -f2 | xargs
+        echo "=== CPU ARCHITECTURE ==="
+        lscpu | grep "Architecture" | cut -d: -f2 | xargs
+        echo "=== CPU CORES ==="
+        nproc
+        echo "=== CPU THREADS ==="
+        lscpu | grep "^CPU(s):" | cut -d: -f2 | xargs
+        echo "=== CPU FREQUENCY ==="
+        lscpu | grep "CPU MHz" | cut -d: -f2 | xargs
+        echo "=== CPU CACHE ==="
+        lscpu | grep "cache" | head -3
+        echo "=== CPU FLAGS ==="
+        cat /proc/cpuinfo | grep "flags" | head -1 | cut -d: -f2
+      register: cpu_detailed
+      changed_when: false
+
+    - name: Get memory information
+      shell: |
+        echo "=== MEMORY TOTAL ==="
+        free -h | grep "^Mem:" | awk '{print $2}'
+        echo "=== MEMORY DETAILS ==="
+        dmidecode -t memory | grep -E "(Size|Speed|Type|Manufacturer)" | head -20
+        echo "=== MEMORY USAGE ==="
+        free -h
+        echo "=== SWAP INFO ==="
+        swapon --show
+      register: memory_detailed
+      changed_when: false
+      failed_when: false
+
+    - name: Get disk information
+      shell: |
+        echo "=== DISK SUMMARY ==="
+        lsblk -f
+        echo "=== DISK DETAILS ==="
+        lshw -class disk 2>/dev/null | grep -E "(product|vendor|size|serial)" || echo "lshw not available"
+        echo "=== DISK USAGE ==="
+        df -h
+        echo "=== DISK SMART INFO ==="
+        for disk in $(lsblk -nd -o NAME | grep -v loop); do
+          echo "--- $disk ---"
+          smartctl -i /dev/$disk 2>/dev/null | grep -E "(Model|Serial|Capacity|Rotation)" || echo "SMART not available for $disk"
+        done
+      register: disk_detailed
+      changed_when: false
+      failed_when: false
+
+    - name: Get network information
+      shell: |
+        echo "=== NETWORK INTERFACES ==="
+        ip addr show
+        echo "=== NETWORK HARDWARE ==="
+        lshw -class network 2>/dev/null | grep -E "(product|vendor|serial|size|capacity)" || echo "lshw not available"
+        echo "=== NETWORK STATISTICS ==="
+        cat /proc/net/dev
+      register: network_detailed
+      changed_when: false
+      failed_when: false
+
+    - name: Get GPU information
+      shell: |
+        echo "=== GPU INFO ==="
+        lspci | grep -i vga
+        echo "=== GPU DETAILS ==="
+        lshw -class display 2>/dev/null | grep -E "(product|vendor|width|clock)" || echo "No GPU details available"
+        echo "=== NVIDIA GPU ==="
+        nvidia-smi 2>/dev/null || echo "NVIDIA drivers not available"
+      register: gpu_detailed
+      changed_when: false
+      failed_when: false
+
+    - name: Get temperature information
+      shell: |
+        echo "=== SENSORS ==="
+        sensors 2>/dev/null || echo "lm-sensors not configured"
+        echo "=== THERMAL ZONES ==="
+        for zone in /sys/class/thermal/thermal_zone*/temp; do
+          if [ -r "$zone" ]; then
+            zone_name=$(basename $(dirname $zone))
+            temp=$(cat $zone 2>/dev/null || echo "0")
+            temp_c=$((temp / 1000))
+            echo "$zone_name: ${temp_c}°C"
+          fi
+        done
+        echo "=== CPU TEMPERATURE ==="
+        cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | head -5 | while read temp; do
+          echo "Zone: $((temp / 1000))°C"
+        done || echo "No thermal zones available"
+      register: thermal_detailed
+      changed_when: false
+      failed_when: false
+
+    - name: Get current resource usage
+      shell: |
+        echo "=== CPU USAGE ==="
+        top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1
+        echo "=== MEMORY USAGE ==="
+        free | grep Mem | awk '{printf "%.1f", $3/$2 * 100.0}'
+        echo "=== DISK USAGE ==="
+        df / | tail -1 | awk '{print $5}' | sed 's/%//'
+        echo "=== LOAD AVERAGE ==="
+        uptime | awk -F'load average:' '{print $2}' | xargs
+        echo "=== UPTIME SECONDS ==="
+        cat /proc/uptime | cut -d' ' -f1 | cut -d'.' -f1
+      register: resource_usage
+      changed_when: false
+
+    - name: Get additional hardware information
+      shell: |
+        echo "=== SYSTEM INFO ==="
+        dmidecode -s system-manufacturer 2>/dev/null || echo "Unknown"
+        dmidecode -s system-product-name 2>/dev/null || echo "Unknown"
+        dmidecode -s system-version 2>/dev/null || echo "Unknown"
+        dmidecode -s system-serial-number 2>/dev/null || echo "Unknown"
+        echo "=== BIOS INFO ==="
+        dmidecode -s bios-version 2>/dev/null || echo "Unknown"
+        dmidecode -s bios-release-date 2>/dev/null || echo "Unknown"
+        echo "=== USB DEVICES ==="
+        lsusb 2>/dev/null || echo "lsusb not available"
+        echo "=== PCI DEVICES ==="
+        lspci | head -10
+      register: hardware_general
+      changed_when: false
+      failed_when: false
+
+    - name: Parse resource usage values
+      set_fact:
+        parsed_usage:
+          cpu_usage: "{{ resource_usage.stdout_lines[1] | default('0') | int }}"
+          memory_usage: "{{ resource_usage.stdout_lines[3] | default('0') | float | int }}"
+          disk_usage: "{{ resource_usage.stdout_lines[5] | default('0') | int }}"
+          load_average: "{{ resource_usage.stdout_lines[7] | default('0,0,0') }}"
+          uptime_seconds: "{{ resource_usage.stdout_lines[9] | default('0') | int }}"
+
+    - name: Compile comprehensive hardware report
+      set_fact:
+        hardware_report:
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ ansible_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address | default(ansible_all_ipv4_addresses[0]) }}"
+          
+          # Basic system info
+          os_version: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          kernel_version: "{{ ansible_kernel }}"
+          architecture: "{{ ansible_architecture }}"
+          
+          # CPU Information
+          cpu_info:
+            model: "{{ cpu_detailed.stdout_lines[1] | default('Unknown') }}"
+            architecture: "{{ cpu_detailed.stdout_lines[3] | default('Unknown') }}"
+            cores: "{{ cpu_detailed.stdout_lines[5] | default('0') | int }}"
+            threads: "{{ cpu_detailed.stdout_lines[7] | default('0') | int }}"
+            frequency: "{{ cpu_detailed.stdout_lines[9] | default('Unknown') }}"
+            cache_info: "{{ cpu_detailed.stdout_lines[11:14] | default(['Unknown']) | join(' | ') }}"
+            flags: "{{ cpu_detailed.stdout_lines[15] | default('Unknown') }}"
+            usage_percent: "{{ parsed_usage.cpu_usage }}"
+          
+          # Memory Information
+          memory_info:
+            total_gb: "{{ (ansible_memtotal_mb / 1024) | round(2) }}"
+            total_human: "{{ memory_detailed.stdout_lines[1] | default('Unknown') }}"
+            details: "{{ memory_detailed.stdout_lines[3:23] | default(['Unknown']) | join(' | ') }}"
+            usage_percent: "{{ parsed_usage.memory_usage }}"
+            swap_info: "{{ memory_detailed.stdout_lines[-1] | default('No swap') }}"
+          
+          # Disk Information
+          disk_info:
+            total_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first / 1024 / 1024 / 1024) | round(2) }}"
+            usage_percent: "{{ parsed_usage.disk_usage }}"
+            layout: "{{ disk_detailed.stdout_lines[1:10] | default(['Unknown']) | join(' | ') }}"
+            details: "{{ disk_detailed.stdout_lines[11:] | default(['Unknown']) | join(' | ') }}"
+          
+          # Network Information
+          network_info:
+            interfaces: "{{ ansible_interfaces | default([]) }}"
+            details: "{{ network_detailed.stdout | default('Unknown') }}"
+          
+          # GPU Information
+          gpu_info:
+            present: "{{ 'vga' in gpu_detailed.stdout.lower() or 'display' in gpu_detailed.stdout.lower() }}"
+            details: "{{ gpu_detailed.stdout | default('No GPU information') }}"
+          
+          # Thermal Information
+          thermal_info:
+            sensors_available: "{{ 'sensors not configured' not in thermal_detailed.stdout.lower() }}"
+            details: "{{ thermal_detailed.stdout | default('No thermal information') }}"
+          
+          # System Performance
+          performance:
+            load_average: "{{ parsed_usage.load_average }}"
+            uptime_seconds: "{{ parsed_usage.uptime_seconds }}"
+            uptime_human: "{{ (parsed_usage.uptime_seconds | int / 86400) | round(1) }} days"
+          
+          # Hardware General Info
+          hardware_general:
+            manufacturer: "{{ hardware_general.stdout_lines[1] | default('Unknown') }}"
+            model: "{{ hardware_general.stdout_lines[2] | default('Unknown') }}"
+            serial: "{{ hardware_general.stdout_lines[4] | default('Unknown') }}"
+            bios_version: "{{ hardware_general.stdout_lines[6] | default('Unknown') }}"
+            devices_summary: "{{ hardware_general.stdout_lines[9:] | default(['Unknown']) | join(' | ') }}"
+
+    - name: Display hardware report summary
+      debug:
+        msg: |
+          Hardware Report for {{ hardware_report.hostname }}:
+          - CPU: {{ hardware_report.cpu_info.model }} ({{ hardware_report.cpu_info.cores }} cores, {{ hardware_report.cpu_info.usage_percent }}% usage)
+          - Memory: {{ hardware_report.memory_info.total_human }} ({{ hardware_report.memory_info.usage_percent }}% usage)
+          - Disk: {{ hardware_report.disk_info.total_gb }}GB ({{ hardware_report.disk_info.usage_percent }}% usage)
+          - Load: {{ hardware_report.performance.load_average }}
+          - Uptime: {{ hardware_report.performance.uptime_human }}
+          - GPU: {{ hardware_report.gpu_info.present | ternary('Present', 'Not detected') }}
+          - Thermal Sensors: {{ hardware_report.thermal_info.sensors_available | ternary('Available', 'Not configured') }}
+
+    - name: Save hardware report to file
+      copy:
+        content: "{{ hardware_report | to_nice_json }}"
+        dest: "/tmp/hardware_report_{{ ansible_hostname }}.json"
+        mode: '0644'
+    
+    - name: Output structured hardware data for orchestrator
+      debug:
+        msg: "HARDWARE_REPORT_JSON_FILE: /tmp/hardware_report_{{ ansible_hostname }}.json"
+      
+    - name: Create summary report
+      copy:
+        content: |
+          # Hardware Report Summary for {{ hardware_report.hostname }}
+          Generated: {{ hardware_report.timestamp }}
+          
+          ## System Information
+          - **Hostname:** {{ hardware_report.hostname }}
+          - **IP Address:** {{ hardware_report.ip_address }}
+          - **OS:** {{ hardware_report.os_version }}
+          - **Kernel:** {{ hardware_report.kernel_version }}
+          - **Architecture:** {{ hardware_report.architecture }}
+          - **Manufacturer:** {{ hardware_report.hardware_general.manufacturer }}
+          - **Model:** {{ hardware_report.hardware_general.model }}
+          
+          ## CPU Information
+          - **Model:** {{ hardware_report.cpu_info.model }}
+          - **Cores:** {{ hardware_report.cpu_info.cores }}
+          - **Threads:** {{ hardware_report.cpu_info.threads }}
+          - **Current Usage:** {{ hardware_report.cpu_info.usage_percent }}%
+          - **Frequency:** {{ hardware_report.cpu_info.frequency }}
+          
+          ## Memory Information
+          - **Total:** {{ hardware_report.memory_info.total_human }} ({{ hardware_report.memory_info.total_gb }}GB)
+          - **Current Usage:** {{ hardware_report.memory_info.usage_percent }}%
+          
+          ## Disk Information
+          - **Total:** {{ hardware_report.disk_info.total_gb }}GB
+          - **Current Usage:** {{ hardware_report.disk_info.usage_percent }}%
+          
+          ## Performance Metrics
+          - **Load Average:** {{ hardware_report.performance.load_average }}
+          - **Uptime:** {{ hardware_report.performance.uptime_human }}
+          
+          ## Hardware Features
+          - **GPU Present:** {{ hardware_report.gpu_info.present | ternary('Yes', 'No') }}
+          - **Temperature Sensors:** {{ hardware_report.thermal_info.sensors_available | ternary('Available', 'Not configured') }}
+          - **Network Interfaces:** {{ hardware_report.network_info.interfaces | length }}
+        dest: "/tmp/hardware_summary_{{ ansible_hostname }}.md"
+        mode: '0644'

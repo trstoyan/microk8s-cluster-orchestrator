@@ -1,59 +1,80 @@
 #!/usr/bin/env python3
-"""Manually update node MicroK8s status."""
+"""
+Script to manually update node status by running health checks.
+Useful for testing and fixing status detection issues.
+"""
 
 import sys
-import argparse
-from pathlib import Path
-from datetime import datetime
-
-# Add parent directory to path so we can import app modules
-sys.path.append(str(Path(__file__).parent.parent))
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from app.models.database import get_session
 from app.models.node import Node
+from app.services.orchestrator import OrchestrationService
 
-def update_node_microk8s_status(node_id, status='running'):
-    """Update a node's MicroK8s status."""
+def update_all_nodes():
+    """Update status for all nodes."""
     session = get_session()
+    orchestrator = OrchestrationService()
+    
     try:
-        node = session.query(Node).filter_by(id=node_id).first()
-        if not node:
-            print(f"✗ Node with ID {node_id} not found")
-            return False
+        nodes = session.query(Node).all()
+        print(f"Found {len(nodes)} nodes to check")
         
-        old_status = node.microk8s_status
-        node.microk8s_status = status
-        node.last_seen = datetime.utcnow()
-        node.status = 'online'
+        for node in nodes:
+            print(f"\nChecking node: {node.hostname} ({node.ip_address})")
+            print(f"Current status: {node.status}, MicroK8s: {node.microk8s_status}")
+            
+            try:
+                operation = orchestrator.check_node_status(node)
+                
+                # Refresh node from database to see updated status
+                session.refresh(node)
+                print(f"Updated status: {node.status}, MicroK8s: {node.microk8s_status}")
+                print(f"Operation result: {operation.status}")
+                
+            except Exception as e:
+                print(f"Error checking node {node.hostname}: {e}")
         
-        session.commit()
-        
-        print(f"✓ Updated node '{node.hostname}' MicroK8s status:")
-        print(f"  From: {old_status}")
-        print(f"  To: {status}")
-        print(f"  Last seen: {node.last_seen}")
-        
-        return True
+        print("\nNode status update completed!")
         
     except Exception as e:
-        session.rollback()
-        print(f"✗ Failed to update node status: {e}")
-        return False
+        print(f"Error: {e}")
     finally:
         session.close()
 
-def main():
-    """Main function."""
-    parser = argparse.ArgumentParser(description='Update node MicroK8s status')
-    parser.add_argument('node_id', type=int, help='Node ID to update')
-    parser.add_argument('--status', default='running',
-                       choices=['not_installed', 'installed', 'running', 'stopped', 'error'],
-                       help='MicroK8s status to set (default: running)')
+def update_specific_node(hostname):
+    """Update status for a specific node."""
+    session = get_session()
+    orchestrator = OrchestrationService()
     
-    args = parser.parse_args()
-    
-    success = update_node_microk8s_status(args.node_id, args.status)
-    sys.exit(0 if success else 1)
+    try:
+        node = session.query(Node).filter_by(hostname=hostname).first()
+        if not node:
+            print(f"Node '{hostname}' not found")
+            return
+        
+        print(f"Checking node: {node.hostname} ({node.ip_address})")
+        print(f"Current status: {node.status}, MicroK8s: {node.microk8s_status}")
+        
+        operation = orchestrator.check_node_status(node)
+        
+        # Refresh node from database to see updated status
+        session.refresh(node)
+        print(f"Updated status: {node.status}, MicroK8s: {node.microk8s_status}")
+        print(f"Operation result: {operation.status}")
+        
+        if operation.output:
+            print(f"\nOperation output:\n{operation.output}")
+        
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        session.close()
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        hostname = sys.argv[1]
+        update_specific_node(hostname)
+    else:
+        update_all_nodes()

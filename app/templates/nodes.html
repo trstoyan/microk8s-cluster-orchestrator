@@ -17,9 +17,9 @@
 {% if nodes %}
     <div class="card">
         <div class="card-body">
-            <div class="table-responsive">
+            <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
                 <table class="table table-hover">
-                    <thead>
+                    <thead class="sticky-top bg-white">
                         <tr>
                             <th>ID</th>
                             <th>Hostname</th>
@@ -94,6 +94,9 @@
                                     <ul class="dropdown-menu">
                                         <li><a class="dropdown-item" href="#" onclick="checkStatus({{ node.id }})">
                                             <i class="bi bi-arrow-clockwise"></i> Check Status
+                                        </a></li>
+                                        <li><a class="dropdown-item" href="{{ url_for('web.node_hardware_report', node_id=node.id) }}">
+                                            <i class="bi bi-cpu"></i> Hardware Report
                                         </a></li>
                                         {% if node.microk8s_status == 'not_installed' %}
                                         <li><a class="dropdown-item" href="#" onclick="installMicroK8s({{ node.id }})">

@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block title %}Hardware Report - {{ cluster.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1><i class="fas fa-server-alt"></i> {{ cluster.name }}</h1>
+                    <p class="text-muted">Cluster Hardware Report</p>
+                </div>
+                <div>
+                    <a href="{{ url_for('web.hardware_report') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i> All Nodes
+                    </a>
+                    <button class="btn btn-primary" onclick="collectClusterHardwareReport({{ cluster.id }})">
+                        <i class="fas fa-sync-alt"></i> Update Cluster Report
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cluster Summary Cards -->
+            <div class="row mb-4">
+                <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                    <div class="card border-left-primary shadow h-100 py-2">
+                        <div class="card-body">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col mr-2">
+                                    <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Nodes</div>
+                                    <div class="h5 mb-0 font-weight-bold text-gray-800">{{ summary.total_nodes }}</div>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-server fa-2x text-gray-300"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                    <div class="card border-left-success shadow h-100 py-2">
+                        <div class="card-body">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col mr-2">
+                                    <div class="text-xs font-weight-bold text-success text-uppercase mb-1">CPU Cores</div>
+                                    <div class="h5 mb-0 font-weight-bold text-gray-800">{{ summary.total_cpu_cores }}</div>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-microchip fa-2x text-gray-300"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                    <div class="card border-left-info shadow h-100 py-2">
+                        <div class="card-body">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col mr-2">
+                                    <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Total RAM</div>
+                                    <div class="h5 mb-0 font-weight-bold text-gray-800">{{ "%.1f"|format(summary.total_memory_gb) }} GB</div>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-memory fa-2x text-gray-300"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                    <div class="card border-left-warning shadow h-100 py-2">
+                        <div class="card-body">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col mr-2">
+                                    <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Total Storage</div>
+                                    <div class="h5 mb-0 font-weight-bold text-gray-800">{{ "%.1f"|format(summary.total_disk_gb) }} GB</div>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-hdd fa-2x text-gray-300"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                    <div class="card border-left-secondary shadow h-100 py-2">
+                        <div class="card-body">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col mr-2">
+                                    <div class="text-xs font-weight-bold text-secondary text-uppercase mb-1">GPU Nodes</div>
+                                    <div class="h5 mb-0 font-weight-bold text-gray-800">{{ summary.nodes_with_gpu }}</div>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-tv fa-2x text-gray-300"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                    <div class="card border-left-dark shadow h-100 py-2">
+                        <div class="card-body">
+                            <div class="row no-gutters align-items-center">
+                                <div class="col mr-2">
+                                    <div class="text-xs font-weight-bold text-dark text-uppercase mb-1">Thermal Sensors</div>
+                                    <div class="h5 mb-0 font-weight-bold text-gray-800">{{ summary.nodes_with_thermal }}</div>
+                                </div>
+                                <div class="col-auto">
+                                    <i class="fas fa-thermometer-half fa-2x text-gray-300"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cluster Info -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card shadow">
+                        <div class="card-header">
+                            <h6 class="m-0 font-weight-bold text-primary">Cluster Information</h6>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-sm table-borderless">
+                                <tr><th>Name:</th><td>{{ cluster.name }}</td></tr>
+                                <tr><th>Description:</th><td>{{ cluster.description or 'None' }}</td></tr>
+                                <tr><th>Status:</th><td><span class="badge badge-{{ 'success' if cluster.status == 'active' else 'secondary' }}">{{ cluster.status }}</span></td></tr>
+                                <tr><th>Health Score:</th><td>{{ cluster.health_score }}/100</td></tr>
+                                <tr><th>HA Enabled:</th><td>{{ 'Yes' if cluster.ha_enabled else 'No' }}</td></tr>
+                                <tr><th>Network CIDR:</th><td>{{ cluster.network_cidr }}</td></tr>
+                                <tr><th>Service CIDR:</th><td>{{ cluster.service_cidr }}</td></tr>
+                                <tr><th>Control Plane Nodes:</th><td>{{ cluster.control_plane_count }}</td></tr>
+                                <tr><th>Worker Nodes:</th><td>{{ cluster.worker_count }}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                {% if summary.nodes_with_usage_data > 0 %}
+                <div class="col-md-6">
+                    <div class="card shadow">
+                        <div class="card-header">
+                            <h6 class="m-0 font-weight-bold text-primary">Resource Usage Overview</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label>Average CPU Usage</label>
+                                <div class="progress">
+                                    <div class="progress-bar" style="width: {{ summary.avg_cpu_usage }}%">
+                                        {{ summary.avg_cpu_usage }}%
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label>Average Memory Usage</label>
+                                <div class="progress">
+                                    <div class="progress-bar bg-info" style="width: {{ summary.avg_memory_usage }}%">
+                                        {{ summary.avg_memory_usage }}%
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label>Average Disk Usage</label>
+                                <div class="progress">
+                                    <div class="progress-bar bg-warning" style="width: {{ summary.avg_disk_usage }}%">
+                                        {{ summary.avg_disk_usage }}%
+                                    </div>
+                                </div>
+                            </div>
+                            <small class="text-muted">Based on {{ summary.nodes_with_usage_data }} nodes with usage data</small>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Nodes Table -->
+            <div class="card shadow mb-4">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-primary">Node Hardware Details</h6>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered" id="clusterHardwareTable" width="100%" cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Node</th>
+                                    <th>Role</th>
+                                    <th>CPU</th>
+                                    <th>Memory</th>
+                                    <th>Storage</th>
+                                    <th>GPU</th>
+                                    <th>Temperature</th>
+                                    <th>Usage</th>
+                                    <th>Last Updated</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for node in nodes %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ node.hostname }}</strong><br>
+                                        <small class="text-muted">{{ node.ip_address }}</small><br>
+                                        <span class="badge badge-{{ 'success' if node.status == 'online' else 'secondary' }}">
+                                            {{ node.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-{{ 'primary' if node.is_control_plane else 'info' }}">
+                                            {{ 'Control Plane' if node.is_control_plane else 'Worker' }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if node.cpu_cores %}
+                                            <strong>{{ node.cpu_cores }}</strong> cores<br>
+                                            {% if node.cpu_usage_percent is not none %}
+                                                <div class="progress progress-sm">
+                                                    <div class="progress-bar" style="width: {{ node.cpu_usage_percent }}%"></div>
+                                                </div>
+                                                <small>{{ node.cpu_usage_percent }}% used</small>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">Unknown</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if node.memory_gb %}
+                                            <strong>{{ "%.1f"|format(node.memory_gb) }}</strong> GB<br>
+                                            {% if node.memory_usage_percent is not none %}
+                                                <div class="progress progress-sm">
+                                                    <div class="progress-bar bg-info" style="width: {{ node.memory_usage_percent }}%"></div>
+                                                </div>
+                                                <small>{{ node.memory_usage_percent }}% used</small>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">Unknown</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if node.disk_gb %}
+                                            <strong>{{ "%.1f"|format(node.disk_gb) }}</strong> GB<br>
+                                            {% if node.disk_usage_percent is not none %}
+                                                <div class="progress progress-sm">
+                                                    <div class="progress-bar bg-warning" style="width: {{ node.disk_usage_percent }}%"></div>
+                                                </div>
+                                                <small>{{ node.disk_usage_percent }}% used</small>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">Unknown</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if node.gpu_info and 'present": true' in node.gpu_info.lower() %}
+                                            <span class="badge badge-success">Present</span>
+                                        {% else %}
+                                            <span class="badge badge-secondary">None</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if node.thermal_info and 'sensors_available": true' in node.thermal_info.lower() %}
+                                            <span class="badge badge-success">Available</span>
+                                        {% else %}
+                                            <span class="badge badge-secondary">N/A</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if node.load_average %}
+                                            <small>Load: {{ node.load_average }}</small><br>
+                                        {% endif %}
+                                        {% if node.uptime_seconds %}
+                                            <small>Uptime: {{ "%.1f"|format(node.uptime_seconds / 86400) }} days</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if node.last_seen %}
+                                            {{ node.last_seen.strftime('%Y-%m-%d %H:%M') }}
+                                        {% else %}
+                                            <span class="text-muted">Never</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('web.node_hardware_report', node_id=node.id) }}" 
+                                           class="btn btn-sm btn-outline-primary" title="Detailed Report">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                        <button onclick="collectNodeHardwareReport({{ node.id }})" 
+                                                class="btn btn-sm btn-outline-secondary" title="Update Node">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('#clusterHardwareTable').DataTable({
+        "pageLength": 25,
+        "order": [[ 0, "asc" ]],
+        "columnDefs": [
+            { "orderable": false, "targets": [9] }
+        ]
+    });
+});
+
+function collectClusterHardwareReport(clusterId) {
+    const button = event.target.closest('button');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Collecting...';
+    button.disabled = true;
+    
+    fetch('/api/hardware-report', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({cluster_id: clusterId})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            alert('Hardware report collection started for cluster. Operation ID: ' + data.operation_id);
+            setTimeout(() => location.reload(), 3000);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error collecting hardware report');
+    })
+    .finally(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+
+function collectNodeHardwareReport(nodeId) {
+    const button = event.target.closest('button');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    button.disabled = true;
+    
+    fetch('/api/hardware-report', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({node_id: nodeId})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            alert('Hardware report collection started for node. Operation ID: ' + data.operation_id);
+            setTimeout(() => location.reload(), 3000);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error collecting hardware report');
+    })
+    .finally(() => {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    });
+}
+</script>
+{% endblock %}

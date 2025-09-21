@@ -10,8 +10,51 @@ import os
 import sys
 import json
 from datetime import datetime
-from tabulate import tabulate
-from colorama import init, Fore, Style
+
+try:
+    from tabulate import tabulate
+except ImportError:
+    def tabulate(data, headers=None, tablefmt="grid"):
+        """Fallback tabulate function for when tabulate is not installed."""
+        if not data:
+            return ""
+        
+        if headers:
+            # Simple table formatting
+            result = []
+            # Add headers
+            result.append(" | ".join(str(h) for h in headers))
+            result.append("-" * len(result[0]))
+            
+            # Add data rows
+            for row in data:
+                result.append(" | ".join(str(cell) for cell in row))
+            
+            return "\n".join(result)
+        else:
+            # Simple key-value formatting
+            result = []
+            for row in data:
+                if len(row) >= 2:
+                    result.append(f"{row[0]}: {row[1]}")
+            return "\n".join(result)
+try:
+    from colorama import init, Fore, Style
+    init()  # Initialize colorama
+except ImportError:
+    # Fallback if colorama is not available
+    class Fore:
+        RED = ''
+        GREEN = ''
+        YELLOW = ''
+        BLUE = ''
+        RESET = ''
+    
+    class Style:
+        RESET_ALL = ''
+    
+    def init():
+        pass
 
 # Add app directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
@@ -25,8 +68,7 @@ from app.models.network_lease import NetworkLease, NetworkInterface
 from app.services.cli_orchestrator import CLIOrchestrationService
 from app.utils.config import config
 
-# Initialize colorama for colored output
-init(autoreset=True)
+# Colorama is already initialized above if available
 
 def print_success(message):
     """Print success message in green."""
@@ -1251,6 +1293,329 @@ def activate_user(username):
             
     except Exception as e:
         print_error(f"Failed to activate user: {e}")
+
+# Hardware report commands
+@cli.group()
+def hardware_report():
+    """Hardware report management commands."""
+    pass
+
+@hardware_report.command()
+@click.option('--cluster-id', type=int, help='Collect for specific cluster only')
+@click.option('--node-id', type=int, help='Collect for specific node only')
+@click.option('--output', '-o', type=click.Choice(['table', 'json', 'csv']), default='table', 
+              help='Output format')
+def collect(cluster_id, node_id, output):
+    """Collect hardware information from nodes."""
+    from app.services.orchestrator import OrchestrationService
+    
+    try:
+        orchestrator = OrchestrationService()
+        
+        print_info("Starting hardware report collection...")
+        result = orchestrator.collect_hardware_report(cluster_id=cluster_id, node_id=node_id)
+        
+        if result['success']:
+            print_success(f"Hardware report collection started successfully!")
+            print(f"Operation ID: {result['operation_id']}")
+            print(f"Nodes being processed: {result.get('nodes_updated', 0)}")
+            print("\nYou can monitor the operation progress with:")
+            print(f"  python cli.py operation status {result['operation_id']}")
+        else:
+            print_error(f"Failed to start hardware collection: {result['error']}")
+            
+    except Exception as e:
+        print_error(f"Failed to collect hardware report: {e}")
+
+@hardware_report.command()
+@click.option('--cluster-id', type=int, help='Show report for specific cluster only')
+@click.option('--node-id', type=int, help='Show report for specific node only')
+@click.option('--output', '-o', type=click.Choice(['table', 'json', 'csv']), default='table', 
+              help='Output format')
+@click.option('--detailed', '-d', is_flag=True, help='Show detailed hardware information')
+def show(cluster_id, node_id, output, detailed):
+    """Show hardware report for nodes."""
+    try:
+        with get_db_session() as session:
+            # Build query
+            query = session.query(Node)
+            
+            if node_id:
+                query = query.filter(Node.id == node_id)
+            elif cluster_id:
+                query = query.filter(Node.cluster_id == cluster_id)
+            
+            nodes = query.all()
+            
+            if not nodes:
+                print_warning("No nodes found matching criteria.")
+                return
+            
+            if output == 'json':
+                import json
+                nodes_data = []
+                for node in nodes:
+                    node_dict = node.to_dict()
+                    if detailed:
+                        # Parse JSON fields
+                        try:
+                            if node.cpu_info:
+                                node_dict['cpu_info_parsed'] = json.loads(node.cpu_info)
+                            if node.memory_info:
+                                node_dict['memory_info_parsed'] = json.loads(node.memory_info)
+                            if node.disk_info:
+                                node_dict['disk_info_parsed'] = json.loads(node.disk_info)
+                            if node.network_info:
+                                node_dict['network_info_parsed'] = json.loads(node.network_info)
+                            if node.gpu_info:
+                                node_dict['gpu_info_parsed'] = json.loads(node.gpu_info)
+                            if node.thermal_info:
+                                node_dict['thermal_info_parsed'] = json.loads(node.thermal_info)
+                        except json.JSONDecodeError:
+                            pass
+                    nodes_data.append(node_dict)
+                
+                print(json.dumps(nodes_data, indent=2, default=str))
+                
+            elif output == 'csv':
+                import csv
+                import sys
+                
+                fieldnames = ['hostname', 'ip_address', 'status', 'cpu_cores', 'memory_gb', 
+                             'disk_gb', 'cpu_usage_percent', 'memory_usage_percent', 
+                             'disk_usage_percent', 'load_average', 'uptime_seconds', 'last_seen']
+                
+                writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for node in nodes:
+                    row = {field: getattr(node, field) for field in fieldnames}
+                    writer.writerow(row)
+                    
+            else:  # table format
+                
+                if detailed:
+                    # Detailed view - show one node at a time
+                    for i, node in enumerate(nodes):
+                        if i > 0:
+                            print("\n" + "="*80 + "\n")
+                        
+                        print(f"Node: {node.hostname} ({node.ip_address})")
+                        print("-" * 40)
+                        
+                        basic_info = [
+                            ["Status", node.status or 'Unknown'],
+                            ["OS Version", node.os_version or 'Unknown'],
+                            ["Kernel", node.kernel_version or 'Unknown'],
+                            ["Last Seen", node.last_seen.strftime('%Y-%m-%d %H:%M:%S') if node.last_seen else 'Never'],
+                        ]
+                        
+                        hardware_info = [
+                            ["CPU Cores", node.cpu_cores or 'Unknown'],
+                            ["Memory (GB)", f"{node.memory_gb:.1f}" if node.memory_gb else 'Unknown'],
+                            ["Disk (GB)", f"{node.disk_gb:.1f}" if node.disk_gb else 'Unknown'],
+                        ]
+                        
+                        usage_info = [
+                            ["CPU Usage", f"{node.cpu_usage_percent}%" if node.cpu_usage_percent is not None else 'N/A'],
+                            ["Memory Usage", f"{node.memory_usage_percent}%" if node.memory_usage_percent is not None else 'N/A'],
+                            ["Disk Usage", f"{node.disk_usage_percent}%" if node.disk_usage_percent is not None else 'N/A'],
+                            ["Load Average", node.load_average or 'N/A'],
+                            ["Uptime", f"{node.uptime_seconds / 86400:.1f} days" if node.uptime_seconds else 'N/A'],
+                        ]
+                        
+                        print("Basic Information:")
+                        print(tabulate(basic_info, tablefmt="grid"))
+                        print("\nHardware Information:")
+                        print(tabulate(hardware_info, tablefmt="grid"))
+                        print("\nCurrent Usage:")
+                        print(tabulate(usage_info, tablefmt="grid"))
+                        
+                        # Show GPU and thermal status
+                        features = []
+                        if node.gpu_info and 'present": true' in node.gpu_info.lower():
+                            features.append("GPU Present")
+                        if node.thermal_info and 'sensors_available": true' in node.thermal_info.lower():
+                            features.append("Thermal Sensors")
+                        
+                        if features:
+                            print(f"\nFeatures: {', '.join(features)}")
+                else:
+                    # Summary table view
+                    headers = ['Hostname', 'IP Address', 'Status', 'CPU Cores', 'Memory (GB)', 
+                              'Disk (GB)', 'CPU %', 'Memory %', 'Disk %', 'GPU', 'Thermal', 'Last Seen']
+                    
+                    rows = []
+                    for node in nodes:
+                        gpu_status = "Yes" if (node.gpu_info and 'present": true' in node.gpu_info.lower()) else "No"
+                        thermal_status = "Yes" if (node.thermal_info and 'sensors_available": true' in node.thermal_info.lower()) else "No"
+                        
+                        rows.append([
+                            node.hostname,
+                            node.ip_address,
+                            node.status or 'Unknown',
+                            node.cpu_cores or 'Unknown',
+                            f"{node.memory_gb:.1f}" if node.memory_gb else 'Unknown',
+                            f"{node.disk_gb:.1f}" if node.disk_gb else 'Unknown',
+                            f"{node.cpu_usage_percent}%" if node.cpu_usage_percent is not None else 'N/A',
+                            f"{node.memory_usage_percent}%" if node.memory_usage_percent is not None else 'N/A',
+                            f"{node.disk_usage_percent}%" if node.disk_usage_percent is not None else 'N/A',
+                            gpu_status,
+                            thermal_status,
+                            node.last_seen.strftime('%Y-%m-%d %H:%M') if node.last_seen else 'Never'
+                        ])
+                    
+                    print(tabulate(rows, headers=headers, tablefmt="grid"))
+                    
+                    # Show summary
+                    total_cores = sum(node.cpu_cores or 0 for node in nodes)
+                    total_memory = sum(node.memory_gb or 0 for node in nodes)
+                    total_disk = sum(node.disk_gb or 0 for node in nodes)
+                    nodes_with_usage = [n for n in nodes if n.cpu_usage_percent is not None]
+                    
+                    print(f"\nSummary:")
+                    print(f"  Total Nodes: {len(nodes)}")
+                    print(f"  Total CPU Cores: {total_cores}")
+                    print(f"  Total Memory: {total_memory:.1f} GB")
+                    print(f"  Total Disk: {total_disk:.1f} GB")
+                    print(f"  Nodes with Usage Data: {len(nodes_with_usage)}")
+                    
+                    if nodes_with_usage:
+                        avg_cpu = sum(n.cpu_usage_percent for n in nodes_with_usage) / len(nodes_with_usage)
+                        avg_memory = sum(n.memory_usage_percent for n in nodes_with_usage if n.memory_usage_percent is not None) / len([n for n in nodes_with_usage if n.memory_usage_percent is not None])
+                        avg_disk = sum(n.disk_usage_percent for n in nodes_with_usage if n.disk_usage_percent is not None) / len([n for n in nodes_with_usage if n.disk_usage_percent is not None])
+                        
+                        print(f"  Average CPU Usage: {avg_cpu:.1f}%")
+                        if avg_memory:
+                            print(f"  Average Memory Usage: {avg_memory:.1f}%")
+                        if avg_disk:
+                            print(f"  Average Disk Usage: {avg_disk:.1f}%")
+            
+    except Exception as e:
+        print_error(f"Failed to show hardware report: {e}")
+
+@hardware_report.command()
+@click.option('--cluster-id', type=int, help='Export for specific cluster only')
+@click.option('--node-id', type=int, help='Export for specific node only')
+@click.option('--output-file', '-f', help='Output file path', required=True)
+@click.option('--format', type=click.Choice(['json', 'csv', 'html']), default='json', 
+              help='Export format')
+def export(cluster_id, node_id, output_file, format):
+    """Export hardware report to file."""
+    try:
+        with get_db_session() as session:
+            # Build query
+            query = session.query(Node)
+            
+            if node_id:
+                query = query.filter(Node.id == node_id)
+            elif cluster_id:
+                query = query.filter(Node.cluster_id == cluster_id)
+            
+            nodes = query.all()
+            
+            if not nodes:
+                print_warning("No nodes found matching criteria.")
+                return
+            
+            if format == 'json':
+                import json
+                nodes_data = [node.to_dict() for node in nodes]
+                
+                with open(output_file, 'w') as f:
+                    json.dump({
+                        'timestamp': datetime.now().isoformat(),
+                        'total_nodes': len(nodes),
+                        'nodes': nodes_data
+                    }, f, indent=2, default=str)
+                    
+            elif format == 'csv':
+                import csv
+                
+                fieldnames = ['hostname', 'ip_address', 'status', 'os_version', 'kernel_version',
+                             'cpu_cores', 'memory_gb', 'disk_gb', 'cpu_usage_percent', 
+                             'memory_usage_percent', 'disk_usage_percent', 'load_average', 
+                             'uptime_seconds', 'last_seen', 'created_at']
+                
+                with open(output_file, 'w', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    
+                    for node in nodes:
+                        row = {field: getattr(node, field) for field in fieldnames}
+                        writer.writerow(row)
+                        
+            elif format == 'html':
+                html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hardware Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+        .summary {{ background-color: #f9f9f9; padding: 15px; margin-bottom: 20px; border-radius: 5px; }}
+    </style>
+</head>
+<body>
+    <h1>Hardware Report</h1>
+    <div class="summary">
+        <h3>Summary</h3>
+        <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p><strong>Total Nodes:</strong> {len(nodes)}</p>
+        <p><strong>Total CPU Cores:</strong> {sum(node.cpu_cores or 0 for node in nodes)}</p>
+        <p><strong>Total Memory:</strong> {sum(node.memory_gb or 0 for node in nodes):.1f} GB</p>
+        <p><strong>Total Disk:</strong> {sum(node.disk_gb or 0 for node in nodes):.1f} GB</p>
+    </div>
+    
+    <table>
+        <tr>
+            <th>Hostname</th>
+            <th>IP Address</th>
+            <th>Status</th>
+            <th>CPU Cores</th>
+            <th>Memory (GB)</th>
+            <th>Disk (GB)</th>
+            <th>CPU Usage</th>
+            <th>Memory Usage</th>
+            <th>Disk Usage</th>
+            <th>Last Seen</th>
+        </tr>
+"""
+                
+                for node in nodes:
+                    html_content += f"""
+        <tr>
+            <td>{node.hostname}</td>
+            <td>{node.ip_address}</td>
+            <td>{node.status or 'Unknown'}</td>
+            <td>{node.cpu_cores or 'Unknown'}</td>
+            <td>{node.memory_gb:.1f if node.memory_gb else 'Unknown'}</td>
+            <td>{node.disk_gb:.1f if node.disk_gb else 'Unknown'}</td>
+            <td>{node.cpu_usage_percent}% if node.cpu_usage_percent is not None else 'N/A'</td>
+            <td>{node.memory_usage_percent}% if node.memory_usage_percent is not None else 'N/A'</td>
+            <td>{node.disk_usage_percent}% if node.disk_usage_percent is not None else 'N/A'</td>
+            <td>{node.last_seen.strftime('%Y-%m-%d %H:%M') if node.last_seen else 'Never'}</td>
+        </tr>
+"""
+                
+                html_content += """
+    </table>
+</body>
+</html>
+"""
+                
+                with open(output_file, 'w') as f:
+                    f.write(html_content)
+            
+            print_success(f"Hardware report exported to: {output_file}")
+            print(f"Format: {format.upper()}")
+            print(f"Nodes included: {len(nodes)}")
+            
+    except Exception as e:
+        print_error(f"Failed to export hardware report: {e}")
 
 if __name__ == '__main__':
     cli()

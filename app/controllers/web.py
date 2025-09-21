@@ -424,3 +424,163 @@ def network_topology():
                          router_switches=router_switches,
                          nodes=nodes,
                          clusters=clusters)
+
+@bp.route('/hardware-report')
+@login_required
+def hardware_report():
+    """Hardware report for all nodes."""
+    nodes = Node.query.all()
+    clusters = Cluster.query.all()
+    
+    # Calculate summary statistics
+    total_cpu_cores = sum(node.cpu_cores or 0 for node in nodes)
+    total_memory_gb = sum(node.memory_gb or 0 for node in nodes)
+    total_disk_gb = sum(node.disk_gb or 0 for node in nodes)
+    
+    # Calculate averages for nodes with data (with defensive programming for missing attributes)
+    nodes_with_cpu_usage = [n for n in nodes if hasattr(n, 'cpu_usage_percent') and n.cpu_usage_percent is not None]
+    nodes_with_memory_usage = [n for n in nodes if hasattr(n, 'memory_usage_percent') and n.memory_usage_percent is not None]
+    nodes_with_disk_usage = [n for n in nodes if hasattr(n, 'disk_usage_percent') and n.disk_usage_percent is not None]
+    
+    avg_cpu_usage = sum(n.cpu_usage_percent for n in nodes_with_cpu_usage) / len(nodes_with_cpu_usage) if nodes_with_cpu_usage else 0
+    avg_memory_usage = sum(n.memory_usage_percent for n in nodes_with_memory_usage) / len(nodes_with_memory_usage) if nodes_with_memory_usage else 0
+    avg_disk_usage = sum(n.disk_usage_percent for n in nodes_with_disk_usage) / len(nodes_with_disk_usage) if nodes_with_disk_usage else 0
+    
+    # Count nodes with GPU
+    nodes_with_gpu = len([n for n in nodes if hasattr(n, 'gpu_info') and n.gpu_info and 'present": true' in n.gpu_info.lower()])
+    
+    # Count nodes with thermal sensors
+    nodes_with_thermal = len([n for n in nodes if hasattr(n, 'thermal_info') and n.thermal_info and 'sensors_available": true' in n.thermal_info.lower()])
+    
+    summary = {
+        'total_nodes': len(nodes),
+        'total_cpu_cores': total_cpu_cores,
+        'total_memory_gb': total_memory_gb,
+        'total_disk_gb': total_disk_gb,
+        'avg_cpu_usage': round(avg_cpu_usage, 1),
+        'avg_memory_usage': round(avg_memory_usage, 1),
+        'avg_disk_usage': round(avg_disk_usage, 1),
+        'nodes_with_gpu': nodes_with_gpu,
+        'nodes_with_thermal': nodes_with_thermal,
+        'nodes_with_usage_data': len(nodes_with_cpu_usage)
+    }
+    
+    return render_template('hardware_report.html', 
+                         nodes=nodes, 
+                         clusters=clusters,
+                         summary=summary)
+
+@bp.route('/hardware-report/cluster/<int:cluster_id>')
+@login_required
+def cluster_hardware_report(cluster_id):
+    """Hardware report for a specific cluster."""
+    cluster = Cluster.query.get_or_404(cluster_id)
+    nodes = cluster.nodes
+    
+    # Calculate summary statistics for this cluster
+    total_cpu_cores = sum(node.cpu_cores or 0 for node in nodes)
+    total_memory_gb = sum(node.memory_gb or 0 for node in nodes)
+    total_disk_gb = sum(node.disk_gb or 0 for node in nodes)
+    
+    # Calculate averages for nodes with data (with defensive programming for missing attributes)
+    nodes_with_cpu_usage = [n for n in nodes if hasattr(n, 'cpu_usage_percent') and n.cpu_usage_percent is not None]
+    nodes_with_memory_usage = [n for n in nodes if hasattr(n, 'memory_usage_percent') and n.memory_usage_percent is not None]
+    nodes_with_disk_usage = [n for n in nodes if hasattr(n, 'disk_usage_percent') and n.disk_usage_percent is not None]
+    
+    avg_cpu_usage = sum(n.cpu_usage_percent for n in nodes_with_cpu_usage) / len(nodes_with_cpu_usage) if nodes_with_cpu_usage else 0
+    avg_memory_usage = sum(n.memory_usage_percent for n in nodes_with_memory_usage) / len(nodes_with_memory_usage) if nodes_with_memory_usage else 0
+    avg_disk_usage = sum(n.disk_usage_percent for n in nodes_with_disk_usage) / len(nodes_with_disk_usage) if nodes_with_disk_usage else 0
+    
+    # Count nodes with GPU
+    nodes_with_gpu = len([n for n in nodes if hasattr(n, 'gpu_info') and n.gpu_info and 'present": true' in n.gpu_info.lower()])
+    
+    # Count nodes with thermal sensors
+    nodes_with_thermal = len([n for n in nodes if hasattr(n, 'thermal_info') and n.thermal_info and 'sensors_available": true' in n.thermal_info.lower()])
+    
+    summary = {
+        'total_nodes': len(nodes),
+        'total_cpu_cores': total_cpu_cores,
+        'total_memory_gb': total_memory_gb,
+        'total_disk_gb': total_disk_gb,
+        'avg_cpu_usage': round(avg_cpu_usage, 1),
+        'avg_memory_usage': round(avg_memory_usage, 1),
+        'avg_disk_usage': round(avg_disk_usage, 1),
+        'nodes_with_gpu': nodes_with_gpu,
+        'nodes_with_thermal': nodes_with_thermal,
+        'nodes_with_usage_data': len(nodes_with_cpu_usage)
+    }
+    
+    return render_template('cluster_hardware_report.html', 
+                         cluster=cluster,
+                         nodes=nodes,
+                         summary=summary)
+
+@bp.route('/hardware-report/node/<int:node_id>')
+@login_required
+def node_hardware_report(node_id):
+    """Detailed hardware report for a specific node."""
+    node = Node.query.get_or_404(node_id)
+    
+    # Parse JSON fields for display
+    import json
+    parsed_info = {}
+    
+    try:
+        if hasattr(node, 'cpu_info') and node.cpu_info:
+            parsed_info['cpu'] = json.loads(node.cpu_info)
+        else:
+            parsed_info['cpu'] = None
+    except json.JSONDecodeError:
+        parsed_info['cpu'] = None
+        
+    try:
+        if hasattr(node, 'memory_info') and node.memory_info:
+            parsed_info['memory'] = json.loads(node.memory_info)
+        else:
+            parsed_info['memory'] = None
+    except json.JSONDecodeError:
+        parsed_info['memory'] = None
+        
+    try:
+        if hasattr(node, 'disk_info') and node.disk_info:
+            parsed_info['disk'] = json.loads(node.disk_info)
+        else:
+            parsed_info['disk'] = None
+    except json.JSONDecodeError:
+        parsed_info['disk'] = None
+        
+    try:
+        if hasattr(node, 'network_info') and node.network_info:
+            parsed_info['network'] = json.loads(node.network_info)
+        else:
+            parsed_info['network'] = None
+    except json.JSONDecodeError:
+        parsed_info['network'] = None
+        
+    try:
+        if hasattr(node, 'gpu_info') and node.gpu_info:
+            parsed_info['gpu'] = json.loads(node.gpu_info)
+        else:
+            parsed_info['gpu'] = None
+    except json.JSONDecodeError:
+        parsed_info['gpu'] = None
+        
+    try:
+        if hasattr(node, 'thermal_info') and node.thermal_info:
+            parsed_info['thermal'] = json.loads(node.thermal_info)
+        else:
+            parsed_info['thermal'] = None
+    except json.JSONDecodeError:
+        parsed_info['thermal'] = None
+        
+    try:
+        if hasattr(node, 'hardware_info') and node.hardware_info:
+            parsed_info['hardware'] = json.loads(node.hardware_info)
+        else:
+            parsed_info['hardware'] = None
+    except json.JSONDecodeError:
+        parsed_info['hardware'] = None
+    
+    return render_template('node_hardware_report.html', 
+                         node=node,
+                         parsed_info=parsed_info)

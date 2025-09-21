@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 import subprocess
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
@@ -85,6 +86,9 @@ class OrchestrationService:
     
     def _generate_inventory(self, nodes: list[Node]) -> str:
         """Generate Ansible inventory for given nodes."""
+        # Ensure inventory directory exists
+        os.makedirs(self.inventory_dir, exist_ok=True)
+        
         inventory = {
             'all': {
                 'children': {
@@ -158,6 +162,78 @@ class OrchestrationService:
             if os.path.exists(inventory_file):
                 os.remove(inventory_file)
     
+    def _parse_and_update_node_health(self, node: Node, output: str) -> None:
+        """Parse health report from Ansible output and update node status."""
+        try:
+            # Look for health report in the output
+            
+            # Try to find the health report JSON in the output
+            # The playbook writes the health report to /tmp/microk8s_health_<hostname>.json
+            # and also displays it in the debug output
+            
+            # Look for the health_report variable in the debug output
+            health_report_match = re.search(r'"health_report":\s*({.*?})', output, re.DOTALL)
+            if health_report_match:
+                try:
+                    health_data = json.loads(health_report_match.group(1))
+                    self._update_node_from_health_data(node, health_data)
+                    return
+                except json.JSONDecodeError:
+                    pass
+            
+            # Alternative: look for the structured health report output
+            # The debug output shows the health_report variable
+            health_lines = []
+            in_health_report = False
+            for line in output.split('\n'):
+                if '"health_report":' in line or 'health_report:' in line:
+                    in_health_report = True
+                if in_health_report:
+                    health_lines.append(line)
+                    if '}' in line and in_health_report:
+                        break
+            
+            if health_lines:
+                health_text = '\n'.join(health_lines)
+                # Try to extract key information using regex
+                self._extract_health_info_from_text(node, health_text, output)
+            
+        except Exception as e:
+            print(f"Error parsing health report for node {node.hostname}: {e}")
+    
+    def _update_node_from_health_data(self, node: Node, health_data: dict) -> None:
+        """Update node from parsed health data."""
+        if 'microk8s_installed' in health_data:
+            if health_data['microk8s_installed']:
+                if health_data.get('microk8s_running', False):
+                    node.microk8s_status = 'running'
+                else:
+                    node.microk8s_status = 'installed'
+            else:
+                node.microk8s_status = 'not_installed'
+        
+        # Update other fields if available
+        if 'ip_address' in health_data and health_data['ip_address']:
+            node.ip_address = health_data['ip_address']
+    
+    def _extract_health_info_from_text(self, node: Node, health_text: str, full_output: str) -> None:
+        """Extract health information from text output."""
+        # Look for key indicators in the output
+        if 'microk8s_installed.*true' in health_text.lower() or 'microk8s_installed": true' in health_text:
+            if 'microk8s_running.*true' in health_text.lower() or 'microk8s_running": true' in health_text:
+                node.microk8s_status = 'running'
+            else:
+                node.microk8s_status = 'installed'
+        elif 'microk8s_installed.*false' in health_text.lower() or 'microk8s_installed": false' in health_text:
+            node.microk8s_status = 'not_installed'
+        elif 'Not installed' in full_output:
+            node.microk8s_status = 'not_installed'
+        # If we can't determine status from health report, try to infer from other output
+        elif 'microk8s status' in full_output.lower() and 'microk8s is running' in full_output.lower():
+            node.microk8s_status = 'running'
+        elif 'microk8s' in full_output.lower() and 'command not found' in full_output.lower():
+            node.microk8s_status = 'not_installed'
+    
     def install_microk8s(self, node: Node) -> Operation:
         """Install MicroK8s on a node."""
         operation = self._create_operation(
@@ -215,6 +291,10 @@ class OrchestrationService:
                 # Update node status based on check results
                 node.last_seen = datetime.utcnow()
                 node.status = 'online'
+                
+                # Parse health report from output to update MicroK8s status
+                self._parse_and_update_node_health(node, output)
+                
                 db.session.commit()
                 self._update_operation_status(operation, 'completed', success=True, output=output)
             else:
@@ -695,7 +775,7 @@ class OrchestrationService:
         try:
             cutoff_time = datetime.utcnow() - timedelta(hours=timeout_hours)
             
-            stuck_operations = Operation.query.filter(
+            stuck_operations = db.session.query(Operation).filter(
                 Operation.status == 'running',
                 Operation.started_at < cutoff_time
             ).all()
@@ -830,3 +910,274 @@ class OrchestrationService:
             results['issues'].append(f'Failed to parse scan results: {str(e)}')
         
         return results
+    
+    def collect_hardware_report(self, cluster_id: int = None, node_id: int = None) -> Dict[str, Any]:
+        """Collect comprehensive hardware information from cluster nodes."""
+        try:
+            # Determine which nodes to scan
+            if node_id:
+                nodes = [db.session.get(Node, node_id)]
+                if not nodes[0]:
+                    return {'success': False, 'error': 'Node not found'}
+            elif cluster_id:
+                cluster = db.session.get(Cluster, cluster_id)
+                if not cluster:
+                    return {'success': False, 'error': 'Cluster not found'}
+                nodes = cluster.nodes
+            else:
+                nodes = db.session.query(Node).all()
+            
+            if not nodes:
+                return {'success': False, 'error': 'No nodes found'}
+            
+            # Create operation record
+            operation = self._create_operation(
+                operation_type='monitoring',
+                operation_name='hardware_report',
+                description=f'Collecting hardware report for {len(nodes)} node(s)',
+                cluster=db.session.get(Cluster, cluster_id) if cluster_id else None,
+                playbook_path='collect_hardware_report.yml'
+            )
+            
+            # Generate inventory
+            inventory_file = self._generate_inventory(nodes)
+            
+            # Run hardware collection playbook
+            playbook_path = os.path.join(self.playbooks_dir, 'collect_hardware_report.yml')
+            
+            self._update_operation_status(operation, 'running')
+            
+            ansible_playbook_cmd = self._get_ansible_playbook_path()
+            cmd = [
+                ansible_playbook_cmd,
+                '-i', inventory_file,
+                playbook_path,
+                '-v'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                cwd=self.ansible_dir,
+                capture_output=True,
+                text=True,
+                timeout=1800  # 30 minutes timeout for hardware collection
+            )
+            
+            # Parse results and update database
+            hardware_data = self._parse_hardware_results(result.stdout, nodes)
+            
+            if result.returncode == 0:
+                self._update_operation_status(
+                    operation, 'completed', 
+                    success=True, 
+                    output=result.stdout
+                )
+                
+                # Update nodes with hardware information
+                self._update_nodes_hardware_info(hardware_data)
+                
+                return {
+                    'success': True,
+                    'operation_id': operation.id,
+                    'hardware_data': hardware_data,
+                    'nodes_updated': len(hardware_data)
+                }
+            else:
+                self._update_operation_status(
+                    operation, 'failed', 
+                    success=False, 
+                    output=result.stdout,
+                    error_message=result.stderr
+                )
+                return {
+                    'success': False,
+                    'error': f'Hardware collection failed: {result.stderr}',
+                    'operation_id': operation.id
+                }
+                
+        except subprocess.TimeoutExpired:
+            self._update_operation_status(
+                operation, 'failed', 
+                success=False,
+                error_message='Hardware collection timed out'
+            )
+            return {'success': False, 'error': 'Hardware collection timed out'}
+        except Exception as e:
+            if 'operation' in locals():
+                self._update_operation_status(
+                    operation, 'failed', 
+                    success=False,
+                    error_message=str(e)
+                )
+            return {'success': False, 'error': str(e)}
+        finally:
+            # Clean up inventory file
+            if 'inventory_file' in locals() and os.path.exists(inventory_file):
+                os.remove(inventory_file)
+    
+    def _parse_hardware_results(self, ansible_output: str, nodes: list[Node]) -> Dict[str, Any]:
+        """Parse hardware collection results from Ansible output."""
+        hardware_data = {}
+        
+        try:
+            # Look for hardware report data in the output
+            lines = ansible_output.split('\n')
+            current_host = None
+            
+            for line in lines:
+                # Extract hostname from Ansible task output
+                if 'ok: [' in line and ']' in line:
+                    host_match = re.search(r'ok: \[([^\]]+)\]', line)
+                    if host_match:
+                        current_host = host_match.group(1)
+                
+                # Look for the JSON file path
+                if current_host and 'HARDWARE_REPORT_JSON_FILE:' in line:
+                    try:
+                        # Extract file path from the line
+                        file_start = line.find('HARDWARE_REPORT_JSON_FILE:') + len('HARDWARE_REPORT_JSON_FILE:')
+                        json_file_path = line[file_start:].strip()
+                        
+                        # Remove any trailing quotes (both single and double quotes)
+                        json_file_path = json_file_path.rstrip("'\"")
+                        
+                        # Remove any leading quotes if present
+                        if json_file_path.startswith('"') or json_file_path.startswith("'"):
+                            json_file_path = json_file_path[1:]
+                        
+                        # Fetch the JSON file from the remote node
+                        hardware_info = self._fetch_json_from_remote(current_host, json_file_path, nodes)
+                        if hardware_info:
+                            hardware_data[current_host] = hardware_info
+                            print(f"Successfully loaded hardware data from remote file for {current_host}")
+                        else:
+                            print(f"Failed to fetch hardware data file from {current_host}")
+                            
+                    except Exception as e:
+                        print(f"Error processing hardware data file path for {current_host}: {e}")
+                        
+        except Exception as e:
+            print(f"Error parsing hardware results: {e}")
+        
+        return hardware_data
+    
+    def _fetch_json_from_remote(self, hostname: str, remote_file_path: str, nodes: list[Node]) -> Dict[str, Any]:
+        """Fetch JSON file from remote node using SCP."""
+        try:
+            # Find the node to get SSH connection details
+            node = None
+            for n in nodes:
+                if n.hostname == hostname:
+                    node = n
+                    break
+            
+            if not node:
+                print(f"Node {hostname} not found in nodes list")
+                return None
+            
+            # Create local temporary file
+            local_file_path = f"/tmp/hardware_report_{hostname}_local.json"
+            
+            # Build SCP command
+            scp_cmd = [
+                'scp',
+                '-o', 'ConnectTimeout=10',
+                '-o', 'ServerAliveInterval=5',
+                '-o', 'ServerAliveCountMax=3',
+                '-o', 'BatchMode=yes',
+                '-o', 'StrictHostKeyChecking=no'
+            ]
+            
+            # Add SSH key if specified (must be before source/destination)
+            if node.ssh_key_path:
+                # Expand ~ to home directory
+                ssh_key_path = os.path.expanduser(node.ssh_key_path)
+                if os.path.exists(ssh_key_path):
+                    scp_cmd.extend(['-i', ssh_key_path])
+            
+            # Add custom port if specified (must be before source/destination)
+            if node.ssh_port and node.ssh_port != 22:
+                scp_cmd.extend(['-P', str(node.ssh_port)])
+            
+            # Add source and destination paths
+            scp_cmd.extend([
+                f'{node.ip_address}:{remote_file_path}',
+                local_file_path
+            ])
+            
+            
+            # Execute SCP command
+            result = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                # Read and parse the JSON file
+                if os.path.exists(local_file_path):
+                    with open(local_file_path, 'r') as f:
+                        hardware_info = json.load(f)
+                    
+                    # Clean up local file
+                    os.remove(local_file_path)
+                    
+                    return hardware_info
+                else:
+                    print(f"Local file {local_file_path} not found after SCP")
+                    return None
+            else:
+                print(f"SCP failed for {hostname}: {result.stderr}")
+                return None
+                
+        except subprocess.TimeoutExpired:
+            print(f"SCP timed out for {hostname}")
+            return None
+        except Exception as e:
+            print(f"Error fetching JSON from {hostname}: {e}")
+            return None
+    
+    def _update_nodes_hardware_info(self, hardware_data: Dict[str, Any]):
+        """Update node records with collected hardware information."""
+        try:
+            for hostname, hw_info in hardware_data.items():
+                node = db.session.query(Node).filter_by(hostname=hostname).first()
+                if node:
+                    # Update basic info
+                    node.os_version = hw_info.get('os_version', node.os_version)
+                    node.kernel_version = hw_info.get('kernel_version', node.kernel_version)
+                    
+                    # Update CPU info
+                    cpu_info = hw_info.get('cpu_info', {})
+                    node.cpu_cores = cpu_info.get('cores', node.cpu_cores)
+                    node.cpu_usage_percent = cpu_info.get('usage_percent')
+                    node.cpu_info = json.dumps(cpu_info)
+                    
+                    # Update memory info
+                    memory_info = hw_info.get('memory_info', {})
+                    node.memory_gb = memory_info.get('total_gb', node.memory_gb)
+                    node.memory_usage_percent = memory_info.get('usage_percent')
+                    node.memory_info = json.dumps(memory_info)
+                    
+                    # Update disk info
+                    disk_info = hw_info.get('disk_info', {})
+                    node.disk_gb = disk_info.get('total_gb', node.disk_gb)
+                    node.disk_usage_percent = disk_info.get('usage_percent')
+                    node.disk_info = json.dumps(disk_info)
+                    
+                    # Update other hardware info
+                    node.network_info = json.dumps(hw_info.get('network_info', {}))
+                    node.gpu_info = json.dumps(hw_info.get('gpu_info', {}))
+                    node.thermal_info = json.dumps(hw_info.get('thermal_info', {}))
+                    node.hardware_info = json.dumps(hw_info.get('hardware_general', {}))
+                    
+                    # Update performance metrics
+                    performance = hw_info.get('performance', {})
+                    node.load_average = performance.get('load_average')
+                    node.uptime_seconds = performance.get('uptime_seconds')
+                    
+                    # Update timestamp
+                    node.last_seen = datetime.utcnow()
+                    
+            db.session.commit()
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating node hardware info: {e}")
+            raise

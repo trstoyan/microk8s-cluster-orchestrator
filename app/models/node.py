@@ -40,6 +40,22 @@ class Node(Base):
     memory_gb = Column(Integer)
     disk_gb = Column(Integer)
     
+    # Detailed hardware information (JSON strings)
+    hardware_info = Column(Text)  # Comprehensive hardware details
+    cpu_info = Column(Text)       # CPU model, architecture, features
+    memory_info = Column(Text)    # Memory details, speed, type
+    disk_info = Column(Text)      # Disk details, types, speeds
+    network_info = Column(Text)   # Network interfaces
+    gpu_info = Column(Text)       # GPU information if available
+    thermal_info = Column(Text)   # Temperature sensors
+    
+    # Resource usage (updated regularly)
+    cpu_usage_percent = Column(Integer)
+    memory_usage_percent = Column(Integer)
+    disk_usage_percent = Column(Integer)
+    load_average = Column(String(50))
+    uptime_seconds = Column(Integer)
+    
     # Metadata
     tags = Column(Text)  # JSON string for flexible tagging
     notes = Column(Text)
@@ -72,6 +88,18 @@ class Node(Base):
             'cpu_cores': self.cpu_cores,
             'memory_gb': self.memory_gb,
             'disk_gb': self.disk_gb,
+            'hardware_info': self.hardware_info,
+            'cpu_info': self.cpu_info,
+            'memory_info': self.memory_info,
+            'disk_info': self.disk_info,
+            'network_info': self.network_info,
+            'gpu_info': self.gpu_info,
+            'thermal_info': self.thermal_info,
+            'cpu_usage_percent': self.cpu_usage_percent,
+            'memory_usage_percent': self.memory_usage_percent,
+            'disk_usage_percent': self.disk_usage_percent,
+            'load_average': self.load_average,
+            'uptime_seconds': self.uptime_seconds,
             'tags': self.tags,
             'notes': self.notes,
             'cluster_id': self.cluster_id,
