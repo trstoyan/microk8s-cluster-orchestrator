@@ -13,6 +13,15 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
 - **Operation Tracking**: Complete audit trail of all operations
 - **Health Monitoring**: Automated health checks and status monitoring
 - **Troubleshooting**: Built-in diagnostics and troubleshooting tools
+- **Hardware Reporting**: Comprehensive hardware information collection and display
+  - CPU information (cores, usage, temperature)
+  - Memory details (total, usage, swap)
+  - Storage information (physical disks, partitions, filesystems)
+  - Network interfaces and configuration
+  - GPU detection and information
+  - Thermal sensor monitoring
+  - Docker and Kubernetes volume tracking
+  - LVM and RAID information
 
 ## Architecture
 
@@ -146,6 +155,17 @@ python cli.py operation show 1
 python cli.py operation list --status running
 ```
 
+### Hardware Reporting
+
+```bash
+# Collect hardware report for a node
+python cli.py hardware collect 1
+
+# View hardware report in web interface
+python cli.py web
+# Then navigate to: http://localhost:5000/hardware-report/node/1
+```
+
 ## Configuration
 
 The system uses YAML configuration files in the `config/` directory. Key settings include:
@@ -164,14 +184,23 @@ microk8s-cluster-orchestrator/
 │   ├── controllers/        # Web and API controllers
 │   ├── models/            # Database models
 │   ├── services/          # Business logic
+│   ├── templates/         # Web UI templates
 │   └── utils/             # Utilities
 ├── ansible/               # Ansible configuration
 │   ├── playbooks/         # Ansible playbooks
+│   │   └── collect_hardware_report.yml  # Hardware data collection
 │   ├── roles/             # Custom Ansible roles
 │   └── inventory/         # Dynamic inventories
 ├── config/                # Configuration files
+├── scripts/               # Utility and migration scripts
+│   ├── migrate_disk_partitions_fields.py
+│   ├── init_db.py
+│   └── backup_db.py
+├── calculate_disk_total.py # Hardware calculation utility
 ├── cli.py                 # Command-line interface
-└── requirements.txt       # Python dependencies
+├── requirements.txt       # Python dependencies
+├── README.md             # This file
+└── CHANGELOG.md          # Version history and changes
 ```
 
 ## Database Schema
@@ -179,9 +208,48 @@ microk8s-cluster-orchestrator/
 The SQLite database includes:
 
 - **nodes** - Node information and status
+  - Basic node information (hostname, IP, SSH details)
+  - Hardware information (CPU, memory, disk, GPU)
+  - Detailed disk partitions and storage volumes
+  - Network and thermal sensor data
 - **clusters** - Cluster definitions and configuration
 - **operations** - Operation history and results
 - **configurations** - System and cluster configurations
+
+## Hardware Reporting System
+
+The orchestrator includes a comprehensive hardware reporting system that collects detailed information about each node's hardware configuration and status.
+
+### Features
+- **Automatic Detection**: Discovers all hardware components automatically
+- **Detailed Information**: Collects comprehensive data about CPUs, memory, storage, network, and more
+- **Real-time Updates**: Hardware information is collected on-demand or scheduled
+- **Web Interface**: Beautiful, responsive web interface for viewing hardware reports
+- **API Access**: REST API endpoints for programmatic access to hardware data
+
+### Hardware Data Collected
+- **CPU**: Model, cores, usage, temperature
+- **Memory**: Total, usage, swap information
+- **Storage**: Physical disks, partitions, filesystems, LVM, RAID
+- **Network**: Interfaces, configurations, performance
+- **GPU**: Detection and usage information
+- **Thermal**: Temperature sensors and fan speeds
+- **Containers**: Docker volumes, Kubernetes PVCs/PVs, storage classes
+
+### Usage
+```bash
+# Collect hardware report via CLI
+python cli.py hardware collect 1
+
+# View in web interface
+python cli.py web
+# Navigate to: http://localhost:5000/hardware-report/node/1
+
+# Trigger via API
+curl -X POST http://localhost:5000/api/hardware-report \
+  -H "Content-Type: application/json" \
+  -d '{"node_id": 1}'
+```
 
 ## API Endpoints
 
@@ -190,6 +258,7 @@ The system provides REST API endpoints for:
 - Cluster management
 - Operation tracking
 - System health checks
+- Hardware reporting and data collection
 
 ## Security
 
