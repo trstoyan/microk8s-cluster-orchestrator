@@ -91,6 +91,9 @@
                                 <button type="button" class="btn btn-outline-primary" onclick="setupCluster({{ cluster.id }})">
                                     <i class="bi bi-gear"></i> Setup
                                 </button>
+                                <button type="button" class="btn btn-outline-info" onclick="scanCluster({{ cluster.id }})">
+                                    <i class="bi bi-search"></i> Scan
+                                </button>
                             {% endif %}
                             <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown">
                                 <span class="visually-hidden">Toggle Dropdown</span>
@@ -145,6 +148,29 @@ function setupCluster(clusterId) {
         })
         .catch(error => {
             alert('Error starting cluster setup: ' + error);
+        });
+    }
+}
+
+function scanCluster(clusterId) {
+    if (confirm('Scan this cluster? This will validate configuration and check for drift from desired state.')) {
+        fetch(`/api/clusters/${clusterId}/scan`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                alert('Cluster scan started successfully! Check operations for detailed results.');
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error);
         });
     }
 }

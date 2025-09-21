@@ -1,0 +1,214 @@
+---
+- name: Scan MicroK8s cluster state and validate configuration
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    scan_results:
+      overall_health: true
+      health_score: 100
+      issues: []
+      nodes_status: {}
+      addons_status: {}
+      network_status: {}
+      configuration_drift: []
+    
+  tasks:
+    - name: Identify control plane node
+      set_fact:
+        is_control_plane: "{{ inventory_hostname == groups['microk8s_nodes'][0] or 'control' in inventory_hostname }}"
+    
+    # Node-level checks
+    - name: Check MicroK8s service status
+      systemd:
+        name: snap.microk8s.daemon-cluster-agent
+      register: microk8s_service
+      failed_when: false
+    
+    - name: Check MicroK8s status
+      command: microk8s status --wait-ready --timeout 30
+      register: microk8s_status
+      failed_when: false
+      changed_when: false
+    
+    - name: Get node system resources
+      shell: |
+        echo "CPU: $(nproc) cores"
+        echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+        echo "Disk: $(df -h / | tail -1 | awk '{print $4}' | sed 's/G/ GB/')"
+        echo "Load: $(uptime | awk -F'load average:' '{print $2}')"
+      register: system_resources
+      changed_when: false
+    
+    - name: Record node status
+      set_fact:
+        node_status:
+          hostname: "{{ inventory_hostname }}"
+          microk8s_running: "{{ microk8s_service.status.ActiveState == 'active' }}"
+          microk8s_ready: "{{ microk8s_status.rc == 0 }}"
+          system_resources: "{{ system_resources.stdout_lines }}"
+          issues: []
+    
+    - name: Add node issues
+      set_fact:
+        node_status: "{{ node_status | combine({'issues': node_status.issues + [item]}) }}"
+      loop:
+        - "{{ 'MicroK8s service not running' if microk8s_service.status.ActiveState != 'active' else '' }}"
+        - "{{ 'MicroK8s not ready' if microk8s_status.rc != 0 else '' }}"
+      when: item != ""
+    
+    # Control plane specific checks
+    - block:
+        - name: Get cluster nodes status
+          command: microk8s kubectl get nodes -o json
+          register: cluster_nodes
+          failed_when: false
+          changed_when: false
+        
+        - name: Parse cluster nodes
+          set_fact:
+            nodes_info: "{{ (cluster_nodes.stdout | from_json).items if cluster_nodes.rc == 0 else [] }}"
+        
+        - name: Check for NotReady nodes
+          set_fact:
+            not_ready_nodes: "{{ nodes_info | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'False') | list }}"
+        
+        - name: Get enabled addons
+          command: microk8s status --format yaml
+          register: microk8s_status_yaml
+          failed_when: false
+          changed_when: false
+        
+        - name: Parse addon status
+          set_fact:
+            enabled_addons: "{{ (microk8s_status_yaml.stdout | from_yaml).addons | selectattr('status', 'equalto', 'enabled') | map(attribute='name') | list if microk8s_status_yaml.rc == 0 else [] }}"
+        
+        - name: Check required addons
+          set_fact:
+            missing_addons: "{{ expected_addons | difference(enabled_addons) }}"
+        
+        - name: Get current network configuration
+          shell: |
+            # Get pod CIDR from Calico
+            kubectl get ippool default-ipv4-ippool -o jsonpath='{.spec.cidr}' 2>/dev/null || echo "unknown"
+          register: current_pod_cidr
+          failed_when: false
+          changed_when: false
+        
+        - name: Get service CIDR
+          shell: |
+            # Get service CIDR from kubernetes service
+            kubectl get service kubernetes -o jsonpath='{.spec.clusterIPs[0]}' | cut -d'.' -f1-3
+          register: current_service_network
+          failed_when: false
+          changed_when: false
+        
+        - name: Check network configuration drift
+          set_fact:
+            network_drift: []
+        
+        - name: Detect pod CIDR drift
+          set_fact:
+            network_drift: "{{ network_drift + ['Pod CIDR mismatch: expected ' + expected_network_cidr + ', found ' + current_pod_cidr.stdout] }}"
+          when: 
+            - current_pod_cidr.stdout != "unknown"
+            - current_pod_cidr.stdout != expected_network_cidr
+        
+        - name: Get cluster info
+          command: microk8s kubectl cluster-info
+          register: cluster_info
+          failed_when: false
+          changed_when: false
+        
+        - name: Get persistent volumes
+          command: microk8s kubectl get pv
+          register: persistent_volumes
+          failed_when: false
+          changed_when: false
+        
+        - name: Get ingress status
+          command: microk8s kubectl get pods -n ingress -l name=nginx-ingress-microk8s
+          register: ingress_pods
+          failed_when: false
+          changed_when: false
+        
+        - name: Compile control plane scan results
+          set_fact:
+            control_plane_results:
+              cluster_accessible: "{{ cluster_info.rc == 0 }}"
+              total_nodes: "{{ nodes_info | length }}"
+              ready_nodes: "{{ nodes_info | length - (not_ready_nodes | length) }}"
+              not_ready_nodes: "{{ not_ready_nodes | map(attribute='metadata.name') | list }}"
+              enabled_addons: "{{ enabled_addons }}"
+              missing_addons: "{{ missing_addons }}"
+              network_drift: "{{ network_drift }}"
+              storage_available: "{{ 'storage' in enabled_addons }}"
+              ingress_running: "{{ ingress_pods.rc == 0 and 'Running' in ingress_pods.stdout }}"
+              
+      when: is_control_plane
+    
+    # Aggregate results on control plane
+    - name: Gather all node statuses
+      set_fact:
+        all_nodes_status: "{{ hostvars | dict2items | selectattr('key', 'in', groups['microk8s_nodes']) | map(attribute='value.node_status') | list }}"
+      when: is_control_plane
+    
+    - name: Calculate overall health score
+      set_fact:
+        calculated_health_score: >-
+          {{
+            100 
+            - (not_ready_nodes | length * 20)
+            - (missing_addons | length * 15)
+            - (network_drift | length * 10)
+            - ((all_nodes_status | selectattr('microk8s_running', 'equalto', false) | list | length) * 25)
+          }}
+      when: is_control_plane
+    
+    - name: Compile final scan results
+      set_fact:
+        final_scan_results:
+          overall_health: "{{ calculated_health_score | int >= 80 }}"
+          health_score: "{{ [calculated_health_score | int, 0] | max }}"
+          cluster_info: "{{ control_plane_results }}"
+          nodes_status: "{{ all_nodes_status }}"
+          issues: "{{ (not_ready_nodes | map('regex_replace', '^(.*)$', 'Node \\1 is not ready') | list) + missing_addons | map('regex_replace', '^(.*)$', 'Missing addon: \\1') | list + network_drift }}"
+          scan_timestamp: "{{ ansible_date_time.iso8601 }}"
+          expected_config:
+            ha_enabled: "{{ expected_ha_enabled }}"
+            network_cidr: "{{ expected_network_cidr }}"
+            service_cidr: "{{ expected_service_cidr }}"
+            required_addons: "{{ expected_addons }}"
+      when: is_control_plane
+    
+    - name: Display scan results summary
+      debug:
+        msg:
+          - "=== CLUSTER SCAN SUMMARY ==="
+          - "Overall Health: {{ 'HEALTHY' if final_scan_results.overall_health else 'DEGRADED' }}"
+          - "Health Score: {{ final_scan_results.health_score }}/100"
+          - "Ready Nodes: {{ final_scan_results.cluster_info.ready_nodes }}/{{ final_scan_results.cluster_info.total_nodes }}"
+          - "Enabled Addons: {{ final_scan_results.cluster_info.enabled_addons | join(', ') }}"
+          - "Issues Found: {{ final_scan_results.issues | length }}"
+          - "{% for issue in final_scan_results.issues %}  - {{ issue }}{% endfor %}"
+      when: is_control_plane
+    
+    - name: Output structured results for parsing
+      debug:
+        msg: "CLUSTER_SCAN_RESULTS: {{ final_scan_results | to_json }}"
+      when: is_control_plane
+    
+    # Remediation suggestions
+    - name: Suggest remediation actions
+      debug:
+        msg:
+          - "=== REMEDIATION SUGGESTIONS ==="
+          - "{% if final_scan_results.cluster_info.not_ready_nodes | length > 0 %}1. Fix not ready nodes: {{ final_scan_results.cluster_info.not_ready_nodes | join(', ') }}{% endif %}"
+          - "{% if final_scan_results.cluster_info.missing_addons | length > 0 %}2. Enable missing addons: microk8s enable {{ final_scan_results.cluster_info.missing_addons | join(' ') }}{% endif %}"
+          - "{% if final_scan_results.cluster_info.network_drift | length > 0 %}3. Review network configuration drift{% endif %}"
+          - "{% if not final_scan_results.cluster_info.storage_available %}4. Enable storage addon for persistent volumes{% endif %}"
+          - "{% if not final_scan_results.cluster_info.ingress_running %}5. Check ingress controller status{% endif %}"
+      when: 
+        - is_control_plane
+        - not final_scan_results.overall_health

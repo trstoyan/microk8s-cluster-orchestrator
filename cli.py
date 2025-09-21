@@ -713,6 +713,95 @@ def show_operation(operation_id):
     finally:
         session.close()
 
+@operation.command('cleanup')
+@click.option('--timeout-hours', default=2, help='Consider operations stuck after this many hours')
+@click.option('--force', is_flag=True, help='Force cleanup without confirmation')
+def cleanup_stuck_operations(timeout_hours, force):
+    """Clean up operations that have been running too long."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        # First, show what would be cleaned
+        from datetime import datetime, timedelta
+        cutoff_time = datetime.utcnow() - timedelta(hours=timeout_hours)
+        
+        stuck_ops = session.query(Operation).filter(
+            Operation.status == 'running',
+            Operation.started_at < cutoff_time
+        ).all()
+        
+        if not stuck_ops:
+            print_info("No stuck operations found.")
+            return
+        
+        print_info(f"Found {len(stuck_ops)} stuck operation(s):")
+        for op in stuck_ops:
+            runtime = datetime.utcnow() - op.started_at if op.started_at else None
+            target = "Unknown"
+            if op.router_switch:
+                target = f"Router: {op.router_switch.hostname}"
+            elif op.node:
+                target = f"Node: {op.node.hostname}"
+            elif op.cluster:
+                target = f"Cluster: {op.cluster.name}"
+            
+            print(f"  - ID {op.id}: {op.operation_name} ({target}) - Running for {runtime}")
+        
+        if not force:
+            if not click.confirm(f"\nCleanup {len(stuck_ops)} stuck operations?"):
+                print_info("Cleanup cancelled.")
+                return
+        
+        # Perform cleanup
+        result = orchestrator.cleanup_stuck_operations(timeout_hours)
+        
+        if result['success']:
+            print_success(result['message'])
+        else:
+            print_error(f"Cleanup failed: {result['error']}")
+    
+    except Exception as e:
+        print_error(f"Failed to cleanup operations: {e}")
+    
+    finally:
+        session.close()
+
+@cluster.command('scan')
+@click.argument('cluster_id', type=int)
+def scan_cluster_state(cluster_id):
+    """Scan cluster to validate configuration and detect drift."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        cluster = session.query(Cluster).filter_by(id=cluster_id).first()
+        if not cluster:
+            print_error(f"Cluster with ID {cluster_id} not found.")
+            return
+        
+        if not cluster.nodes:
+            print_error(f"Cluster '{cluster.name}' has no nodes to scan.")
+            return
+        
+        print_info(f"Scanning cluster '{cluster.name}' for configuration drift...")
+        operation = orchestrator.scan_cluster_state(cluster)
+        
+        print_info(f"Cluster scan started with operation ID {operation.id}")
+        print_info("Check the operations list for detailed results.")
+        print_info("The scan will validate:")
+        print("  • Node readiness and MicroK8s status")
+        print("  • Required addon availability") 
+        print("  • Network configuration compliance")
+        print("  • System resource status")
+        print("  • Configuration drift detection")
+    
+    except Exception as e:
+        print_error(f"Failed to scan cluster: {e}")
+    
+    finally:
+        session.close()
+
 @cli.group()
 def network():
     """Manage network leases and interfaces."""
@@ -971,6 +1060,197 @@ def init_system(force):
     
     except Exception as e:
         print_error(f"Failed to initialize system: {e}")
+
+# ============================================================================
+# User Management Commands
+# ============================================================================
+
+@cli.group()
+def user():
+    """User management commands."""
+    pass
+
+@user.command('create-admin')
+@click.option('--username', '-u', prompt=True, help='Admin username')
+@click.option('--email', '-e', prompt=True, help='Admin email address')
+@click.option('--password', '-p', prompt=True, hide_input=True, confirmation_prompt=True, help='Admin password')
+@click.option('--first-name', '-f', help='First name')
+@click.option('--last-name', '-l', help='Last name')
+def create_admin(username, email, password, first_name, last_name):
+    """Create a new admin user."""
+    try:
+        # Import here to avoid circular imports
+        from app import create_app
+        from app.models.flask_models import User
+        from app.models.database import db
+        
+        app = create_app()
+        with app.app_context():
+            # Check if user already exists
+            existing_user = User.query.filter_by(username=username).first()
+            if existing_user:
+                print_error(f"User '{username}' already exists!")
+                return
+            
+            existing_email = User.query.filter_by(email=email).first()
+            if existing_email:
+                print_error(f"Email '{email}' is already registered!")
+                return
+            
+            # Create new admin user
+            user = User(
+                username=username,
+                email=email,
+                first_name=first_name or '',
+                last_name=last_name or '',
+                is_admin=True,
+                is_active=True
+            )
+            user.set_password(password)
+            
+            db.session.add(user)
+            db.session.commit()
+            
+            print_success(f"Admin user '{username}' created successfully!")
+            print_info(f"Full name: {user.full_name}")
+            print_info(f"Email: {email}")
+            print_info("The user can now log in to the web interface.")
+            
+    except Exception as e:
+        print_error(f"Failed to create admin user: {e}")
+
+@user.command('list')
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table', help='Output format')
+def list_users(format):
+    """List all users."""
+    try:
+        from app import create_app
+        from app.models.flask_models import User
+        
+        app = create_app()
+        with app.app_context():
+            users = User.query.order_by(User.created_at.desc()).all()
+            
+            if format == 'json':
+                users_data = [user.to_dict() for user in users]
+                click.echo(json.dumps(users_data, indent=2, default=str))
+            else:
+                if not users:
+                    print_info("No users found.")
+                    return
+                
+                headers = ['ID', 'Username', 'Full Name', 'Email', 'Role', 'Status', 'Last Login', 'Created']
+                rows = []
+                
+                for user in users:
+                    role = 'Admin' if user.is_admin else 'User'
+                    status = 'Active' if user.is_active else 'Inactive'
+                    last_login = user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never'
+                    created = user.created_at.strftime('%Y-%m-%d %H:%M')
+                    
+                    rows.append([
+                        user.id,
+                        user.username,
+                        user.full_name,
+                        user.email,
+                        role,
+                        status,
+                        last_login,
+                        created
+                    ])
+                
+                click.echo(tabulate(rows, headers=headers, tablefmt='grid'))
+                print_info(f"Total users: {len(users)}")
+                
+    except Exception as e:
+        print_error(f"Failed to list users: {e}")
+
+@user.command('toggle-admin')
+@click.argument('username')
+def toggle_admin(username):
+    """Toggle admin status for a user."""
+    try:
+        from app import create_app
+        from app.models.flask_models import User
+        from app.models.database import db
+        
+        app = create_app()
+        with app.app_context():
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                print_error(f"User '{username}' not found!")
+                return
+            
+            user.is_admin = not user.is_admin
+            db.session.commit()
+            
+            status = 'granted' if user.is_admin else 'revoked'
+            print_success(f"Admin privileges {status} for user '{username}'")
+            
+    except Exception as e:
+        print_error(f"Failed to toggle admin status: {e}")
+
+@user.command('deactivate')
+@click.argument('username')
+@click.option('--confirm', is_flag=True, help='Skip confirmation prompt')
+def deactivate_user(username, confirm):
+    """Deactivate a user account."""
+    try:
+        from app import create_app
+        from app.models.flask_models import User
+        from app.models.database import db
+        
+        app = create_app()
+        with app.app_context():
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                print_error(f"User '{username}' not found!")
+                return
+            
+            if not user.is_active:
+                print_warning(f"User '{username}' is already inactive.")
+                return
+            
+            if not confirm:
+                if not click.confirm(f"Are you sure you want to deactivate user '{username}'?"):
+                    print_info("Operation cancelled.")
+                    return
+            
+            user.is_active = False
+            db.session.commit()
+            
+            print_success(f"User '{username}' has been deactivated.")
+            
+    except Exception as e:
+        print_error(f"Failed to deactivate user: {e}")
+
+@user.command('activate')
+@click.argument('username')
+def activate_user(username):
+    """Activate a user account."""
+    try:
+        from app import create_app
+        from app.models.flask_models import User
+        from app.models.database import db
+        
+        app = create_app()
+        with app.app_context():
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                print_error(f"User '{username}' not found!")
+                return
+            
+            if user.is_active:
+                print_warning(f"User '{username}' is already active.")
+                return
+            
+            user.is_active = True
+            db.session.commit()
+            
+            print_success(f"User '{username}' has been activated.")
+            
+    except Exception as e:
+        print_error(f"Failed to activate user: {e}")
 
 if __name__ == '__main__':
     cli()

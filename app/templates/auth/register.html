@@ -1,0 +1,112 @@
+{% extends "auth_base.html" %}
+
+{% block title %}Register - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .auth-container {
+        max-width: 500px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="brand-logo">
+    <i class="bi bi-person-plus"></i>
+    <h4>
+        {% if is_first_user %}
+            Create Admin Account
+        {% else %}
+            Create New User
+        {% endif %}
+    </h4>
+    <p>
+        {% if is_first_user %}
+            Set up the first administrator account
+        {% else %}
+            Add a new user to the system
+        {% endif %}
+    </p>
+</div>
+
+<form method="POST">
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label for="first_name" class="form-label">First Name</label>
+            <input type="text" class="form-control" id="first_name" name="first_name" value="{{ request.form.get('first_name', '') }}">
+        </div>
+        <div class="col-md-6 mb-3">
+            <label for="last_name" class="form-label">Last Name</label>
+            <input type="text" class="form-control" id="last_name" name="last_name" value="{{ request.form.get('last_name', '') }}">
+        </div>
+    </div>
+    
+    <div class="mb-3">
+        <label for="username" class="form-label">Username <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="username" name="username" required value="{{ request.form.get('username', '') }}">
+        <div class="form-text">At least 3 characters long</div>
+    </div>
+    
+    <div class="mb-3">
+        <label for="email" class="form-label">Email Address <span class="text-danger">*</span></label>
+        <input type="email" class="form-control" id="email" name="email" required value="{{ request.form.get('email', '') }}">
+    </div>
+    
+    <div class="mb-3">
+        <label for="password" class="form-label">Password <span class="text-danger">*</span></label>
+        <input type="password" class="form-control" id="password" name="password" required>
+        <div class="form-text">At least 6 characters long</div>
+    </div>
+    
+    <div class="mb-4">
+        <label for="confirm_password" class="form-label">Confirm Password <span class="text-danger">*</span></label>
+        <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
+    </div>
+    
+    {% if is_first_user %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            <strong>First User Setup:</strong> This account will have administrator privileges and full access to the system.
+        </div>
+    {% endif %}
+    
+    <div class="d-grid mb-3">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-person-check me-2"></i>
+            {% if is_first_user %}
+                Create Admin Account
+            {% else %}
+                Create User Account
+            {% endif %}
+        </button>
+    </div>
+</form>
+
+<div class="text-center">
+    <small class="text-muted">
+        Already have an account? 
+        <a href="{{ url_for('auth.login') }}" class="text-link">Sign in here</a>
+    </small>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Focus on first name field when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        document.getElementById('first_name').focus();
+    });
+    
+    // Password confirmation validation
+    document.getElementById('confirm_password').addEventListener('input', function() {
+        const password = document.getElementById('password').value;
+        const confirmPassword = this.value;
+        
+        if (password !== confirmPassword) {
+            this.setCustomValidity('Passwords do not match');
+        } else {
+            this.setCustomValidity('');
+        }
+    });
+</script>
+{% endblock %}

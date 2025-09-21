@@ -1,18 +1,20 @@
 """Web interface endpoints for the MicroK8s Cluster Orchestrator."""
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
 from ..models.database import db
 from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
 
 bp = Blueprint('web', __name__)
 
 @bp.route('/')
+@login_required
 def dashboard():
     """Main dashboard."""
     clusters = Cluster.query.all()
     nodes = Node.query.all()
     router_switches = RouterSwitch.query.all()
-    recent_operations = Operation.query.order_by(Operation.created_at.desc()).limit(10).all()
+    recent_operations = Operation.query.filter_by(user_id=current_user.id).order_by(Operation.created_at.desc()).limit(10).all() if not current_user.is_admin else Operation.query.order_by(Operation.created_at.desc()).limit(10).all()
     
     stats = {
         'total_clusters': len(clusters),
@@ -31,12 +33,14 @@ def dashboard():
                          stats=stats)
 
 @bp.route('/nodes')
+@login_required
 def nodes():
     """Nodes management page."""
     nodes = Node.query.all()
     return render_template('nodes.html', nodes=nodes)
 
 @bp.route('/nodes/add', methods=['GET', 'POST'])
+@login_required
 def add_node():
     """Add a new node."""
     if request.method == 'POST':
@@ -62,12 +66,14 @@ def add_node():
     return render_template('add_node.html', clusters=clusters)
 
 @bp.route('/clusters')
+@login_required
 def clusters():
     """Clusters management page."""
     clusters = Cluster.query.all()
     return render_template('clusters.html', clusters=clusters)
 
 @bp.route('/clusters/add', methods=['GET', 'POST'])
+@login_required
 def add_cluster():
     """Add a new cluster."""
     if request.method == 'POST':
@@ -90,25 +96,38 @@ def add_cluster():
     return render_template('add_cluster.html')
 
 @bp.route('/operations')
+@login_required
 def operations():
     """Operations history page."""
-    operations = Operation.query.order_by(Operation.created_at.desc()).all()
+    if current_user.is_admin:
+        operations = Operation.query.order_by(Operation.created_at.desc()).all()
+    else:
+        operations = Operation.query.filter_by(user_id=current_user.id).order_by(Operation.created_at.desc()).all()
     return render_template('operations.html', operations=operations)
 
 @bp.route('/operations/<int:operation_id>')
+@login_required
 def operation_detail(operation_id):
     """Operation detail page."""
     operation = Operation.query.get_or_404(operation_id)
+    
+    # Check if user has permission to view this operation
+    if not current_user.is_admin and operation.user_id != current_user.id:
+        flash('Access denied. You can only view your own operations.', 'error')
+        return redirect(url_for('web.operations'))
+    
     return render_template('operation_detail.html', operation=operation)
 
 # Router/Switch routes
 @bp.route('/router-switches')
+@login_required
 def router_switches():
     """Router switches management page."""
     router_switches = RouterSwitch.query.all()
     return render_template('router_switches.html', router_switches=router_switches)
 
 @bp.route('/router-switches/add', methods=['GET', 'POST'])
+@login_required
 def add_router_switch():
     """Add a new router switch."""
     if request.method == 'POST':
@@ -139,6 +158,7 @@ def add_router_switch():
     return render_template('add_router_switch.html', clusters=clusters)
 
 @bp.route('/router-switches/<int:router_switch_id>')
+@login_required
 def router_switch_detail(router_switch_id):
     """Router switch detail page."""
     router_switch = RouterSwitch.query.get_or_404(router_switch_id)
@@ -146,6 +166,7 @@ def router_switch_detail(router_switch_id):
     return render_template('router_switch_detail.html', router_switch=router_switch, operations=operations)
 
 @bp.route('/router-switches/<int:router_switch_id>/edit', methods=['GET', 'POST'])
+@login_required
 def edit_router_switch(router_switch_id):
     """Edit a router switch."""
     router_switch = RouterSwitch.query.get_or_404(router_switch_id)
@@ -218,6 +239,7 @@ def edit_router_switch(router_switch_id):
     return render_template('edit_router_switch.html', router_switch=router_switch, clusters=clusters)
 
 @bp.route('/router-switches/<int:router_switch_id>/delete', methods=['POST'])
+@login_required
 def delete_router_switch(router_switch_id):
     """Delete a router switch."""
     router_switch = RouterSwitch.query.get_or_404(router_switch_id)
@@ -238,6 +260,7 @@ def delete_router_switch(router_switch_id):
 
 # Network Lease routes
 @bp.route('/network-leases')
+@login_required
 def network_leases():
     """Network leases management page."""
     # Get filter parameters
@@ -280,12 +303,14 @@ def network_leases():
                          })
 
 @bp.route('/network-leases/<int:lease_id>')
+@login_required
 def network_lease_detail(lease_id):
     """Network lease detail page."""
     lease = NetworkLease.query.get_or_404(lease_id)
     return render_template('network_lease_detail.html', lease=lease)
 
 @bp.route('/network-interfaces')
+@login_required
 def network_interfaces():
     """Network interfaces management page."""
     router_switch_id = request.args.get('router_switch_id', type=int)
@@ -319,12 +344,14 @@ def network_interfaces():
                          })
 
 @bp.route('/network-interfaces/<int:interface_id>')
+@login_required
 def network_interface_detail(interface_id):
     """Network interface detail page."""
     interface = NetworkInterface.query.get_or_404(interface_id)
     return render_template('network_interface_detail.html', interface=interface)
 
 @bp.route('/network/topology')
+@login_required
 def network_topology():
     """Network topology visualization page."""
     # Get all active leases with relationships

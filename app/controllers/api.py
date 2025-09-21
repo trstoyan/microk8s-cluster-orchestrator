@@ -1,6 +1,7 @@
 """API endpoints for the MicroK8s Cluster Orchestrator."""
 
 from flask import Blueprint, request, jsonify
+from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
 from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
@@ -16,6 +17,7 @@ def health_check():
 
 # Node endpoints
 @bp.route('/nodes', methods=['GET'])
+@login_required
 def list_nodes():
     """List all nodes."""
     try:
@@ -25,6 +27,7 @@ def list_nodes():
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/nodes', methods=['POST'])
+@login_required
 def create_node():
     """Create a new node."""
     try:
@@ -47,12 +50,14 @@ def create_node():
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/nodes/<int:node_id>', methods=['GET'])
+@login_required
 def get_node(node_id):
     """Get a specific node."""
     node = Node.query.get_or_404(node_id)
     return jsonify(node.to_dict())
 
 @bp.route('/nodes/<int:node_id>', methods=['PUT'])
+@login_required
 def update_node(node_id):
     """Update a node."""
     try:
@@ -70,6 +75,7 @@ def update_node(node_id):
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/nodes/<int:node_id>', methods=['DELETE'])
+@login_required
 def delete_node(node_id):
     """Delete a node."""
     try:
@@ -83,6 +89,7 @@ def delete_node(node_id):
 
 # Cluster endpoints
 @bp.route('/clusters', methods=['GET'])
+@login_required
 def list_clusters():
     """List all clusters."""
     try:
@@ -92,6 +99,7 @@ def list_clusters():
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/clusters', methods=['POST'])
+@login_required
 def create_cluster():
     """Create a new cluster."""
     try:
@@ -112,6 +120,7 @@ def create_cluster():
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/clusters/<int:cluster_id>', methods=['GET'])
+@login_required
 def get_cluster(cluster_id):
     """Get a specific cluster."""
     cluster = Cluster.query.get_or_404(cluster_id)
@@ -190,6 +199,7 @@ def delete_router_switch(router_switch_id):
 
 # Operation endpoints
 @bp.route('/operations', methods=['GET'])
+@login_required
 def list_operations():
     """List all operations."""
     try:
@@ -199,6 +209,7 @@ def list_operations():
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/operations/<int:operation_id>', methods=['GET'])
+@login_required
 def get_operation(operation_id):
     """Get a specific operation."""
     operation = Operation.query.get_or_404(operation_id)
@@ -206,11 +217,16 @@ def get_operation(operation_id):
 
 # Orchestration endpoints
 @bp.route('/nodes/<int:node_id>/install-microk8s', methods=['POST'])
+@login_required
 def install_microk8s(node_id):
     """Install MicroK8s on a node."""
     try:
         node = Node.query.get_or_404(node_id)
         operation = orchestrator.install_microk8s(node)
+        # Set the user who initiated the operation
+        operation.user_id = current_user.id
+        operation.created_by = current_user.full_name
+        db.session.commit()
         return jsonify(operation.to_dict()), 202
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -226,11 +242,26 @@ def check_node_status(node_id):
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/clusters/<int:cluster_id>/setup', methods=['POST'])
+@login_required
 def setup_cluster(cluster_id):
     """Set up a cluster."""
     try:
         cluster = Cluster.query.get_or_404(cluster_id)
         operation = orchestrator.setup_cluster(cluster)
+        # Set the user who initiated the operation
+        operation.user_id = current_user.id
+        operation.created_by = current_user.full_name
+        db.session.commit()
+        return jsonify(operation.to_dict()), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/clusters/<int:cluster_id>/scan', methods=['POST'])
+def scan_cluster_state(cluster_id):
+    """Scan cluster to validate configuration and detect drift."""
+    try:
+        cluster = Cluster.query.get_or_404(cluster_id)
+        operation = orchestrator.scan_cluster_state(cluster)
         return jsonify(operation.to_dict()), 202
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -553,4 +584,22 @@ def get_network_topology():
         
         return jsonify(topology)
     except SQLAlchemyError as e:
+        return jsonify({'error': str(e)}), 500
+
+# Operation management endpoints
+@bp.route('/operations/cleanup', methods=['POST'])
+def cleanup_stuck_operations():
+    """Clean up operations that have been running too long."""
+    try:
+        data = request.get_json() or {}
+        timeout_hours = data.get('timeout_hours', 2)
+        
+        result = orchestrator.cleanup_stuck_operations(timeout_hours)
+        
+        if result['success']:
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

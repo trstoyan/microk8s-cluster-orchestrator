@@ -1,7 +1,70 @@
 """Flask-SQLAlchemy models for web interface."""
 
 from datetime import datetime
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
 from .database import db
+
+class User(UserMixin, db.Model):
+    """Flask-SQLAlchemy User model for authentication."""
+    
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    
+    # User profile
+    first_name = db.Column(db.String(100))
+    last_name = db.Column(db.String(100))
+    
+    # User status and permissions
+    is_active = db.Column(db.Boolean, default=True)
+    is_admin = db.Column(db.Boolean, default=False)
+    
+    # Login tracking
+    last_login = db.Column(db.DateTime)
+    login_count = db.Column(db.Integer, default=0)
+    
+    # Account management
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<User {self.username}>'
+    
+    def set_password(self, password):
+        """Set password hash."""
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        """Check password against hash."""
+        return check_password_hash(self.password_hash, password)
+    
+    @property
+    def full_name(self):
+        """Get user's full name."""
+        if self.first_name and self.last_name:
+            return f"{self.first_name} {self.last_name}"
+        return self.username
+    
+    def to_dict(self):
+        """Convert user to dictionary representation (excluding sensitive data)."""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
+            'full_name': self.full_name,
+            'is_active': self.is_active,
+            'is_admin': self.is_admin,
+            'last_login': self.last_login.isoformat() if self.last_login else None,
+            'login_count': self.login_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
 
 class Node(db.Model):
     """Flask-SQLAlchemy Node model."""
@@ -159,9 +222,13 @@ class Operation(db.Model):
     node_id = db.Column(db.Integer, db.ForeignKey('nodes.id'))
     cluster_id = db.Column(db.Integer, db.ForeignKey('clusters.id'))
     router_switch_id = db.Column(db.Integer, db.ForeignKey('router_switches.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    
+    # Relationships
+    user = db.relationship("User", backref="operations")
     
     # Metadata
-    created_by = db.Column(db.String(100), default='system')
+    created_by = db.Column(db.String(100), default='system')  # Keep for backward compatibility
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -202,7 +269,9 @@ class Operation(db.Model):
             'node_id': self.node_id,
             'cluster_id': self.cluster_id,
             'router_switch_id': self.router_switch_id,
+            'user_id': self.user_id,
             'created_by': self.created_by,
+            'created_by_user': self.user.full_name if self.user else self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
