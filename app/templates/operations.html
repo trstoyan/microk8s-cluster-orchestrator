@@ -17,19 +17,19 @@
 {% if operations %}
     <div class="card">
         <div class="card-body">
-            <div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
-                <table class="table table-hover">
+            <div class="table-responsive" style="height: 600px; overflow-y: auto;">
+                <table class="table table-hover table-sm">
                     <thead class="sticky-top bg-white">
                         <tr>
-                            <th>ID</th>
-                            <th>Operation</th>
-                            <th>Type</th>
-                            <th>Target</th>
-                            <th>Status</th>
-                            <th>Success</th>
-                            <th>Duration</th>
-                            <th>Created</th>
-                            <th>Actions</th>
+                            <th style="min-width: 50px;">ID</th>
+                            <th style="min-width: 180px;">Operation</th>
+                            <th style="min-width: 80px;">Type</th>
+                            <th style="min-width: 150px;">Target</th>
+                            <th style="min-width: 80px;">Status</th>
+                            <th style="min-width: 70px;">Success</th>
+                            <th style="min-width: 80px;">Duration</th>
+                            <th style="min-width: 140px;">Created</th>
+                            <th style="min-width: 80px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -37,7 +37,7 @@
                         <tr>
                             <td>{{ operation.id }}</td>
                             <td>
-                                <strong>{{ operation.operation_name }}</strong>
+                                <strong><a href="{{ url_for('web.operation_detail', operation_id=operation.id) }}" class="text-decoration-none">{{ operation.operation_name }}</a></strong>
                                 {% if operation.description %}
                                     <br><small class="text-muted">{{ operation.description[:50] }}{% if operation.description|length > 50 %}...{% endif %}</small>
                                 {% endif %}
@@ -95,10 +95,22 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <a href="{{ url_for('web.operation_detail', operation_id=operation.id) }}" 
-                                   class="btn btn-outline-primary btn-sm" title="View Details">
-                                    <i class="bi bi-eye"></i>
-                                </a>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                        Actions
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="{{ url_for('web.operation_detail', operation_id=operation.id) }}">
+                                            <i class="bi bi-eye"></i> View Details
+                                        </a></li>
+                                        {% if operation.status == 'running' %}
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-warning" href="#" onclick="cancelOperation({{ operation.id }})">
+                                            <i class="bi bi-stop-circle"></i> Cancel Operation
+                                        </a></li>
+                                        {% endif %}
+                                    </ul>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
@@ -168,6 +180,29 @@
 
 {% block scripts %}
 <script>
+function cancelOperation(operationId) {
+    if (confirm('Are you sure you want to cancel this operation?')) {
+        fetch(`/api/operations/${operationId}/cancel`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                alert('Operation cancelled successfully');
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error);
+        });
+    }
+}
+
 // Auto-refresh every 10 seconds if there are running operations
 {% if operations | selectattr('status', 'equalto', 'running') | list | length > 0 %}
 setTimeout(function() {

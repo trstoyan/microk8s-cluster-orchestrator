@@ -74,6 +74,53 @@
       changed_when: false
       failed_when: false
 
+    - name: Get detailed disk and partition information
+      shell: |
+        echo "=== PHYSICAL DISKS ==="
+        lsblk -d -o NAME,SIZE,TYPE,MODEL,SERIAL,ROTA,TRAN
+        echo "=== ALL PARTITIONS ==="
+        lsblk -f -o NAME,FSTYPE,LABEL,UUID,MOUNTPOINT,SIZE,USED,AVAIL,USE%
+        echo "=== MOUNTED FILESYSTEMS ==="
+        mount | sort
+        echo "=== LVM INFORMATION ==="
+        vgs 2>/dev/null || echo "No LVM volumes"
+        lvs 2>/dev/null || echo "No LVM logical volumes"
+        pvs 2>/dev/null || echo "No LVM physical volumes"
+        echo "=== RAID INFORMATION ==="
+        cat /proc/mdstat 2>/dev/null || echo "No RAID detected"
+        echo "=== BLOCK DEVICE DETAILS ==="
+        ls -la /dev/disk/by-id/ 2>/dev/null | head -20 || echo "No disk IDs available"
+      register: disk_partitions_detailed
+      changed_when: false
+      failed_when: false
+
+    - name: Get Kubernetes PVC information
+      shell: |
+        echo "=== KUBERNETES PVCs ==="
+        if command -v kubectl >/dev/null 2>&1; then
+          kubectl get pvc --all-namespaces -o wide 2>/dev/null || echo "No PVCs found or kubectl not accessible"
+          echo "=== KUBERNETES PVs ==="
+          kubectl get pv -o wide 2>/dev/null || echo "No PVs found or kubectl not accessible"
+          echo "=== KUBERNETES STORAGE CLASSES ==="
+          kubectl get storageclass 2>/dev/null || echo "No storage classes found"
+        elif command -v microk8s >/dev/null 2>&1; then
+          echo "=== MICROK8S PVCs ==="
+          microk8s kubectl get pvc --all-namespaces -o wide 2>/dev/null || echo "No MicroK8s PVCs found"
+          echo "=== MICROK8S PVs ==="
+          microk8s kubectl get pv -o wide 2>/dev/null || echo "No MicroK8s PVs found"
+          echo "=== MICROK8S STORAGE CLASSES ==="
+          microk8s kubectl get storageclass 2>/dev/null || echo "No MicroK8s storage classes found"
+        else
+          echo "kubectl/microk8s not available"
+        fi
+        echo "=== DOCKER VOLUMES ==="
+        docker volume ls 2>/dev/null || echo "Docker not available or no volumes"
+        echo "=== PODMAN VOLUMES ==="
+        podman volume ls 2>/dev/null || echo "Podman not available or no volumes"
+      register: storage_volumes_detailed
+      changed_when: false
+      failed_when: false
+
     - name: Get network information
       shell: |
         echo "=== NETWORK INTERFACES ==="
@@ -161,6 +208,18 @@
           load_average: "{{ resource_usage.stdout_lines[7] | default('0,0,0') }}"
           uptime_seconds: "{{ resource_usage.stdout_lines[9] | default('0') | int }}"
 
+    - name: Copy disk calculation script to remote host
+      copy:
+        src: "{{ playbook_dir }}/../../calculate_disk_total.py"
+        dest: /tmp/calculate_disk_total.py
+        mode: '0755'
+
+    - name: Calculate total disk space from physical disks
+      shell: python3 /tmp/calculate_disk_total.py
+      register: total_disk_calculation
+      changed_when: false
+      failed_when: false
+
     - name: Compile comprehensive hardware report
       set_fact:
         hardware_report:
@@ -194,10 +253,31 @@
           
           # Disk Information
           disk_info:
-            total_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first / 1024 / 1024 / 1024) | round(2) }}"
+            total_gb: "{{ (total_disk_calculation.stdout | default('0') | float) | round(2) }}"
             usage_percent: "{{ parsed_usage.disk_usage }}"
             layout: "{{ disk_detailed.stdout_lines[1:10] | default(['Unknown']) | join(' | ') }}"
             details: "{{ disk_detailed.stdout_lines[11:] | default(['Unknown']) | join(' | ') }}"
+          
+          # Detailed Disk and Partition Information
+          disk_partitions_info:
+            raw_output: "{{ disk_partitions_detailed.stdout | default('No data') }}"
+            physical_disks: "{{ disk_partitions_detailed.stdout_lines | select('match', '^s[a-z]+.*disk.*') | list | join(' | ') | default('Unknown') }}"
+            all_partitions: "{{ disk_partitions_detailed.stdout_lines | select('match', '^[├└]─.*') | list | join(' | ') | default('Unknown') }}"
+            mounted_filesystems: "{{ disk_partitions_detailed.stdout_lines | select('match', '^/dev/.*on.*type.*') | list | join(' | ') | default('Unknown') }}"
+            lvm_info: "{{ disk_partitions_detailed.stdout_lines | select('match', '^(VG|LV|PV).*') | list | join(' | ') | default('Unknown') }}"
+            raid_info: "{{ disk_partitions_detailed.stdout_lines | select('match', '^(Personalities|unused).*') | list | join(' | ') | default('Unknown') }}"
+            block_devices: "{{ disk_partitions_detailed.stdout_lines | select('match', '^lrwxrwxrwx.*->.*') | list | join(' | ') | default('Unknown') }}"
+          
+          # Storage Volumes (PVCs, PVs, Docker volumes)
+          storage_volumes_info:
+            raw_output: "{{ storage_volumes_detailed.stdout | default('No data') }}"
+            kubernetes_pvcs: "{{ storage_volumes_detailed.stdout_lines | select('match', '^[a-zA-Z0-9-]+.*Bound.*') | list | join(' | ') | default('Unknown') }}"
+            kubernetes_pvs: "{{ storage_volumes_detailed.stdout_lines | select('match', '^[a-zA-Z0-9-]+.*Available.*') | list | join(' | ') | default('Unknown') }}"
+            storage_classes: "{{ storage_volumes_detailed.stdout_lines | select('match', '^[a-zA-Z0-9-]+.*microk8s.*') | list | join(' | ') | default('Unknown') }}"
+            microk8s_pvcs: "{{ storage_volumes_detailed.stdout_lines | select('match', '^[a-zA-Z0-9-]+.*Bound.*') | list | join(' | ') | default('Unknown') }}"
+            microk8s_pvs: "{{ storage_volumes_detailed.stdout_lines | select('match', '^[a-zA-Z0-9-]+.*Available.*') | list | join(' | ') | default('Unknown') }}"
+            docker_volumes: "{{ storage_volumes_detailed.stdout_lines | select('match', '^local.*') | list | join(' | ') | default('Unknown') }}"
+            podman_volumes: "{{ storage_volumes_detailed.stdout_lines | select('match', '^[a-zA-Z0-9-]+.*') | list | join(' | ') | default('Unknown') }}"
           
           # Network Information
           network_info:
@@ -235,6 +315,8 @@
           - CPU: {{ hardware_report.cpu_info.model }} ({{ hardware_report.cpu_info.cores }} cores, {{ hardware_report.cpu_info.usage_percent }}% usage)
           - Memory: {{ hardware_report.memory_info.total_human }} ({{ hardware_report.memory_info.usage_percent }}% usage)
           - Disk: {{ hardware_report.disk_info.total_gb }}GB ({{ hardware_report.disk_info.usage_percent }}% usage)
+          - Physical Disks: {{ hardware_report.disk_partitions_info.physical_disks | length }} disks detected
+          - Storage Volumes: {{ hardware_report.storage_volumes_info.microk8s_pvcs | length }} PVCs, {{ hardware_report.storage_volumes_info.microk8s_pvs | length }} PVs
           - Load: {{ hardware_report.performance.load_average }}
           - Uptime: {{ hardware_report.performance.uptime_human }}
           - GPU: {{ hardware_report.gpu_info.present | ternary('Present', 'Not detected') }}
@@ -279,6 +361,52 @@
           ## Disk Information
           - **Total:** {{ hardware_report.disk_info.total_gb }}GB
           - **Current Usage:** {{ hardware_report.disk_info.usage_percent }}%
+          
+          ### Physical Disks
+          ```
+          {{ hardware_report.disk_partitions_info.physical_disks }}
+          ```
+          
+          ### All Partitions
+          ```
+          {{ hardware_report.disk_partitions_info.all_partitions }}
+          ```
+          
+          ### Mounted Filesystems
+          ```
+          {{ hardware_report.disk_partitions_info.mounted_filesystems }}
+          ```
+          
+          ### LVM Information
+          ```
+          {{ hardware_report.disk_partitions_info.lvm_info }}
+          ```
+          
+          ### RAID Information
+          ```
+          {{ hardware_report.disk_partitions_info.raid_info }}
+          ```
+          
+          ## Storage Volumes (Kubernetes/MicroK8s)
+          ### PVCs (Persistent Volume Claims)
+          ```
+          {{ hardware_report.storage_volumes_info.microk8s_pvcs }}
+          ```
+          
+          ### PVs (Persistent Volumes)
+          ```
+          {{ hardware_report.storage_volumes_info.microk8s_pvs }}
+          ```
+          
+          ### Storage Classes
+          ```
+          {{ hardware_report.storage_volumes_info.storage_classes }}
+          ```
+          
+          ### Docker Volumes
+          ```
+          {{ hardware_report.storage_volumes_info.docker_volumes }}
+          ```
           
           ## Performance Metrics
           - **Load Average:** {{ hardware_report.performance.load_average }}

@@ -532,7 +532,7 @@ def node_hardware_report(node_id):
             parsed_info['cpu'] = None
     except json.JSONDecodeError:
         parsed_info['cpu'] = None
-        
+    
     try:
         if hasattr(node, 'memory_info') and node.memory_info:
             parsed_info['memory'] = json.loads(node.memory_info)
@@ -540,7 +540,7 @@ def node_hardware_report(node_id):
             parsed_info['memory'] = None
     except json.JSONDecodeError:
         parsed_info['memory'] = None
-        
+    
     try:
         if hasattr(node, 'disk_info') and node.disk_info:
             parsed_info['disk'] = json.loads(node.disk_info)
@@ -548,7 +548,34 @@ def node_hardware_report(node_id):
             parsed_info['disk'] = None
     except json.JSONDecodeError:
         parsed_info['disk'] = None
+    
+    try:
+        # Direct database query to get the new fields
+        from app.models.database import db
+        from sqlalchemy import text
+        result = db.session.execute(
+            text("SELECT disk_partitions_info, storage_volumes_info FROM nodes WHERE id = :node_id"),
+            {'node_id': node.id}
+        ).fetchone()
         
+        if result and result[0]:  # disk_partitions_info
+            parsed_info['disk_partitions'] = json.loads(result[0])
+        else:
+            parsed_info['disk_partitions'] = None
+            
+        if result and result[1]:  # storage_volumes_info
+            parsed_info['storage_volumes'] = json.loads(result[1])
+        else:
+            parsed_info['storage_volumes'] = None
+            
+    except json.JSONDecodeError as e:
+        parsed_info['disk_partitions'] = None
+        parsed_info['storage_volumes'] = None
+        print(f"DEBUG: JSON decode error: {e}")
+    except Exception as e:
+        parsed_info['disk_partitions'] = None
+        parsed_info['storage_volumes'] = None
+    
     try:
         if hasattr(node, 'network_info') and node.network_info:
             parsed_info['network'] = json.loads(node.network_info)
@@ -556,7 +583,7 @@ def node_hardware_report(node_id):
             parsed_info['network'] = None
     except json.JSONDecodeError:
         parsed_info['network'] = None
-        
+    
     try:
         if hasattr(node, 'gpu_info') and node.gpu_info:
             parsed_info['gpu'] = json.loads(node.gpu_info)
@@ -564,7 +591,7 @@ def node_hardware_report(node_id):
             parsed_info['gpu'] = None
     except json.JSONDecodeError:
         parsed_info['gpu'] = None
-        
+    
     try:
         if hasattr(node, 'thermal_info') and node.thermal_info:
             parsed_info['thermal'] = json.loads(node.thermal_info)
@@ -572,7 +599,7 @@ def node_hardware_report(node_id):
             parsed_info['thermal'] = None
     except json.JSONDecodeError:
         parsed_info['thermal'] = None
-        
+    
     try:
         if hasattr(node, 'hardware_info') and node.hardware_info:
             parsed_info['hardware'] = json.loads(node.hardware_info)

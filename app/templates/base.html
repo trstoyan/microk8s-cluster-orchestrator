@@ -57,6 +57,68 @@
             scrollbar-color: #6c757d #f8f9fa;
             scroll-behavior: smooth;
             font-size: 0.9rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+        }
+        
+        /* Improve table cell content display */
+        .table td, .table th {
+            vertical-align: middle;
+            padding: 0.5rem 0.75rem;
+            word-wrap: break-word;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* Allow text wrapping for specific columns that need it */
+        .table td[style*="min-width"] {
+            white-space: normal;
+        }
+        
+        /* Ensure dropdowns don't get cut off */
+        .dropdown-menu {
+            z-index: 9999 !important;
+            min-width: 160px;
+        }
+        
+        /* Fix dropdown z-index in tables */
+        .table .dropdown {
+            position: relative;
+            z-index: 1000;
+        }
+        
+        .table .dropdown-menu {
+            z-index: 9999 !important;
+            position: absolute;
+            top: 100%;
+            left: 0;
+        }
+        
+        /* Allow dropdowns to escape table overflow when open */
+        .table-responsive {
+            overflow-x: auto;
+            overflow-y: auto;
+        }
+        
+        /* Better dropdown positioning for tables */
+        .table .dropdown-menu {
+            position: absolute;
+            will-change: transform;
+        }
+        
+        /* Ensure dropdowns can escape table bounds but stay positioned correctly */
+        .table .dropdown-menu.show {
+            position: fixed !important;
+            z-index: 9999 !important;
+            transform: translateX(-100%) !important;
+            left: auto !important;
+            right: 0 !important;
+        }
+        
+        /* Ensure dropdowns show above sticky headers */
+        .sticky-top {
+            z-index: 1020;
         }
         
         .table-responsive::-webkit-scrollbar {
@@ -105,6 +167,11 @@
             }
             .table-responsive {
                 font-size: 0.8rem;
+                max-height: calc(100vh - 120px) !important;
+            }
+            .table td, .table th {
+                padding: 0.3rem 0.5rem;
+                font-size: 0.75rem;
             }
             .btn-group-sm > .btn, .btn-sm {
                 font-size: 0.75rem;
@@ -112,6 +179,12 @@
             }
             .card-body {
                 padding: 1rem 0.75rem;
+            }
+            /* Make dropdown menus more mobile-friendly */
+            .dropdown-menu {
+                font-size: 0.8rem;
+                min-width: 140px;
+                z-index: 9999 !important;
             }
         }
         
@@ -247,6 +320,90 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // Fix dropdown positioning in tables
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle dropdown positioning for table dropdowns
+        document.querySelectorAll('.table .dropdown-toggle').forEach(function(toggle) {
+            toggle.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                var dropdown = this.parentElement;
+                var menu = dropdown.querySelector('.dropdown-menu');
+                
+                if (dropdown.classList.contains('show')) {
+                    // Close dropdown
+                    dropdown.classList.remove('show');
+                    menu.classList.remove('show');
+                } else {
+                    // Close all other dropdowns first
+                    document.querySelectorAll('.table .dropdown.show').forEach(function(otherDropdown) {
+                        otherDropdown.classList.remove('show');
+                        otherDropdown.querySelector('.dropdown-menu').classList.remove('show');
+                    });
+                    
+                    // Open this dropdown
+                    dropdown.classList.add('show');
+                    menu.classList.add('show');
+                    
+                    // Position the dropdown menu directly below the button
+                    var rect = this.getBoundingClientRect();
+                    var menuWidth = 160; // Default width
+                    
+                    // Position directly below the button, aligned with its left edge
+                    var left = rect.left;
+                    var top = rect.bottom + 2; // Small gap below button
+                    
+                    // If dropdown would go off the right edge, align with button's right edge instead
+                    if (left + menuWidth > window.innerWidth - 10) {
+                        left = rect.right - menuWidth;
+                    }
+                    
+                    // If dropdown would go off the bottom, show above button instead
+                    var menuHeight = 200; // Estimated height
+                    if (top + menuHeight > window.innerHeight - 10) {
+                        top = rect.top - menuHeight - 2;
+                    }
+                    
+                    // Ensure dropdown stays within screen bounds
+                    if (left < 10) left = 10;
+                    if (top < 10) top = 10;
+                    
+                    menu.style.position = 'fixed';
+                    menu.style.left = left + 'px';
+                    menu.style.top = top + 'px';
+                    menu.style.zIndex = '9999';
+                    menu.style.minWidth = menuWidth + 'px';
+                    menu.style.transform = 'none'; // Remove any transforms
+                }
+            });
+        });
+        
+        // Allow dropdown items to work normally (don't interfere with their clicks)
+        document.querySelectorAll('.table .dropdown-menu .dropdown-item').forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                // Let the default behavior work (onclick handlers, href links, etc.)
+                // Just close the dropdown after a short delay to allow the action to complete
+                var dropdown = this.closest('.dropdown');
+                setTimeout(function() {
+                    dropdown.classList.remove('show');
+                    dropdown.querySelector('.dropdown-menu').classList.remove('show');
+                }, 100);
+            });
+        });
+        
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.table .dropdown')) {
+                document.querySelectorAll('.table .dropdown.show').forEach(function(dropdown) {
+                    dropdown.classList.remove('show');
+                    dropdown.querySelector('.dropdown-menu').classList.remove('show');
+                });
+            }
+        });
+    });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

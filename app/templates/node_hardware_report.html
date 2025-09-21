@@ -188,6 +188,371 @@
                     </div>
                 </div>
 
+
+            <!-- Detailed Disk and Storage Information -->
+            {% if parsed_info.disk_partitions or parsed_info.storage_volumes %}
+            <div class="row mb-4">
+                <!-- Detailed Disk Partitions -->
+                {% if parsed_info.disk_partitions %}
+                <div class="col-12 mb-4">
+                    <div class="card shadow h-100">
+                        <div class="card-header">
+                            <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-hdd"></i> Disk Partitions & Filesystems</h6>
+                        </div>
+                        <div class="card-body">
+                            {% if parsed_info.disk_partitions.physical_disks %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fas fa-server"></i> Physical Disks</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Device</th>
+                                                <th>Size</th>
+                                                <th>Type</th>
+                                                <th>Model</th>
+                                                <th>Serial</th>
+                                                <th>Rotational</th>
+                                                <th>Transport</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for line in parsed_info.disk_partitions.physical_disks.split('|') %}
+                                            {% if line and not line.startswith('NAME') and line.strip() and not line.strip().startswith('loop') %}
+                                            {% set cols = line.strip().split() %}
+                                            {% if cols|length >= 3 and cols[2] == 'disk' %}
+                                            <tr>
+                                                <td><code>{{ cols[0] if cols|length > 0 else '' }}</code></td>
+                                                <td>{{ cols[1] if cols|length > 1 else '' }}</td>
+                                                <td>{{ cols[2] if cols|length > 2 else '' }}</td>
+                                                <td>{{ cols[3] if cols|length > 3 else '' }}</td>
+                                                <td>{{ cols[4] if cols|length > 4 else '' }}</td>
+                                                <td>{{ cols[5] if cols|length > 5 else '' }}</td>
+                                                <td>{{ cols[6] if cols|length > 6 else '' }}</td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if parsed_info.disk_partitions.mounted_filesystems %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fas fa-folder-open"></i> Mounted Filesystems</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Device</th>
+                                                <th>Mount Point</th>
+                                                <th>Type</th>
+                                                <th>Options</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for line in parsed_info.disk_partitions.mounted_filesystems.split('|') %}
+                                            {% if line and ' on ' in line and ' type ' in line and '===' not in line %}
+                                            {% set parts = line.strip().split(' on ') %}
+                                            {% if parts|length >= 2 %}
+                                            {% set device = parts[0].strip() %}
+                                            {% set mount_info = parts[1].strip() %}
+                                            {% set mount_parts = mount_info.split(' type ') %}
+                                            {% if mount_parts|length >= 2 %}
+                                            {% set mount_point = mount_parts[0].strip() %}
+                                            {% set type_options = mount_parts[1].strip() %}
+                                            {% set type_parts = type_options.split(' (') %}
+                                            {% set fs_type = type_parts[0].strip() %}
+                                            {% set options = type_parts[1].strip().rstrip(')') if type_parts|length > 1 else '' %}
+                                            <tr>
+                                                <td><code>{{ device }}</code></td>
+                                                <td><code>{{ mount_point }}</code></td>
+                                                <td>{{ fs_type }}</td>
+                                                <td class="small">{{ options }}</td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if parsed_info.disk_partitions.all_partitions %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fas fa-layer-group"></i> All Partitions</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>FSType</th>
+                                                <th>Label</th>
+                                                <th>UUID</th>
+                                                <th>Mount Point</th>
+                                                <th>Size</th>
+                                                <th>Used</th>
+                                                <th>Available</th>
+                                                <th>Use%</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for line in parsed_info.disk_partitions.all_partitions.split('|') %}
+                                            {% if line and line.strip() and not line.strip().startswith('NAME') and not line.strip().startswith('loop') %}
+                                            {% set cols = line.strip().split() %}
+                                            {% if cols|length >= 2 and not cols[2] == 'disk' and cols[0] and (cols[0].startswith('sda') or cols[0].startswith('sdb') or cols[0].startswith('sdc') or cols[0].startswith('sdd') or cols[0].startswith('sde')) and cols[0] != cols[0].replace('1', '').replace('2', '').replace('3', '').replace('4', '').replace('5', '') %}
+                                            <tr>
+                                                <td><code>{{ cols[0] if cols|length > 0 else '' }}</code></td>
+                                                <td>{{ cols[1] if cols|length > 1 else '' }}</td>
+                                                <td>{{ cols[2] if cols|length > 2 else '' }}</td>
+                                                <td class="small">{{ cols[3] if cols|length > 3 else '' }}</td>
+                                                <td><code>{{ cols[4] if cols|length > 4 else '' }}</code></td>
+                                                <td>{{ cols[5] if cols|length > 5 else '' }}</td>
+                                                <td>{{ cols[6] if cols|length > 6 else '' }}</td>
+                                                <td>{{ cols[7] if cols|length > 7 else '' }}</td>
+                                                <td><span class="badge badge-{% if cols[8] and cols[8].replace('%','')|int > 80 %}danger{% elif cols[8] and cols[8].replace('%','')|int > 60 %}warning{% else %}success{% endif %}">{{ cols[8] if cols|length > 8 else '' }}</span></td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if parsed_info.disk_partitions.lvm_info %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fas fa-cubes"></i> LVM Information</h6>
+                                {% if 'No LVM' in parsed_info.disk_partitions.lvm_info or 'No LVM volumes' in parsed_info.disk_partitions.lvm_info %}
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle"></i> No LVM volumes detected on this system.
+                                </div>
+                                {% else %}
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>LVM Component</th>
+                                                <th>Details</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for line in parsed_info.disk_partitions.lvm_info.split('|') %}
+                                            {% if line and line.strip() and 'No LVM' not in line and '===' not in line %}
+                                            {% set parts = line.strip().split(' ', 1) %}
+                                            {% if parts|length >= 2 %}
+                                            <tr>
+                                                <td><code>{{ parts[0] if parts|length > 0 else '' }}</code></td>
+                                                <td>{{ parts[1] if parts|length > 1 else '' }}</td>
+                                            </tr>
+                                            {% else %}
+                                            <tr>
+                                                <td colspan="2"><code>{{ line.strip() }}</code></td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Storage Volumes (PVCs, PVs, Docker) -->
+                {% if parsed_info.storage_volumes %}
+                <div class="col-12 mb-4">
+                    <div class="card shadow h-100">
+                        <div class="card-header">
+                            <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-database"></i> Storage Volumes & PVCs</h6>
+                        </div>
+                        <div class="card-body">
+                            {% if parsed_info.storage_volumes.kubernetes_pvcs %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fab fa-docker"></i> Kubernetes PVCs</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Status</th>
+                                                <th>Volume</th>
+                                                <th>Capacity</th>
+                                                <th>Access Modes</th>
+                                                <th>Storage Class</th>
+                                                <th>Age</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% if 'kubectl not available' in parsed_info.storage_volumes.kubernetes_pvcs %}
+                                            <tr>
+                                                <td colspan="7" class="text-center text-muted">
+                                                    <i class="fas fa-exclamation-triangle"></i> kubectl/microk8s kubectl not available - Cannot retrieve PVC information
+                                                </td>
+                                            </tr>
+                                            {% else %}
+                                            {% set pvc_section = parsed_info.storage_volumes.kubernetes_pvcs.split('=== MICROK8S PVCs ===') %}
+                                            {% if pvc_section|length > 1 %}
+                                            {% for line in pvc_section[1].split('|') %}
+                                            {% if line and 'No resources found' not in line and '===' not in line and 'DRIVER' not in line and 'NAME' not in line and line.strip() %}
+                                            {% set cols = line.strip().split() %}
+                                            {% if cols|length >= 2 %}
+                                            <tr>
+                                                <td><code>{{ cols[0] if cols|length > 0 else '' }}</code></td>
+                                                <td><span class="badge badge-{% if cols[1] == 'Bound' %}success{% elif cols[1] == 'Pending' %}warning{% else %}secondary{% endif %}">{{ cols[1] if cols|length > 1 else '' }}</span></td>
+                                                <td>{{ cols[2] if cols|length > 2 else '' }}</td>
+                                                <td>{{ cols[3] if cols|length > 3 else '' }}</td>
+                                                <td>{{ cols[4] if cols|length > 4 else '' }}</td>
+                                                <td>{{ cols[5] if cols|length > 5 else '' }}</td>
+                                                <td>{{ cols[6] if cols|length > 6 else '' }}</td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endfor %}
+                                            {% endif %}
+                                            {% endif %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if parsed_info.storage_volumes.kubernetes_pvs %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fas fa-hdd"></i> Kubernetes PVs</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Capacity</th>
+                                                <th>Access Modes</th>
+                                                <th>Reclaim Policy</th>
+                                                <th>Status</th>
+                                                <th>Claim</th>
+                                                <th>Storage Class</th>
+                                                <th>Reason</th>
+                                                <th>Age</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% if 'kubectl not available' in parsed_info.storage_volumes.kubernetes_pvs %}
+                                            <tr>
+                                                <td colspan="9" class="text-center text-muted">
+                                                    <i class="fas fa-exclamation-triangle"></i> kubectl/microk8s kubectl not available - Cannot retrieve PV information
+                                                </td>
+                                            </tr>
+                                            {% else %}
+                                            {% set pv_section = parsed_info.storage_volumes.kubernetes_pvs.split('=== MICROK8S PVs ===') %}
+                                            {% if pv_section|length > 1 %}
+                                            {% for line in pv_section[1].split('|') %}
+                                            {% if line and 'No resources found' not in line and '===' not in line and 'DRIVER' not in line and 'NAME' not in line and line.strip() %}
+                                            {% set cols = line.strip().split() %}
+                                            {% if cols|length >= 2 %}
+                                            <tr>
+                                                <td><code>{{ cols[0] if cols|length > 0 else '' }}</code></td>
+                                                <td>{{ cols[1] if cols|length > 1 else '' }}</td>
+                                                <td>{{ cols[2] if cols|length > 2 else '' }}</td>
+                                                <td>{{ cols[3] if cols|length > 3 else '' }}</td>
+                                                <td><span class="badge badge-{% if cols[4] == 'Bound' %}success{% elif cols[4] == 'Available' %}info{% else %}secondary{% endif %}">{{ cols[4] if cols|length > 4 else '' }}</span></td>
+                                                <td>{{ cols[5] if cols|length > 5 else '' }}</td>
+                                                <td>{{ cols[6] if cols|length > 6 else '' }}</td>
+                                                <td>{{ cols[7] if cols|length > 7 else '' }}</td>
+                                                <td>{{ cols[8] if cols|length > 8 else '' }}</td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endfor %}
+                                            {% endif %}
+                                            {% endif %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if parsed_info.storage_volumes.kubernetes_pvcs %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fab fa-docker"></i> Docker Volumes</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Driver</th>
+                                                <th>Volume Name</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% set docker_section = parsed_info.storage_volumes.kubernetes_pvcs.split('=== DOCKER VOLUMES ===') %}
+                                            {% if docker_section|length > 1 %}
+                                            {% for line in docker_section[1].split('|') %}
+                                            {% if line and 'DRIVER' not in line and '===' not in line and line.strip() %}
+                                            {% set cols = line.strip().split() %}
+                                            {% if cols|length >= 2 %}
+                                            <tr>
+                                                <td><span class="badge badge-info">{{ cols[0] if cols|length > 0 else '' }}</span></td>
+                                                <td><code>{{ cols[1] if cols|length > 1 else '' }}</code></td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endif %}
+                                            {% endfor %}
+                                            {% endif %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                            {% if parsed_info.storage_volumes.storage_classes %}
+                            <div class="mb-4">
+                                <h6 class="text-dark mb-2"><i class="fas fa-cog"></i> Storage Classes</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Provisioner</th>
+                                                <th>Reclaim Policy</th>
+                                                <th>Volume Binding Mode</th>
+                                                <th>Allow Volume Expansion</th>
+                                                <th>Age</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for line in parsed_info.storage_volumes.storage_classes.split('\n') %}
+                                            {% if line and not line.startswith('NAME') and 'No resources found' not in line %}
+                                            <tr>
+                                                {% set cols = line.split() %}
+                                                <td><code>{{ cols[0] if cols|length > 0 else '' }}</code></td>
+                                                <td>{{ cols[1] if cols|length > 1 else '' }}</td>
+                                                <td>{{ cols[2] if cols|length > 2 else '' }}</td>
+                                                <td>{{ cols[3] if cols|length > 3 else '' }}</td>
+                                                <td>{{ cols[4] if cols|length > 4 else '' }}</td>
+                                                <td>{{ cols[5] if cols|length > 5 else '' }}</td>
+                                            </tr>
+                                            {% endif %}
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
                 <!-- GPU Information -->
                 <div class="col-lg-6 mb-4">
                     <div class="card shadow h-100">

@@ -45,6 +45,8 @@ class Node(Base):
     cpu_info = Column(Text)       # CPU model, architecture, features
     memory_info = Column(Text)    # Memory details, speed, type
     disk_info = Column(Text)      # Disk details, types, speeds
+    disk_partitions_info = Column(Text)  # Detailed disk partitions, LVM, RAID info
+    storage_volumes_info = Column(Text)  # PVCs, PVs, Docker volumes info
     network_info = Column(Text)   # Network interfaces
     gpu_info = Column(Text)       # GPU information if available
     thermal_info = Column(Text)   # Temperature sensors

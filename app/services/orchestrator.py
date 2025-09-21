@@ -1100,8 +1100,9 @@ class OrchestrationService:
                 scp_cmd.extend(['-P', str(node.ssh_port)])
             
             # Add source and destination paths
+            ssh_user = node.ssh_user or 'root'  # Default to root if no user specified
             scp_cmd.extend([
-                f'{node.ip_address}:{remote_file_path}',
+                f'{ssh_user}@{node.ip_address}:{remote_file_path}',
                 local_file_path
             ])
             
@@ -1160,6 +1161,16 @@ class OrchestrationService:
                     node.disk_gb = disk_info.get('total_gb', node.disk_gb)
                     node.disk_usage_percent = disk_info.get('usage_percent')
                     node.disk_info = json.dumps(disk_info)
+                    
+                    # Update detailed disk and partition info
+                    disk_partitions_info = hw_info.get('disk_partitions_info', {})
+                    if hasattr(node, 'disk_partitions_info'):
+                        node.disk_partitions_info = json.dumps(disk_partitions_info)
+                    
+                    # Update storage volumes info (PVCs, PVs, etc.)
+                    storage_volumes_info = hw_info.get('storage_volumes_info', {})
+                    if hasattr(node, 'storage_volumes_info'):
+                        node.storage_volumes_info = json.dumps(storage_volumes_info)
                     
                     # Update other hardware info
                     node.network_info = json.dumps(hw_info.get('network_info', {}))

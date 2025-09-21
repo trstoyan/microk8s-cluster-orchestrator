@@ -17,22 +17,22 @@
 {% if clusters %}
     <div class="card">
         <div class="card-body">
-            <div class="table-responsive" style="max-height: calc(100vh - 200px); overflow-y: auto;">
-                <table class="table table-hover">
+            <div class="table-responsive" style="height: 600px; overflow-y: auto;">
+                <table class="table table-hover table-sm">
                     <thead class="sticky-top bg-white">
                         <tr>
-                            <th>ID</th>
-                            <th>Name</th>
-                            <th>Status</th>
-                            <th>Nodes</th>
-                            <th>Control Planes</th>
-                            <th>Workers</th>
-                            <th>Network CIDR</th>
-                            <th>Service CIDR</th>
-                            <th>HA</th>
-                            <th>Health Score</th>
-                            <th>Created</th>
-                            <th>Actions</th>
+                            <th style="min-width: 50px;">ID</th>
+                            <th style="min-width: 180px;">Name</th>
+                            <th style="min-width: 80px;">Status</th>
+                            <th style="min-width: 60px;">Nodes</th>
+                            <th style="min-width: 80px;">Control Planes</th>
+                            <th style="min-width: 70px;">Workers</th>
+                            <th style="min-width: 120px;">Network CIDR</th>
+                            <th style="min-width: 120px;">Service CIDR</th>
+                            <th style="min-width: 60px;">HA</th>
+                            <th style="min-width: 100px;">Health Score</th>
+                            <th style="min-width: 120px;">Created</th>
+                            <th style="min-width: 100px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -40,7 +40,7 @@
                         <tr>
                             <td>{{ cluster.id }}</td>
                             <td>
-                                <strong>{{ cluster.name }}</strong>
+                                <strong><a href="#" onclick="viewClusterDetails({{ cluster.id }})" class="text-decoration-none">{{ cluster.name }}</a></strong>
                                 {% if cluster.description %}
                                     <br><small class="text-muted">{{ cluster.description[:50] }}{% if cluster.description|length > 50 %}...{% endif %}</small>
                                 {% endif %}
@@ -88,7 +88,7 @@
                             </td>
                             <td>
                                 <div class="btn-group btn-group-sm" role="group">
-                                    <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+                                    <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                         Actions
                                     </button>
                                     <ul class="dropdown-menu">
@@ -104,10 +104,10 @@
                                         </a></li>
                                         <li><hr class="dropdown-divider"></li>
                                         {% endif %}
-                                        <li><a class="dropdown-item" href="#">
+                                        <li><a class="dropdown-item" href="#" onclick="viewClusterDetails({{ cluster.id }})">
                                             <i class="bi bi-eye"></i> View Details
                                         </a></li>
-                                        <li><a class="dropdown-item" href="#">
+                                        <li><a class="dropdown-item" href="#" onclick="editCluster({{ cluster.id }})">
                                             <i class="bi bi-pencil"></i> Edit
                                         </a></li>
                                         <li><hr class="dropdown-divider"></li>
@@ -180,6 +180,16 @@ function scanCluster(clusterId) {
             alert('Error: ' + error);
         });
     }
+}
+
+function viewClusterDetails(clusterId) {
+    // For now, just show an alert. This can be expanded to show a modal or navigate to a details page
+    alert(`View details for cluster ${clusterId} - Feature coming soon!`);
+}
+
+function editCluster(clusterId) {
+    // For now, just show an alert. This can be expanded to show an edit modal or navigate to an edit page
+    alert(`Edit cluster ${clusterId} - Feature coming soon!`);
 }
 
 function deleteCluster(clusterId, clusterName) {
