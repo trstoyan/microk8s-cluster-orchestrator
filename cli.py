@@ -419,6 +419,181 @@ def shutdown_cluster(cluster_id, force, graceful):
         session.close()
 
 @cli.group()
+def system():
+    """System management commands."""
+    pass
+
+@system.command('check-prerequisites')
+@click.argument('node_id', type=int)
+def check_prerequisites(node_id):
+    """Check system prerequisites for a node."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        node = session.query(Node).filter_by(id=node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found.")
+            return
+        
+        print_info(f"Checking prerequisites for node '{node.hostname}'...")
+        
+        # Create a temporary operation for prerequisites check
+        operation = orchestrator._create_operation(
+            operation_type='prerequisites',
+            operation_name='Check Prerequisites',
+            description=f'Check system prerequisites for node {node.hostname}',
+            node=node,
+            playbook_path='playbooks/check_prerequisites.yml'
+        )
+        
+        try:
+            orchestrator._update_operation_status(operation, 'running')
+            
+            # Generate inventory and run playbook
+            inventory_file = orchestrator._generate_inventory([node])
+            playbook_path = os.path.join(orchestrator.playbooks_dir, 'check_prerequisites.yml')
+            
+            success, output = orchestrator._run_ansible_playbook(playbook_path, inventory_file)
+            
+            if success:
+                orchestrator._update_operation_status(operation, 'completed', success=True, output=output)
+                print_success("Prerequisites check completed successfully!")
+                print_info("Check the operation details for full report.")
+            else:
+                orchestrator._update_operation_status(operation, 'failed', success=False, output=output)
+                print_error("Prerequisites check failed. Check the operation details for errors.")
+        
+        except Exception as e:
+            orchestrator._update_operation_status(operation, 'failed', success=False, error_message=str(e))
+            print_error(f"Failed to check prerequisites: {e}")
+    
+    except Exception as e:
+        print_error(f"Failed to check prerequisites: {e}")
+    
+    finally:
+        session.close()
+
+@system.command('install-prerequisites')
+@click.argument('node_id', type=int)
+def install_prerequisites(node_id):
+    """Install missing prerequisites on a node."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        node = session.query(Node).filter_by(id=node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found.")
+            return
+        
+        print_info(f"Installing prerequisites on node '{node.hostname}'...")
+        
+        # Create a temporary operation for prerequisites installation
+        operation = orchestrator._create_operation(
+            operation_type='prerequisites',
+            operation_name='Install Prerequisites',
+            description=f'Install missing prerequisites on node {node.hostname}',
+            node=node,
+            playbook_path='playbooks/install_prerequisites.yml'
+        )
+        
+        try:
+            orchestrator._update_operation_status(operation, 'running')
+            
+            # Generate inventory and run playbook
+            inventory_file = orchestrator._generate_inventory([node])
+            playbook_path = os.path.join(orchestrator.playbooks_dir, 'install_prerequisites.yml')
+            
+            success, output = orchestrator._run_ansible_playbook(playbook_path, inventory_file)
+            
+            if success:
+                orchestrator._update_operation_status(operation, 'completed', success=True, output=output)
+                print_success("Prerequisites installation completed successfully!")
+                print_info("System is now ready for MicroK8s installation.")
+            else:
+                orchestrator._update_operation_status(operation, 'failed', success=False, output=output)
+                print_error("Prerequisites installation failed. Check the operation details for errors.")
+        
+        except Exception as e:
+            orchestrator._update_operation_status(operation, 'failed', success=False, error_message=str(e))
+            print_error(f"Failed to install prerequisites: {e}")
+    
+    except Exception as e:
+        print_error(f"Failed to install prerequisites: {e}")
+    
+    finally:
+        session.close()
+
+@system.command('setup-privileges')
+def setup_orchestrator_privileges():
+    """Setup orchestrator privileges for system operations."""
+    import subprocess
+    import sys
+    import os
+    
+    script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'setup_orchestrator_privileges.py')
+    
+    if not os.path.exists(script_path):
+        print_error(f"Setup script not found: {script_path}")
+        return
+    
+    print_info("Setting up orchestrator privileges...")
+    print_info("This will configure sudo access for system operations like NUT management.")
+    
+    try:
+        # Run the setup script with sudo
+        result = subprocess.run(['sudo', 'python3', script_path], 
+                              capture_output=False, text=True)
+        
+        if result.returncode == 0:
+            print_success("Privilege setup completed successfully!")
+            print_info("The orchestrator can now perform system-level operations.")
+        else:
+            print_error("Privilege setup failed. Please check the output above.")
+    
+    except Exception as e:
+        print_error(f"Failed to run privilege setup: {e}")
+
+@system.command('check-privileges')
+def check_orchestrator_privileges():
+    """Check if orchestrator has required privileges."""
+    import subprocess
+    
+    print_info("Checking orchestrator privileges...")
+    
+    # Test commands that require sudo
+    test_commands = [
+        ('sudo -n systemctl status ssh', 'System service management'),
+        ('sudo -n apt --version', 'Package management'),
+        ('sudo -n chown --version', 'File ownership management'),
+        ('sudo -n ls /etc/nut', 'NUT configuration access'),
+        ('sudo -n microk8s version', 'MicroK8s management'),
+        ('sudo -n ufw status', 'Firewall management'),
+    ]
+    
+    all_passed = True
+    
+    for command, description in test_commands:
+        try:
+            result = subprocess.run(command.split(), capture_output=True, text=True)
+            if result.returncode == 0:
+                print_success(f"✅ {description}: OK")
+            else:
+                print_error(f"❌ {description}: FAILED")
+                all_passed = False
+        except Exception as e:
+            print_error(f"❌ {description}: ERROR - {e}")
+            all_passed = False
+    
+    if all_passed:
+        print_success("All privilege checks passed! Orchestrator is ready.")
+    else:
+        print_error("Some privilege checks failed. Run 'system setup-privileges' to fix.")
+    
+    return all_passed
+
+@cli.group()
 def router():
     """Manage router switches."""
     pass

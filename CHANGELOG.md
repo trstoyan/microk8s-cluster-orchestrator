@@ -28,13 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mounted filesystem tracking
 - Block device details and symbolic links
 - MicroK8s and Kubernetes PVC/PV detection
-- **Cluster Graceful Shutdown**: Safe cluster shutdown functionality
-  - Graceful shutdown option that safely stops all MicroK8s services
-  - Force shutdown option for immediate termination
-  - Web interface integration with cluster management dropdown
-  - CLI commands for both graceful and force shutdown operations
-  - Ansible playbook for coordinated cluster shutdown
-  - Operation tracking and status monitoring
+- **Cluster Graceful Shutdown**: Safe cluster shutdown functionality with graceful and force modes
+- **Comprehensive Prerequisites Management**: Automated system prerequisites checking and installation
+- **Privilege Management System**: Automated setup of required sudo privileges for system operations
+  - Passwordless sudo configuration for orchestrator user
+  - Comprehensive privilege validation and testing
+  - Automated sudoers file creation with proper security
+  - System service configuration for production deployment
+- **Automated Setup Scripts**: Complete system setup automation
+  - `setup_system.sh`: Full system setup with all dependencies and configurations
+  - `quick_setup.sh`: Minimal setup for experienced users
+  - Automated dependency installation, privilege setup, and service configuration
+  - Built-in testing and validation of the complete installation
 - Storage class information
 - Hardware report web interface with tabular data display
 

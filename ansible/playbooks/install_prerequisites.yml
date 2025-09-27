@@ -1,0 +1,278 @@
+---
+- name: Install prerequisites for MicroK8s Cluster Orchestrator
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    required_packages:
+      - python3
+      - python3-pip
+      - curl
+      - wget
+      - git
+      - snapd
+      - openssh-server
+      - sudo
+      - ufw
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - build-essential
+      - iptables
+      - net-tools
+      - iputils-ping
+      - dnsutils
+      - htop
+      - vim
+      - nano
+      - unzip
+      - jq
+      - bc
+      - lvm2
+      - mdadm
+    
+    required_python_packages:
+      - pip
+      - setuptools
+      - wheel
+    
+    microk8s_ports:
+      - 16443  # API server
+      - 10250  # Kubelet API
+      - 10251  # Scheduler
+      - 10252  # Controller manager
+      - 10255  # Read-only Kubelet API
+      - 2379   # etcd server client API
+      - 2380   # etcd server peer API
+      - 10259  # Read-only Kubelet API (alternative)
+      - 6443   # Kubernetes API server
+  
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      
+    - name: Install required system packages
+      package:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ required_packages }}"
+      when: ansible_os_family == "Debian"
+      
+    - name: Upgrade pip and install Python packages
+      pip:
+        name: "{{ item }}"
+        state: latest
+      loop: "{{ required_python_packages }}"
+      
+    - name: Start and enable SSH service
+      systemd:
+        name: ssh
+        state: started
+        enabled: yes
+        
+    - name: Start and enable snapd service
+      systemd:
+        name: snapd
+        state: started
+        enabled: yes
+        
+    - name: Wait for snapd to be ready
+      command: snap wait system seed.loaded
+      timeout: 60
+      changed_when: false
+      
+    - name: Configure sudo for ansible user
+      lineinfile:
+        path: /etc/sudoers.d/ansible
+        line: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
+        create: yes
+        mode: '0440'
+        validate: 'visudo -cf %s'
+        
+    - name: Add user to sudo group
+      user:
+        name: "{{ ansible_user }}"
+        groups: sudo
+        append: yes
+        
+    - name: Add user to docker group (if docker is installed)
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+      when: "'docker' in ansible_facts.packages"
+      
+    - name: Configure firewall for MicroK8s
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ microk8s_ports }}"
+      ignore_errors: yes
+      
+    - name: Configure firewall for MicroK8s (UDP)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: udp
+      loop: "{{ microk8s_ports }}"
+      ignore_errors: yes
+      
+    - name: Allow SSH through firewall
+      ufw:
+        rule: allow
+        port: "{{ ansible_ssh_port | default(22) }}"
+        proto: tcp
+        
+    - name: Enable firewall
+      ufw:
+        state: enabled
+        policy: deny
+      ignore_errors: yes
+      
+    - name: Configure system limits for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: 'fs.file-max', value: '2097152' }
+        - { name: 'vm.max_map_count', value: '262144' }
+        - { name: 'vm.swappiness', value: '1' }
+        - { name: 'net.core.somaxconn', value: '65535' }
+        - { name: 'net.ipv4.ip_local_port_range', value: '1024 65535' }
+        - { name: 'net.ipv4.tcp_keepalive_time', value: '600' }
+        - { name: 'net.ipv4.tcp_keepalive_intvl', value: '60' }
+        - { name: 'net.ipv4.tcp_keepalive_probes', value: '10' }
+        
+    - name: Configure system limits for Kubernetes (permanent)
+      lineinfile:
+        path: /etc/sysctl.conf
+        line: "{{ item.name }} = {{ item.value }}"
+        state: present
+      loop:
+        - { name: 'fs.file-max', value: '2097152' }
+        - { name: 'vm.max_map_count', value: '262144' }
+        - { name: 'vm.swappiness', value: '1' }
+        - { name: 'net.core.somaxconn', value: '65535' }
+        - { name: 'net.ipv4.ip_local_port_range', value: '1024 65535' }
+        - { name: 'net.ipv4.tcp_keepalive_time', value: '600' }
+        - { name: 'net.ipv4.tcp_keepalive_intvl', value: '60' }
+        - { name: 'net.ipv4.tcp_keepalive_probes', value: '10' }
+      ignore_errors: yes
+      
+    - name: Configure user limits
+      pam_limits:
+        domain: "{{ ansible_user }}"
+        limit_type: soft
+        limit_item: "{{ item.item }}"
+        value: "{{ item.value }}"
+      loop:
+        - { item: 'nofile', value: '65536' }
+        - { item: 'nproc', value: '65536' }
+      ignore_errors: yes
+      
+    - name: Disable swap (required for Kubernetes)
+      shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+      ignore_errors: yes
+      
+    - name: Install containerd prerequisites
+      package:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+      when: ansible_os_family == "Debian"
+      
+    - name: Add Docker's official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      when: ansible_os_family == "Debian"
+      ignore_errors: yes
+      
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+      when: ansible_os_family == "Debian"
+      ignore_errors: yes
+      
+    - name: Update package cache after adding Docker repository
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+      ignore_errors: yes
+      
+    - name: Create microk8s group
+      group:
+        name: microk8s
+        state: present
+        
+    - name: Add user to microk8s group
+      user:
+        name: "{{ ansible_user }}"
+        groups: microk8s
+        append: yes
+        
+    - name: Create necessary directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/log/microk8s
+        - /etc/microk8s
+        - /opt/microk8s
+        
+    - name: Set up log rotation for MicroK8s
+      copy:
+        content: |
+          /var/log/microk8s/*.log {
+              daily
+              missingok
+              rotate 7
+              compress
+              delaycompress
+              notifempty
+              create 644 root root
+          }
+        dest: /etc/logrotate.d/microk8s
+        mode: '0644'
+        
+    - name: Verify prerequisites installation
+      command: "{{ item }}"
+      loop:
+        - python3 --version
+        - pip3 --version
+        - curl --version
+        - wget --version
+        - git --version
+        - snap version
+        - sudo -n true
+      register: verification_results
+      changed_when: false
+      
+    - name: Display verification results
+      debug:
+        msg: "{{ item.item }}: {{ 'OK' if item.rc == 0 else 'FAILED' }}"
+      loop: "{{ verification_results.results }}"
+      
+    - name: Final status message
+      debug:
+        msg: |
+          Prerequisites installation completed for {{ ansible_hostname }}
+          System is now ready for MicroK8s installation.
+          You can proceed with: python cli.py node install {{ node_id }}

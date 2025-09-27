@@ -1,0 +1,228 @@
+---
+- name: Check system prerequisites for MicroK8s Cluster Orchestrator
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    required_packages:
+      - python3
+      - python3-pip
+      - curl
+      - wget
+      - git
+      - snapd
+      - systemd
+      - openssh-server
+      - sudo
+      - ufw  # Ubuntu firewall
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+    
+    required_commands:
+      - python3
+      - pip3
+      - curl
+      - wget
+      - git
+      - snap
+      - systemctl
+      - sudo
+      - ssh
+      - ufw
+      - lsblk
+      - lscpu
+      - free
+      - df
+      - iptables
+      - netstat
+      - ss
+    
+    min_python_version: "3.8"
+    min_memory_gb: 2
+    min_disk_gb: 10
+    recommended_memory_gb: 4
+    recommended_disk_gb: 20
+  
+  tasks:
+    - name: Display system information
+      debug:
+        msg: |
+          Checking prerequisites for host: {{ ansible_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Architecture: {{ ansible_architecture }}
+          Python: {{ ansible_python_version }}
+          Memory: {{ ansible_memtotal_mb // 1024 }}GB
+          Available Disk: {{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first) // (1024**3) }}GB
+      
+    - name: Check Python version
+      fail:
+        msg: "Python {{ ansible_python_version }} is below minimum required version {{ min_python_version }}"
+      when: ansible_python_version is version(min_python_version, '<')
+      
+    - name: Check system memory
+      fail:
+        msg: "System has {{ ansible_memtotal_mb // 1024 }}GB RAM, minimum required is {{ min_memory_gb }}GB"
+      when: (ansible_memtotal_mb // 1024) < min_memory_gb
+      
+    - name: Warn about low memory
+      debug:
+        msg: "WARNING: System has {{ ansible_memtotal_mb // 1024 }}GB RAM, recommended is {{ recommended_memory_gb }}GB for production use"
+      when: (ansible_memtotal_mb // 1024) < recommended_memory_gb
+      
+    - name: Check available disk space
+      fail:
+        msg: "Available disk space is {{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first) // (1024**3) }}GB, minimum required is {{ min_disk_gb }}GB"
+      when: (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first) // (1024**3) < min_disk_gb
+      
+    - name: Check if running as root or has sudo access
+      command: sudo -n true
+      register: sudo_check
+      failed_when: false
+      changed_when: false
+      
+    - name: Verify sudo access
+      fail:
+        msg: "User '{{ ansible_user }}' does not have sudo access or passwordless sudo is not configured"
+      when: sudo_check.rc != 0
+      
+    - name: Check required system packages
+      package:
+        name: "{{ item }}"
+        state: present
+      register: package_check
+      loop: "{{ required_packages }}"
+      when: ansible_os_family == "Debian"
+      
+    - name: Check required commands availability
+      command: which {{ item }}
+      register: command_check
+      loop: "{{ required_commands }}"
+      failed_when: false
+      changed_when: false
+      
+    - name: Display missing commands
+      debug:
+        msg: "Missing command: {{ item.item }}"
+      loop: "{{ command_check.results }}"
+      when: item.rc != 0
+      
+    - name: Fail if required commands are missing
+      fail:
+        msg: "Required commands are missing. Please install the missing packages."
+      when: command_check.results | selectattr('rc', '!=', 0) | list | length > 0
+      
+    - name: Check SSH service status
+      systemd:
+        name: ssh
+      register: ssh_status
+      
+    - name: Ensure SSH service is running
+      systemd:
+        name: ssh
+        state: started
+        enabled: yes
+      when: ssh_status.status.ActiveState != 'active'
+      
+    - name: Check if snapd is running
+      systemd:
+        name: snapd
+      register: snapd_status
+      
+    - name: Ensure snapd service is running
+      systemd:
+        name: snapd
+        state: started
+        enabled: yes
+      when: snapd_status.status.ActiveState != 'active'
+      
+    - name: Check network connectivity
+      command: ping -c 3 8.8.8.8
+      register: network_check
+      failed_when: false
+      changed_when: false
+      
+    - name: Fail if no network connectivity
+      fail:
+        msg: "No internet connectivity detected. Required for package installation and updates."
+      when: network_check.rc != 0
+      
+    - name: Check if MicroK8s is already installed
+      command: which microk8s
+      register: microk8s_check
+      failed_when: false
+      changed_when: false
+      
+    - name: Check MicroK8s status if installed
+      command: microk8s status
+      register: microk8s_status
+      failed_when: false
+      changed_when: false
+      when: microk8s_check.rc == 0
+      
+    - name: Check firewall status
+      command: ufw status
+      register: firewall_status
+      failed_when: false
+      changed_when: false
+      
+    - name: Display firewall status
+      debug:
+        msg: |
+          Firewall status: {{ firewall_status.stdout_lines[0] if firewall_status.rc == 0 else 'UFW not available or not configured' }}
+          Note: You may need to configure firewall rules for MicroK8s ports (16443, 10250-10259, etc.)
+      
+    - name: Check for conflicting services
+      systemd:
+        name: "{{ item }}"
+      register: conflicting_services
+      loop:
+        - docker
+        - containerd
+        - kubelet
+        - etcd
+      failed_when: false
+      
+    - name: Display conflicting services
+      debug:
+        msg: "Conflicting service found: {{ item.item }} ({{ item.status.ActiveState }})"
+      loop: "{{ conflicting_services.results }}"
+      when: item.status.ActiveState == 'active'
+      
+    - name: Compile prerequisites report
+      set_fact:
+        prerequisites_report:
+          hostname: "{{ ansible_hostname }}"
+          os: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          architecture: "{{ ansible_architecture }}"
+          python_version: "{{ ansible_python_version }}"
+          memory_gb: "{{ ansible_memtotal_mb // 1024 }}"
+          disk_available_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first) // (1024**3) }}"
+          sudo_access: "{{ sudo_check.rc == 0 }}"
+          ssh_running: "{{ ssh_status.status.ActiveState == 'active' }}"
+          snapd_running: "{{ snapd_status.status.ActiveState == 'active' }}"
+          network_connectivity: "{{ network_check.rc == 0 }}"
+          microk8s_installed: "{{ microk8s_check.rc == 0 }}"
+          microk8s_running: "{{ microk8s_status.rc == 0 if microk8s_check.rc == 0 else false }}"
+          firewall_status: "{{ firewall_status.stdout_lines[0] if firewall_status.rc == 0 else 'Not configured' }}"
+          conflicting_services: "{{ conflicting_services.results | selectattr('status.ActiveState', 'equalto', 'active') | map(attribute='item') | list }}"
+          prerequisites_met: "{{ (command_check.results | selectattr('rc', '!=', 0) | list | length == 0) and (sudo_check.rc == 0) and (network_check.rc == 0) }}"
+      
+    - name: Display prerequisites report
+      debug:
+        var: prerequisites_report
+      
+    - name: Write prerequisites report to file
+      copy:
+        content: "{{ prerequisites_report | to_nice_json }}"
+        dest: "/tmp/prerequisites_report_{{ ansible_hostname }}.json"
+        mode: '0644'
+      
+    - name: Final status message
+      debug:
+        msg: |
+          Prerequisites check completed for {{ ansible_hostname }}
+          Status: {{ 'PASSED' if prerequisites_report.prerequisites_met else 'FAILED' }}
+          {{ 'All prerequisites are met. System is ready for MicroK8s installation.' if prerequisites_report.prerequisites_met else 'Please address the failed prerequisites before proceeding.' }}

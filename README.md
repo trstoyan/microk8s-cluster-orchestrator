@@ -60,12 +60,114 @@ The system follows a modular architecture with clear separation of concerns:
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- Ansible 2.15 or higher
-- SSH access to target nodes
-- Ubuntu 20.04+ or similar Linux distribution on target nodes
+#### Control Node (Where orchestrator runs)
+- **Python**: 3.8 or higher
+- **Ansible**: 2.15 or higher
+- **SSH**: Access to target nodes
+- **Internet**: Connectivity for package downloads
+
+#### Target Nodes (MicroK8s hosts)
+- **Operating System**: Ubuntu 20.04+ or similar Linux distribution
+- **Architecture**: x86_64 or ARM64
+- **Memory**: Minimum 2GB RAM (4GB+ recommended)
+- **Storage**: Minimum 10GB available disk space (20GB+ recommended)
+- **Network**: Internet connectivity and proper network configuration
+- **Privileges**: Sudo access with passwordless authentication
+- **Services**: SSH server running and accessible
+
+#### Required System Packages
+```bash
+# Core packages
+python3 python3-pip curl wget git snapd systemd openssh-server sudo ufw
+
+# Development tools
+build-essential software-properties-common apt-transport-https ca-certificates gnupg lsb-release
+
+# Network and system tools
+iptables net-tools iputils-ping dnsutils htop vim nano unzip jq bc lvm2 mdadm
+
+# Container runtime prerequisites
+containerd.io docker-ce-cli
+```
+
+#### Network Requirements
+- **SSH**: Port 22 (configurable)
+- **MicroK8s Ports**: 16443, 10250-10259, 2379-2380, 6443
+- **Firewall**: Must allow required ports or be properly configured
+- **DNS**: Proper DNS resolution for cluster communication
+
+#### Privilege Requirements
+
+**Control Node Privileges:**
+The orchestrator needs elevated privileges to perform system-level operations:
+
+```bash
+# Required sudo access for:
+- Package management (apt, snap)
+- Service management (systemctl)
+- File operations (chown, chmod, cp, rm)
+- Network configuration (ufw, iptables)
+- User/group management (usermod, groupadd)
+- System configuration (sysctl)
+- NUT configuration management
+- MicroK8s operations
+- Hardware monitoring tools
+- UPS management utilities
+```
+
+**Setup Orchestrator Privileges:**
+```bash
+# Automatic privilege setup (recommended)
+python cli.py system setup-privileges
+
+# Manual privilege setup
+sudo python scripts/setup_orchestrator_privileges.py
+
+# Check current privileges
+python cli.py system check-privileges
+```
+
+**Manual Privilege Configuration:**
+If automatic setup fails, manually configure sudoers:
+
+```bash
+# Create sudoers file for orchestrator user
+sudo visudo /etc/sudoers.d/microk8s-orchestrator
+
+# Add the following content (replace 'orchestrator' with your username):
+orchestrator ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get
+orchestrator ALL=(ALL) NOPASSWD: /bin/systemctl
+orchestrator ALL=(ALL) NOPASSWD: /bin/chown, /bin/chmod, /bin/cp, /bin/rm, /bin/mv, /bin/cat
+orchestrator ALL=(ALL) NOPASSWD: /usr/bin/microk8s, /usr/bin/snap
+orchestrator ALL=(ALL) NOPASSWD: /usr/sbin/ufw, /sbin/iptables
+orchestrator ALL=(ALL) NOPASSWD: /usr/bin/nut-scanner, /usr/bin/upsc, /usr/bin/upsdrvctl
+orchestrator ALL=(ALL) NOPASSWD: /usr/sbin/upsd, /usr/sbin/upsmon
+# ... (see setup script for complete list)
+
+# Set proper permissions
+sudo chmod 440 /etc/sudoers.d/microk8s-orchestrator
+sudo chown root:root /etc/sudoers.d/microk8s-orchestrator
+```
 
 ### Installation
+
+#### Option 1: Automated Setup (Recommended)
+
+**Complete Setup (Full System Configuration):**
+```bash
+git clone <repository-url>
+cd microk8s-cluster-orchestrator
+./setup_system.sh
+```
+
+**Quick Setup (Minimal Configuration):**
+```bash
+git clone <repository-url>
+cd microk8s-cluster-orchestrator
+./quick_setup.sh
+```
+
+#### Option 2: Manual Installation
 
 1. **Clone the repository**:
    ```bash
@@ -73,17 +175,35 @@ The system follows a modular architecture with clear separation of concerns:
    cd microk8s-cluster-orchestrator
    ```
 
-2. **Install Python dependencies**:
+2. **Install system dependencies**:
    ```bash
+   sudo apt update
+   sudo apt install -y python3 python3-pip python3-venv ansible git
+   ```
+
+3. **Create Python virtual environment**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+4. **Install Python dependencies**:
+   ```bash
+   pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
-3. **Install Ansible collections**:
+5. **Install Ansible collections**:
    ```bash
    ansible-galaxy install -r ansible/requirements.yml
    ```
 
-4. **Initialize the system**:
+6. **Setup orchestrator privileges**:
+   ```bash
+   python cli.py system setup-privileges
+   ```
+
+7. **Initialize the system**:
    ```bash
    python cli.py init
    ```
@@ -110,7 +230,12 @@ The system follows a modular architecture with clear separation of concerns:
    python cli.py cluster setup 1
    ```
 
-5. **Start the web interface**:
+5. **Shutdown the cluster** (when needed):
+   ```bash
+   python cli.py cluster shutdown 1 --graceful
+   ```
+
+6. **Start the web interface**:
    ```bash
    python cli.py web
    ```
@@ -156,6 +281,19 @@ python cli.py cluster shutdown 1 --graceful
 python cli.py cluster shutdown 1 --force
 ```
 
+### Web Interface Operations
+
+**Cluster Management:**
+- Navigate to "Clusters" section
+- Use the Actions dropdown for each cluster
+- Available operations: Setup, Scan, Hardware Report, Graceful Shutdown, Force Shutdown
+- Monitor operation progress in the Operations page
+
+**Shutdown Options:**
+- **Graceful Shutdown**: Safely stops all MicroK8s services with confirmation dialog
+- **Force Shutdown**: Immediate termination with warning about potential data loss
+- All shutdown operations are tracked and logged in the Operations section
+
 ### Operations
 
 ```bash
@@ -178,6 +316,22 @@ python cli.py hardware collect 1
 # View hardware report in web interface
 python cli.py web
 # Then navigate to: http://localhost:5000/hardware-report/node/1
+```
+
+### System Management
+
+```bash
+# Check system prerequisites for a node
+python cli.py system check-prerequisites 1
+
+# Install missing prerequisites on a node
+python cli.py system install-prerequisites 1
+
+# Setup orchestrator privileges (run once after installation)
+python cli.py system setup-privileges
+
+# Check orchestrator privileges
+python cli.py system check-privileges
 ```
 
 ### UPS Power Management
@@ -238,7 +392,10 @@ microk8s-cluster-orchestrator/
 │   └── utils/             # Utilities
 ├── ansible/               # Ansible configuration
 │   ├── playbooks/         # Ansible playbooks
-│   │   └── collect_hardware_report.yml  # Hardware data collection
+│   │   ├── collect_hardware_report.yml  # Hardware data collection
+│   │   ├── shutdown_cluster.yml         # Cluster shutdown operations
+│   │   ├── check_prerequisites.yml      # System prerequisites validation
+│   │   └── install_prerequisites.yml    # Automated prerequisites installation
 │   ├── roles/             # Custom Ansible roles
 │   └── inventory/         # Dynamic inventories
 ├── config/                # Configuration files
@@ -246,10 +403,13 @@ microk8s-cluster-orchestrator/
 │   ├── migrate_disk_partitions_fields.py
 │   ├── migrate_ups_tables.py
 │   ├── init_db.py
-│   └── backup_db.py
+│   ├── backup_db.py
+│   └── setup_orchestrator_privileges.py  # Privilege setup automation
 ├── calculate_disk_total.py # Hardware calculation utility
 ├── cli.py                 # Command-line interface
 ├── requirements.txt       # Python dependencies
+├── setup_system.sh        # Complete system setup script
+├── quick_setup.sh         # Quick minimal setup script
 ├── README.md             # This file
 └── CHANGELOG.md          # Version history and changes
 ```
