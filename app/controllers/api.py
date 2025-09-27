@@ -761,3 +761,271 @@ def get_all_hardware_report():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# =============================================================================
+# UPS Management API Endpoints
+# =============================================================================
+
+@bp.route('/ups', methods=['GET'])
+@login_required
+def list_ups():
+    """List all UPS devices."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        ups_devices = controller.get_all_ups()
+        return jsonify(ups_devices)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/scan', methods=['POST'])
+@login_required
+def scan_ups():
+    """Scan for connected UPS devices and configure them automatically."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        ups_devices = controller.scan_and_configure_ups()
+        return jsonify({
+            'success': True,
+            'message': f'Found and configured {len(ups_devices)} UPS device(s)',
+            'ups_devices': ups_devices
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/<int:ups_id>', methods=['GET'])
+@login_required
+def get_ups(ups_id):
+    """Get UPS device by ID."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        ups_device = controller.get_ups_by_id(ups_id)
+        
+        if not ups_device:
+            return jsonify({'error': 'UPS not found'}), 404
+        
+        return jsonify(ups_device)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/<int:ups_id>/status', methods=['GET'])
+@login_required
+def get_ups_status(ups_id):
+    """Get detailed status of a specific UPS."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        status_info = controller.get_ups_status(ups_id)
+        
+        if 'error' in status_info:
+            return jsonify(status_info), 500
+        
+        return jsonify(status_info)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/<int:ups_id>/test', methods=['POST'])
+@login_required
+def test_ups_connection(ups_id):
+    """Test connection to a UPS."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        result = controller.test_ups_connection(ups_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/<int:ups_id>', methods=['DELETE'])
+@login_required
+def remove_ups(ups_id):
+    """Remove UPS configuration."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        result = controller.remove_ups(ups_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/<int:ups_id>/settings', methods=['PUT'])
+@login_required
+def update_ups_settings(ups_id):
+    """Update UPS settings."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        data = request.get_json() or {}
+        result = controller.update_ups_settings(ups_id, **data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# =============================================================================
+# Power Management Rules API Endpoints
+# =============================================================================
+
+@bp.route('/ups/rules', methods=['GET'])
+@login_required
+def list_power_rules():
+    """List power management rules."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        
+        ups_id = request.args.get('ups_id', type=int)
+        cluster_id = request.args.get('cluster_id', type=int)
+        
+        rules = controller.get_power_rules(ups_id, cluster_id)
+        return jsonify(rules)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/rules', methods=['POST'])
+@login_required
+def create_power_rule():
+    """Create a new power management rule."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        required_fields = ['ups_id', 'cluster_id', 'power_event', 'cluster_action']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        result = controller.create_power_rule(
+            ups_id=data['ups_id'],
+            cluster_id=data['cluster_id'],
+            power_event=data['power_event'],
+            cluster_action=data['cluster_action'],
+            name=data.get('name'),
+            description=data.get('description'),
+            battery_threshold=data.get('battery_threshold'),
+            action_delay=data.get('action_delay', 0),
+            action_timeout=data.get('action_timeout', 300),
+            priority=data.get('priority', 100),
+            auto_reverse=data.get('auto_reverse', False),
+            notify_on_trigger=data.get('notify_on_trigger', True),
+            notify_on_completion=data.get('notify_on_completion', True),
+            notify_on_failure=data.get('notify_on_failure', True),
+            enabled=data.get('enabled', True)
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/rules/<int:rule_id>', methods=['DELETE'])
+@login_required
+def delete_power_rule(rule_id):
+    """Delete a power management rule."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        result = controller.delete_power_rule(rule_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# =============================================================================
+# Power Monitoring API Endpoints
+# =============================================================================
+
+@bp.route('/ups/monitor/start', methods=['POST'])
+@login_required
+def start_power_monitoring():
+    """Start power event monitoring."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        result = controller.start_power_monitoring()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/monitor/stop', methods=['POST'])
+@login_required
+def stop_power_monitoring():
+    """Stop power event monitoring."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        result = controller.stop_power_monitoring()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/monitor/status', methods=['GET'])
+@login_required
+def get_power_monitoring_status():
+    """Get power monitoring status."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        status = controller.get_power_monitoring_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# =============================================================================
+# NUT Services API Endpoints
+# =============================================================================
+
+@bp.route('/ups/services', methods=['GET'])
+@login_required
+def get_nut_service_status():
+    """Get NUT service status."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        result = controller.get_nut_service_status()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/services/restart', methods=['POST'])
+@login_required
+def restart_nut_services():
+    """Restart NUT services."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        result = controller.restart_nut_services()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# =============================================================================
+# UPS Configuration API Endpoints
+# =============================================================================
+
+@bp.route('/ups/events', methods=['GET'])
+@login_required
+def get_power_events():
+    """Get available power event types."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        events = controller.get_power_events()
+        return jsonify(events)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/ups/actions', methods=['GET'])
+@login_required
+def get_cluster_actions():
+    """Get available cluster action types."""
+    try:
+        from ..services.ups_controller import UPSController
+        controller = UPSController()
+        actions = controller.get_cluster_actions()
+        return jsonify(actions)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

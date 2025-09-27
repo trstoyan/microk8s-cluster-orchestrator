@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Create Power Management Rule{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="fas fa-plus"></i> Create Power Management Rule</h1>
+                <a href="{{ url_for('web.ups_rules') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Rules
+                </a>
+            </div>
+
+            <div class="row">
+                <div class="col-lg-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-cogs"></i> Rule Configuration</h5>
+                        </div>
+                        <div class="card-body">
+                            <form method="POST">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="name">Rule Name</label>
+                                            <input type="text" class="form-control" id="name" name="name" 
+                                                   placeholder="Enter rule name" required>
+                                            <small class="form-text text-muted">A descriptive name for this rule</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="ups_id">UPS Device</label>
+                                            <select class="form-control" id="ups_id" name="ups_id" required>
+                                                <option value="">Select UPS Device</option>
+                                                {% for ups in ups_devices %}
+                                                <option value="{{ ups.id }}" 
+                                                        {% if request.args.get('ups_id') == ups.id|string %}selected{% endif %}>
+                                                    {{ ups.name }} ({{ ups.model or 'Unknown' }})
+                                                </option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="cluster_id">Cluster</label>
+                                            <select class="form-control" id="cluster_id" name="cluster_id" required>
+                                                <option value="">Select Cluster</option>
+                                                {% for cluster in clusters %}
+                                                <option value="{{ cluster.id }}">{{ cluster.name }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="power_event">Power Event</label>
+                                            <select class="form-control" id="power_event" name="power_event" required>
+                                                <option value="">Select Power Event</option>
+                                                {% for event in power_events %}
+                                                <option value="{{ event }}">{{ event.replace('_', ' ').title() }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="cluster_action">Cluster Action</label>
+                                            <select class="form-control" id="cluster_action" name="cluster_action" required>
+                                                <option value="">Select Cluster Action</option>
+                                                {% for action in cluster_actions %}
+                                                <option value="{{ action }}">{{ action.replace('_', ' ').title() }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="battery_threshold">Battery Threshold (%)</label>
+                                            <input type="number" class="form-control" id="battery_threshold" name="battery_threshold" 
+                                                   min="1" max="100" placeholder="20">
+                                            <small class="form-text text-muted">Required for low_battery events</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="action_delay">Action Delay (seconds)</label>
+                                            <input type="number" class="form-control" id="action_delay" name="action_delay" 
+                                                   min="0" value="0" placeholder="0">
+                                            <small class="form-text text-muted">Delay before executing the action</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="priority">Priority</label>
+                                            <input type="number" class="form-control" id="priority" name="priority" 
+                                                   min="1" max="1000" value="100" placeholder="100">
+                                            <small class="form-text text-muted">Lower number = higher priority</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="description">Description</label>
+                                    <textarea class="form-control" id="description" name="description" rows="3" 
+                                              placeholder="Optional description for this rule"></textarea>
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="form-check">
+                                        <input type="checkbox" class="form-check-input" id="enabled" name="enabled" checked>
+                                        <label class="form-check-label" for="enabled">
+                                            Enable this rule
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-save"></i> Create Rule
+                                    </button>
+                                    <a href="{{ url_for('web.ups_rules') }}" class="btn btn-secondary">
+                                        <i class="fas fa-times"></i> Cancel
+                                    </a>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4">
+                    <!-- Power Events Help -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6><i class="fas fa-info-circle"></i> Power Events</h6>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-unstyled">
+                                <li><strong>power_loss:</strong> UPS goes on battery</li>
+                                <li><strong>low_battery:</strong> Battery below threshold</li>
+                                <li><strong>critical_battery:</strong> Battery critically low (10%)</li>
+                                <li><strong>power_restored:</strong> Power restored, UPS online</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Cluster Actions Help -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6><i class="fas fa-info-circle"></i> Cluster Actions</h6>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-unstyled">
+                                <li><strong>graceful_shutdown:</strong> Gracefully shutdown cluster</li>
+                                <li><strong>force_shutdown:</strong> Force shutdown cluster</li>
+                                <li><strong>startup:</strong> Start cluster</li>
+                                <li><strong>scale_down:</strong> Scale down resources</li>
+                                <li><strong>scale_up:</strong> Scale up resources</li>
+                                <li><strong>pause:</strong> Pause operations</li>
+                                <li><strong>resume:</strong> Resume operations</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Example Rules -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h6><i class="fas fa-lightbulb"></i> Example Rules</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <strong>Emergency Shutdown:</strong><br>
+                                <small class="text-muted">
+                                    Power Loss → Graceful Shutdown<br>
+                                    Delay: 60 seconds
+                                </small>
+                            </div>
+                            <div class="mb-3">
+                                <strong>Low Battery Protection:</strong><br>
+                                <small class="text-muted">
+                                    Low Battery (20%) → Force Shutdown<br>
+                                    Delay: 30 seconds
+                                </small>
+                            </div>
+                            <div class="mb-3">
+                                <strong>Power Recovery:</strong><br>
+                                <small class="text-muted">
+                                    Power Restored → Startup<br>
+                                    Delay: 0 seconds
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Show/hide battery threshold field based on power event selection
+document.getElementById('power_event').addEventListener('change', function() {
+    const batteryThresholdField = document.getElementById('battery_threshold').closest('.form-group');
+    if (this.value === 'low_battery') {
+        batteryThresholdField.style.display = 'block';
+        document.getElementById('battery_threshold').required = true;
+    } else {
+        batteryThresholdField.style.display = 'none';
+        document.getElementById('battery_threshold').required = false;
+    }
+});
+
+// Auto-generate rule name based on selections
+function updateRuleName() {
+    const upsSelect = document.getElementById('ups_id');
+    const eventSelect = document.getElementById('power_event');
+    const actionSelect = document.getElementById('cluster_action');
+    const nameField = document.getElementById('name');
+    
+    if (upsSelect.value && eventSelect.value && actionSelect.value) {
+        const upsName = upsSelect.options[upsSelect.selectedIndex].text.split(' (')[0];
+        const eventName = eventSelect.value.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+        const actionName = actionSelect.value.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+        
+        nameField.value = `${eventName} - ${actionName} (${upsName})`;
+    }
+}
+
+document.getElementById('ups_id').addEventListener('change', updateRuleName);
+document.getElementById('power_event').addEventListener('change', updateRuleName);
+document.getElementById('cluster_action').addEventListener('change', updateRuleName);
+</script>
+{% endblock %}

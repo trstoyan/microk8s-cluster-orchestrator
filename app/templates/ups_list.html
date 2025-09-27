@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}UPS Management{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="fas fa-battery-three-quarters"></i> UPS Management</h1>
+                <div>
+                    <form method="POST" action="{{ url_for('web.ups_scan') }}" class="d-inline">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search"></i> Scan for UPS Devices
+                        </button>
+                    </form>
+                    <a href="{{ url_for('web.ups_rules') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-cogs"></i> Power Rules
+                    </a>
+                    <a href="{{ url_for('web.ups_monitor') }}" class="btn btn-outline-info">
+                        <i class="fas fa-chart-line"></i> Monitor
+                    </a>
+                </div>
+            </div>
+
+            {% if ups_devices %}
+            <div class="row">
+                {% for ups in ups_devices %}
+                <div class="col-lg-6 col-xl-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">
+                                <i class="fas fa-battery-three-quarters"></i> {{ ups.name }}
+                            </h5>
+                            <div>
+                                {% if ups.status == 'OL' %}
+                                    <span class="badge badge-success">Online</span>
+                                {% elif ups.status == 'OB' %}
+                                    <span class="badge badge-warning">On Battery</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">{{ ups.status or 'Unknown' }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-6">
+                                    <strong>Model:</strong><br>
+                                    <span class="text-muted">{{ ups.model or 'Unknown' }}</span>
+                                </div>
+                                <div class="col-6">
+                                    <strong>Connection:</strong><br>
+                                    <span class="text-muted">{{ ups.connection_type.title() }}</span>
+                                </div>
+                            </div>
+                            
+                            <hr>
+                            
+                            <div class="row">
+                                <div class="col-6">
+                                    <strong>Battery:</strong><br>
+                                    <span class="text-muted">
+                                        {% if ups.battery_charge %}
+                                            {{ "%.1f"|format(ups.battery_charge) }}%
+                                        {% else %}
+                                            N/A
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <div class="col-6">
+                                    <strong>Load:</strong><br>
+                                    <span class="text-muted">
+                                        {% if ups.load_percentage %}
+                                            {{ "%.1f"|format(ups.load_percentage) }}%
+                                        {% else %}
+                                            N/A
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <hr>
+                            
+                            <div class="row">
+                                <div class="col-6">
+                                    <strong>NUT Services:</strong><br>
+                                    {% if ups.nut_services_running %}
+                                        <span class="badge badge-success">Running</span>
+                                    {% else %}
+                                        <span class="badge badge-danger">Stopped</span>
+                                    {% endif %}
+                                </div>
+                                <div class="col-6">
+                                    <strong>Driver:</strong><br>
+                                    <span class="text-muted">{{ ups.driver or 'Unknown' }}</span>
+                                </div>
+                            </div>
+                            
+                            {% if ups.last_status_update %}
+                            <hr>
+                            <small class="text-muted">
+                                <i class="fas fa-clock"></i> Last updated: {{ ups.last_status_update }}
+                            </small>
+                            {% endif %}
+                        </div>
+                        <div class="card-footer">
+                            <div class="btn-group w-100" role="group">
+                                <a href="{{ url_for('web.ups_detail', ups_id=ups.id) }}" class="btn btn-outline-primary btn-sm">
+                                    <i class="fas fa-eye"></i> View
+                                </a>
+                                <form method="POST" action="{{ url_for('web.ups_test', ups_id=ups.id) }}" class="d-inline">
+                                    <button type="submit" class="btn btn-outline-info btn-sm">
+                                        <i class="fas fa-plug"></i> Test
+                                    </button>
+                                </form>
+                                <form method="POST" action="{{ url_for('web.ups_remove', ups_id=ups.id) }}" 
+                                      class="d-inline" 
+                                      onsubmit="return confirm('Are you sure you want to remove this UPS configuration?')">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                                        <i class="fas fa-trash"></i> Remove
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="alert alert-info text-center">
+                <i class="fas fa-info-circle fa-3x mb-3"></i>
+                <h4>No UPS Devices Found</h4>
+                <p>No UPS devices are currently configured. Click "Scan for UPS Devices" to detect and configure connected UPS devices.</p>
+                <form method="POST" action="{{ url_for('web.ups_scan') }}" class="d-inline">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search"></i> Scan for UPS Devices
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

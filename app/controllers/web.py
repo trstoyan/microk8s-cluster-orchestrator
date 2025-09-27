@@ -611,3 +611,233 @@ def node_hardware_report(node_id):
     return render_template('node_hardware_report.html', 
                          node=node,
                          parsed_info=parsed_info)
+
+# =============================================================================
+# UPS Management Web Routes
+# =============================================================================
+
+@bp.route('/ups')
+@login_required
+def ups_list():
+    """UPS management page."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    ups_devices = controller.get_all_ups()
+    return render_template('ups_list.html', ups_devices=ups_devices)
+
+@bp.route('/ups/<int:ups_id>')
+@login_required
+def ups_detail(ups_id):
+    """UPS detail page."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    ups_device = controller.get_ups_by_id(ups_id)
+    if not ups_device:
+        flash('UPS not found', 'error')
+        return redirect(url_for('web.ups_list'))
+    
+    status_info = controller.get_ups_status(ups_id)
+    rules = controller.get_power_rules(ups_id=ups_id)
+    
+    return render_template('ups_detail.html', 
+                         ups=ups_device,
+                         status_info=status_info,
+                         rules=rules)
+
+@bp.route('/ups/scan', methods=['POST'])
+@login_required
+def ups_scan():
+    """Scan for UPS devices."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    try:
+        ups_devices = controller.scan_and_configure_ups()
+        if ups_devices:
+            flash(f'Found and configured {len(ups_devices)} UPS device(s)', 'success')
+        else:
+            flash('No UPS devices found', 'warning')
+    except Exception as e:
+        flash(f'Error scanning for UPS devices: {e}', 'error')
+    
+    return redirect(url_for('web.ups_list'))
+
+@bp.route('/ups/<int:ups_id>/test', methods=['POST'])
+@login_required
+def ups_test(ups_id):
+    """Test UPS connection."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    try:
+        result = controller.test_ups_connection(ups_id)
+        if result['success']:
+            flash('UPS connection test passed', 'success')
+        else:
+            flash(f'UPS connection test failed: {result.get("error", "Unknown error")}', 'error')
+    except Exception as e:
+        flash(f'Error testing UPS connection: {e}', 'error')
+    
+    return redirect(url_for('web.ups_detail', ups_id=ups_id))
+
+@bp.route('/ups/<int:ups_id>/remove', methods=['POST'])
+@login_required
+def ups_remove(ups_id):
+    """Remove UPS configuration."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    try:
+        result = controller.remove_ups(ups_id)
+        if result['success']:
+            flash('UPS configuration removed successfully', 'success')
+        else:
+            flash(f'Failed to remove UPS: {result.get("error", "Unknown error")}', 'error')
+    except Exception as e:
+        flash(f'Error removing UPS: {e}', 'error')
+    
+    return redirect(url_for('web.ups_list'))
+
+@bp.route('/ups/rules')
+@login_required
+def ups_rules():
+    """Power management rules page."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    rules = controller.get_power_rules()
+    clusters = Cluster.query.all()
+    ups_devices = controller.get_all_ups()
+    
+    return render_template('ups_rules.html', 
+                         rules=rules,
+                         clusters=clusters,
+                         ups_devices=ups_devices)
+
+@bp.route('/ups/rules/create', methods=['GET', 'POST'])
+@login_required
+def ups_rule_create():
+    """Create power management rule."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    if request.method == 'POST':
+        try:
+            result = controller.create_power_rule(
+                ups_id=int(request.form['ups_id']),
+                cluster_id=int(request.form['cluster_id']),
+                power_event=request.form['power_event'],
+                cluster_action=request.form['cluster_action'],
+                name=request.form.get('name'),
+                description=request.form.get('description'),
+                battery_threshold=float(request.form['battery_threshold']) if request.form.get('battery_threshold') else None,
+                action_delay=int(request.form.get('action_delay', 0)),
+                priority=int(request.form.get('priority', 100)),
+                enabled=request.form.get('enabled') == 'on'
+            )
+            
+            if result['success']:
+                flash('Power management rule created successfully', 'success')
+                return redirect(url_for('web.ups_rules'))
+            else:
+                flash(f'Failed to create rule: {result.get("error", "Unknown error")}', 'error')
+        except Exception as e:
+            flash(f'Error creating rule: {e}', 'error')
+    
+    clusters = Cluster.query.all()
+    ups_devices = controller.get_all_ups()
+    power_events = controller.get_power_events()
+    cluster_actions = controller.get_cluster_actions()
+    
+    return render_template('ups_rule_create.html',
+                         clusters=clusters,
+                         ups_devices=ups_devices,
+                         power_events=power_events,
+                         cluster_actions=cluster_actions)
+
+@bp.route('/ups/rules/<int:rule_id>/delete', methods=['POST'])
+@login_required
+def ups_rule_delete(rule_id):
+    """Delete power management rule."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    try:
+        result = controller.delete_power_rule(rule_id)
+        if result['success']:
+            flash('Power management rule deleted successfully', 'success')
+        else:
+            flash(f'Failed to delete rule: {result.get("error", "Unknown error")}', 'error')
+    except Exception as e:
+        flash(f'Error deleting rule: {e}', 'error')
+    
+    return redirect(url_for('web.ups_rules'))
+
+@bp.route('/ups/monitor')
+@login_required
+def ups_monitor():
+    """Power monitoring page."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    monitoring_status = controller.get_power_monitoring_status()
+    nut_services = controller.get_nut_service_status()
+    
+    return render_template('ups_monitor.html',
+                         monitoring_status=monitoring_status,
+                         nut_services=nut_services)
+
+@bp.route('/ups/monitor/start', methods=['POST'])
+@login_required
+def ups_monitor_start():
+    """Start power monitoring."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    try:
+        result = controller.start_power_monitoring()
+        if result['success']:
+            flash('Power monitoring started', 'success')
+        else:
+            flash(f'Failed to start monitoring: {result.get("error", "Unknown error")}', 'error')
+    except Exception as e:
+        flash(f'Error starting monitoring: {e}', 'error')
+    
+    return redirect(url_for('web.ups_monitor'))
+
+@bp.route('/ups/monitor/stop', methods=['POST'])
+@login_required
+def ups_monitor_stop():
+    """Stop power monitoring."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    try:
+        result = controller.stop_power_monitoring()
+        if result['success']:
+            flash('Power monitoring stopped', 'success')
+        else:
+            flash(f'Failed to stop monitoring: {result.get("error", "Unknown error")}', 'error')
+    except Exception as e:
+        flash(f'Error stopping monitoring: {e}', 'error')
+    
+    return redirect(url_for('web.ups_monitor'))
+
+@bp.route('/ups/services/restart', methods=['POST'])
+@login_required
+def ups_services_restart():
+    """Restart NUT services."""
+    from ..services.ups_controller import UPSController
+    controller = UPSController()
+    
+    try:
+        result = controller.restart_nut_services()
+        if result['success']:
+            flash('NUT services restarted successfully', 'success')
+        else:
+            flash(f'Failed to restart services: {result.get("error", "Unknown error")}', 'error')
+    except Exception as e:
+        flash(f'Error restarting services: {e}', 'error')
+    
+    return redirect(url_for('web.ups_monitor'))

@@ -22,6 +22,14 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
   - Thermal sensor monitoring
   - Docker and Kubernetes volume tracking
   - LVM and RAID information
+- **UPS Power Management**: Intelligent power management for Raspberry Pi 5 deployments
+  - USB UPS device detection and configuration
+  - NUT (Network UPS Tools) integration
+  - Power event monitoring (power loss, low battery, power restored)
+  - Automated cluster shutdown/startup based on power events
+  - Configurable power management rules
+  - Real-time UPS status monitoring
+  - Battery charge, voltage, and runtime tracking
 
 ## Architecture
 
@@ -166,6 +174,42 @@ python cli.py web
 # Then navigate to: http://localhost:5000/hardware-report/node/1
 ```
 
+### UPS Power Management
+
+```bash
+# Scan for connected UPS devices
+python cli.py ups scan
+
+# List all UPS devices
+python cli.py ups list
+
+# Get detailed UPS status
+python cli.py ups status 1
+
+# Test UPS connection
+python cli.py ups test 1
+
+# Create power management rule
+python cli.py ups rules create 1 1 power_loss graceful_shutdown \
+  --name "Emergency Shutdown" \
+  --action-delay 60
+
+# List power management rules
+python cli.py ups rules list
+
+# Start power monitoring
+python cli.py ups monitor start
+
+# Check monitoring status
+python cli.py ups monitor status
+
+# Check NUT service status
+python cli.py ups services
+
+# Restart NUT services
+python cli.py ups restart
+```
+
 ## Configuration
 
 The system uses YAML configuration files in the `config/` directory. Key settings include:
@@ -194,6 +238,7 @@ microk8s-cluster-orchestrator/
 ├── config/                # Configuration files
 ├── scripts/               # Utility and migration scripts
 │   ├── migrate_disk_partitions_fields.py
+│   ├── migrate_ups_tables.py
 │   ├── init_db.py
 │   └── backup_db.py
 ├── calculate_disk_total.py # Hardware calculation utility
@@ -215,6 +260,16 @@ The SQLite database includes:
 - **clusters** - Cluster definitions and configuration
 - **operations** - Operation history and results
 - **configurations** - System and cluster configurations
+- **ups** - UPS device information and status
+  - USB UPS device details and configuration
+  - NUT service status and driver information
+  - Real-time UPS status (battery, voltage, load, temperature)
+  - Power management settings and thresholds
+- **ups_cluster_rules** - Power management rules
+  - Links UPS devices to clusters
+  - Defines power events and cluster actions
+  - Execution history and success tracking
+  - Priority-based rule execution
 
 ## Hardware Reporting System
 
@@ -251,6 +306,98 @@ curl -X POST http://localhost:5000/api/hardware-report \
   -d '{"node_id": 1}'
 ```
 
+## UPS Power Management System
+
+The orchestrator includes a comprehensive UPS power management system designed for Raspberry Pi 5 deployments with USB-connected UPS devices. This system provides intelligent power management to ensure safe cluster shutdown during power outages and automatic recovery when power is restored.
+
+### Features
+
+- **USB UPS Detection**: Automatically detects and configures USB-connected UPS devices
+- **NUT Integration**: Uses Network UPS Tools (NUT) for UPS communication and control
+- **Power Event Monitoring**: Monitors power loss, low battery, and power restoration events
+- **Automated Cluster Management**: Executes configurable actions on clusters based on power events
+- **Real-time Status Monitoring**: Tracks battery charge, voltage, load, and temperature
+- **Rule-based Configuration**: Flexible power management rules with priority-based execution
+- **Web Interface**: Complete web-based management interface for UPS devices and rules
+- **CLI and API Support**: Full command-line and REST API access to all UPS functions
+
+### Power Events
+
+- **Power Loss**: UPS switches to battery power
+- **Low Battery**: Battery charge drops below configured threshold
+- **Critical Battery**: Battery critically low (10% or less)
+- **Power Restored**: Main power returns, UPS back online
+
+### Cluster Actions
+
+- **Graceful Shutdown**: Safely shutdown cluster with proper cleanup
+- **Force Shutdown**: Immediate cluster shutdown
+- **Startup**: Start cluster when power is restored
+- **Scale Down**: Reduce cluster resources to conserve power
+- **Scale Up**: Restore full cluster resources
+- **Pause/Resume**: Temporarily pause or resume cluster operations
+
+### UPS Management Usage
+
+**Initial Setup:**
+```bash
+# Install NUT packages (on Raspberry Pi 5)
+sudo apt install nut nut-client nut-server nut-driver
+
+# Scan for connected UPS devices
+python cli.py ups scan
+
+# Start power monitoring
+python cli.py ups monitor start
+```
+
+**Power Management Rules:**
+```bash
+# Create emergency shutdown rule
+python cli.py ups rules create 1 1 power_loss graceful_shutdown \
+  --name "Emergency Shutdown" \
+  --action-delay 60
+
+# Create low battery protection rule
+python cli.py ups rules create 1 1 low_battery force_shutdown \
+  --name "Low Battery Protection" \
+  --battery-threshold 20 \
+  --action-delay 30
+
+# Create power recovery rule
+python cli.py ups rules create 1 1 power_restored startup \
+  --name "Power Recovery" \
+  --priority 50
+```
+
+**Web Interface:**
+- Navigate to "UPS Management" section
+- View all configured UPS devices and their status
+- Create and manage power management rules
+- Monitor power events and rule execution
+- Configure UPS settings and thresholds
+
+**API Usage:**
+```bash
+# Get UPS status
+curl -X GET http://localhost:5000/api/ups/1/status
+
+# Create power management rule
+curl -X POST http://localhost:5000/api/ups/rules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ups_id": 1,
+    "cluster_id": 1,
+    "power_event": "power_loss",
+    "cluster_action": "graceful_shutdown",
+    "name": "Emergency Shutdown",
+    "action_delay": 60
+  }'
+
+# Start power monitoring
+curl -X POST http://localhost:5000/api/ups/monitor/start
+```
+
 ## API Endpoints
 
 The system provides REST API endpoints for:
@@ -259,6 +406,8 @@ The system provides REST API endpoints for:
 - Operation tracking
 - System health checks
 - Hardware reporting and data collection
+- UPS power management and monitoring
+- Power management rules configuration
 
 ## Security
 

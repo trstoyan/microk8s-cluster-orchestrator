@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+
+{% block title %}UPS Details - {{ ups.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="fas fa-battery-three-quarters"></i> {{ ups.name }}</h1>
+                <div>
+                    <a href="{{ url_for('web.ups_list') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to UPS List
+                    </a>
+                    <form method="POST" action="{{ url_for('web.ups_test', ups_id=ups.id) }}" class="d-inline">
+                        <button type="submit" class="btn btn-info">
+                            <i class="fas fa-plug"></i> Test Connection
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- UPS Information -->
+                <div class="col-lg-6 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-info-circle"></i> UPS Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-borderless">
+                                <tr>
+                                    <td><strong>Name:</strong></td>
+                                    <td>{{ ups.name }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Model:</strong></td>
+                                    <td>{{ ups.model or 'Unknown' }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Description:</strong></td>
+                                    <td>{{ ups.description or 'No description' }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Connection Type:</strong></td>
+                                    <td>{{ ups.connection_type.title() }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Driver:</strong></td>
+                                    <td>{{ ups.driver or 'Unknown' }}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Port:</strong></td>
+                                    <td>{{ ups.port or 'auto' }}</td>
+                                </tr>
+                                {% if ups.vendor_id and ups.product_id %}
+                                <tr>
+                                    <td><strong>USB ID:</strong></td>
+                                    <td>{{ ups.vendor_id }}:{{ ups.product_id }}</td>
+                                </tr>
+                                {% endif %}
+                                {% if ups.usb_vendor_name %}
+                                <tr>
+                                    <td><strong>USB Vendor:</strong></td>
+                                    <td>{{ ups.usb_vendor_name }}</td>
+                                </tr>
+                                {% endif %}
+                                {% if ups.usb_product_name %}
+                                <tr>
+                                    <td><strong>USB Product:</strong></td>
+                                    <td>{{ ups.usb_product_name }}</td>
+                                </tr>
+                                {% endif %}
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- UPS Status -->
+                <div class="col-lg-6 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-chart-line"></i> Current Status</h5>
+                        </div>
+                        <div class="card-body">
+                            {% if status_info and 'error' not in status_info %}
+                            <table class="table table-borderless">
+                                <tr>
+                                    <td><strong>Status:</strong></td>
+                                    <td>
+                                        {% if status_info.status.get('ups.status') == 'OL' %}
+                                            <span class="badge badge-success">Online</span>
+                                        {% elif status_info.status.get('ups.status') == 'OB' %}
+                                            <span class="badge badge-warning">On Battery</span>
+                                        {% else %}
+                                            <span class="badge badge-secondary">{{ status_info.status.get('ups.status', 'Unknown') }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Battery Charge:</strong></td>
+                                    <td>{{ status_info.status.get('battery.charge', 'N/A') }}%</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Battery Voltage:</strong></td>
+                                    <td>{{ status_info.status.get('battery.voltage', 'N/A') }}V</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Runtime:</strong></td>
+                                    <td>{{ status_info.status.get('battery.runtime', 'N/A') }} seconds</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Input Voltage:</strong></td>
+                                    <td>{{ status_info.status.get('input.voltage', 'N/A') }}V</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Output Voltage:</strong></td>
+                                    <td>{{ status_info.status.get('output.voltage', 'N/A') }}V</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Load:</strong></td>
+                                    <td>{{ status_info.status.get('ups.load', 'N/A') }}%</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Temperature:</strong></td>
+                                    <td>{{ status_info.status.get('ups.temperature', 'N/A') }}°C</td>
+                                </tr>
+                            </table>
+                            {% else %}
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                Unable to retrieve UPS status. Check NUT services and UPS connection.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NUT Services Status -->
+            <div class="row">
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-cogs"></i> NUT Services Status</h5>
+                        </div>
+                        <div class="card-body">
+                            {% if status_info and 'nut_services' in status_info %}
+                            <div class="row">
+                                {% for service, running in status_info.nut_services.items() %}
+                                <div class="col-md-3 mb-2">
+                                    <div class="d-flex align-items-center">
+                                        {% if running %}
+                                            <i class="fas fa-check-circle text-success mr-2"></i>
+                                            <span class="text-success">{{ service.title() }}</span>
+                                        {% else %}
+                                            <i class="fas fa-times-circle text-danger mr-2"></i>
+                                            <span class="text-danger">{{ service.title() }}</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle"></i>
+                                NUT services status not available.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Power Management Rules -->
+            <div class="row">
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5><i class="fas fa-cogs"></i> Power Management Rules</h5>
+                            <a href="{{ url_for('web.ups_rule_create') }}?ups_id={{ ups.id }}" class="btn btn-primary btn-sm">
+                                <i class="fas fa-plus"></i> Add Rule
+                            </a>
+                        </div>
+                        <div class="card-body">
+                            {% if rules %}
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Power Event</th>
+                                            <th>Cluster Action</th>
+                                            <th>Priority</th>
+                                            <th>Status</th>
+                                            <th>Success Rate</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for rule in rules %}
+                                        <tr>
+                                            <td>{{ rule.name }}</td>
+                                            <td>
+                                                <span class="badge badge-info">{{ rule.power_event.replace('_', ' ').title() }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="badge badge-warning">{{ rule.cluster_action.replace('_', ' ').title() }}</span>
+                                            </td>
+                                            <td>{{ rule.priority }}</td>
+                                            <td>
+                                                {% if rule.enabled %}
+                                                    <span class="badge badge-success">Enabled</span>
+                                                {% else %}
+                                                    <span class="badge badge-secondary">Disabled</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if rule.execution_count > 0 %}
+                                                    {{ "%.1f"|format(rule.success_rate) }}%
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <form method="POST" action="{{ url_for('web.ups_rule_delete', rule_id=rule.id) }}" 
+                                                      class="d-inline" 
+                                                      onsubmit="return confirm('Are you sure you want to delete this rule?')">
+                                                    <button type="submit" class="btn btn-danger btn-sm">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% else %}
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle"></i>
+                                No power management rules configured for this UPS.
+                                <a href="{{ url_for('web.ups_rule_create') }}?ups_id={{ ups.id }}" class="btn btn-primary btn-sm ml-2">
+                                    <i class="fas fa-plus"></i> Create Rule
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- UPS Settings -->
+            <div class="row">
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-sliders-h"></i> UPS Settings</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <table class="table table-borderless">
+                                        <tr>
+                                            <td><strong>Low Battery Threshold:</strong></td>
+                                            <td>{{ ups.low_battery_threshold or 20 }}%</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Shutdown Delay:</strong></td>
+                                            <td>{{ ups.shutdown_delay or 60 }} seconds</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Auto Shutdown:</strong></td>
+                                            <td>
+                                                {% if ups.auto_shutdown_enabled %}
+                                                    <span class="badge badge-success">Enabled</span>
+                                                {% else %}
+                                                    <span class="badge badge-secondary">Disabled</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </div>
+                                <div class="col-md-6">
+                                    <table class="table table-borderless">
+                                        <tr>
+                                            <td><strong>Graceful Shutdown:</strong></td>
+                                            <td>
+                                                {% if ups.graceful_shutdown_enabled %}
+                                                    <span class="badge badge-success">Enabled</span>
+                                                {% else %}
+                                                    <span class="badge badge-secondary">Disabled</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>System Protected:</strong></td>
+                                            <td>
+                                                {% if ups.system_protected %}
+                                                    <span class="badge badge-success">Yes</span>
+                                                {% else %}
+                                                    <span class="badge badge-secondary">No</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Local UPS:</strong></td>
+                                            <td>
+                                                {% if ups.is_local %}
+                                                    <span class="badge badge-info">Yes</span>
+                                                {% else %}
+                                                    <span class="badge badge-secondary">No</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -31,6 +31,7 @@ class Cluster(Base):
     # Relationships
     nodes = relationship("Node", backref="cluster")
     operations = relationship("Operation", back_populates="cluster")
+    ups_rules = relationship("UPSClusterRule", back_populates="cluster")
     
     def __repr__(self):
         return f'<Cluster {self.name}>'

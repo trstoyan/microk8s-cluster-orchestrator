@@ -1617,5 +1617,406 @@ def export(cluster_id, node_id, output_file, format):
     except Exception as e:
         print_error(f"Failed to export hardware report: {e}")
 
+# =============================================================================
+# UPS Management Commands
+# =============================================================================
+
+@cli.group()
+def ups():
+    """UPS (Uninterruptible Power Supply) management commands."""
+    pass
+
+@ups.command()
+@click.option('--json-output', is_flag=True, help='Output in JSON format')
+def scan(json_output):
+    """Scan for connected UPS devices and configure them automatically."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    print_info("🔍 Scanning for UPS devices...")
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            ups_devices = controller.scan_and_configure_ups()
+        
+        if not ups_devices:
+            print_warning("No UPS devices found")
+            return
+        
+        if json_output:
+            print(json.dumps(ups_devices, indent=2))
+        else:
+            print_success(f"Found and configured {len(ups_devices)} UPS device(s):")
+            
+            # Create table data
+            table_data = []
+            for ups in ups_devices:
+                table_data.append([
+                    ups['name'],
+                    ups['model'],
+                    f"{ups['vendor_id']}:{ups['product_id']}",
+                    ups['driver'],
+                    ups['connection_type'],
+                    "✅" if ups['nut_configured'] else "❌"
+                ])
+            
+            headers = ['Name', 'Model', 'USB ID', 'Driver', 'Connection', 'Configured']
+            print(tabulate(table_data, headers=headers, tablefmt="grid"))
+            
+    except Exception as e:
+        print_error(f"Failed to scan for UPS devices: {e}")
+
+@ups.command()
+@click.option('--json-output', is_flag=True, help='Output in JSON format')
+def list(json_output):
+    """List all configured UPS devices."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            ups_devices = controller.get_all_ups()
+        
+        if not ups_devices:
+            print_warning("No UPS devices configured")
+            return
+        
+        if json_output:
+            print(json.dumps(ups_devices, indent=2))
+        else:
+            print_info(f"Configured UPS devices ({len(ups_devices)}):")
+            
+            # Create table data
+            table_data = []
+            for ups in ups_devices:
+                status_color = "✅" if ups.get('status') == 'OL' else ("🔋" if ups.get('status') == 'OB' else "❓")
+                table_data.append([
+                    ups['name'],
+                    ups['model'] or 'Unknown',
+                    ups.get('status', 'Unknown'),
+                    f"{ups.get('battery_charge', 'N/A')}%" if ups.get('battery_charge') else 'N/A',
+                    f"{ups.get('load_percentage', 'N/A')}%" if ups.get('load_percentage') else 'N/A',
+                    "✅" if ups['nut_services_running'] else "❌"
+                ])
+            
+            headers = ['Name', 'Model', 'Status', 'Battery', 'Load', 'Services']
+            print(tabulate(table_data, headers=headers, tablefmt="grid"))
+            
+    except Exception as e:
+        print_error(f"Failed to list UPS devices: {e}")
+
+@ups.command()
+@click.argument('ups_id', type=int)
+@click.option('--json-output', is_flag=True, help='Output in JSON format')
+def status(ups_id, json_output):
+    """Get detailed status of a specific UPS."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            status_info = controller.get_ups_status(ups_id)
+        
+        if 'error' in status_info:
+            print_error(f"Error getting UPS status: {status_info['error']}")
+            return
+        
+        if json_output:
+            print(json.dumps(status_info, indent=2))
+        else:
+            ups = status_info['ups']
+            status = status_info['status']
+            
+            print_info(f"UPS Status: {ups['name']}")
+            print(f"Model: {ups['model']}")
+            print(f"Status: {status.get('ups.status', 'Unknown')}")
+            print(f"Battery Charge: {status.get('battery.charge', 'N/A')}%")
+            print(f"Battery Voltage: {status.get('battery.voltage', 'N/A')}V")
+            print(f"Runtime: {status.get('battery.runtime', 'N/A')} seconds")
+            print(f"Input Voltage: {status.get('input.voltage', 'N/A')}V")
+            print(f"Output Voltage: {status.get('output.voltage', 'N/A')}V")
+            print(f"Load: {status.get('ups.load', 'N/A')}%")
+            print(f"Temperature: {status.get('ups.temperature', 'N/A')}°C")
+            
+    except Exception as e:
+        print_error(f"Failed to get UPS status: {e}")
+
+@ups.command()
+@click.argument('ups_id', type=int)
+def test(ups_id):
+    """Test connection to a UPS."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            result = controller.test_ups_connection(ups_id)
+        
+        if result['success']:
+            print_success(f"UPS connection test: {result['message']}")
+        else:
+            print_error(f"UPS connection test failed: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to test UPS connection: {e}")
+
+@ups.command()
+@click.argument('ups_id', type=int)
+def remove(ups_id):
+    """Remove UPS configuration."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    if not click.confirm('Are you sure you want to remove this UPS configuration?'):
+        print_info("Operation cancelled")
+        return
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            result = controller.remove_ups(ups_id)
+        
+        if result['success']:
+            print_success(result['message'])
+        else:
+            print_error(f"Failed to remove UPS: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to remove UPS: {e}")
+
+@ups.group()
+def rules():
+    """Power management rules for UPS-cluster integration."""
+    pass
+
+@rules.command()
+@click.argument('ups_id', type=int)
+@click.argument('cluster_id', type=int)
+@click.argument('power_event', type=click.Choice(['power_loss', 'low_battery', 'critical_battery', 'power_restored']))
+@click.argument('cluster_action', type=click.Choice(['graceful_shutdown', 'force_shutdown', 'startup', 'scale_down', 'scale_up', 'pause', 'resume']))
+@click.option('--name', help='Rule name')
+@click.option('--description', help='Rule description')
+@click.option('--battery-threshold', type=float, help='Battery threshold percentage for low_battery events')
+@click.option('--action-delay', type=int, default=0, help='Delay in seconds before executing action')
+@click.option('--priority', type=int, default=100, help='Rule priority (lower = higher priority)')
+@click.option('--disable', is_flag=True, help='Create rule in disabled state')
+def create(ups_id, cluster_id, power_event, cluster_action, name, description, battery_threshold, action_delay, priority, disable):
+    """Create a power management rule."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+        
+        rule_kwargs = {
+            'name': name or f"Rule_{power_event}_{cluster_action}",
+            'description': description or '',
+            'battery_threshold': battery_threshold,
+            'action_delay': action_delay,
+            'priority': priority,
+            'enabled': not disable
+        }
+        
+        result = controller.create_power_rule(ups_id, cluster_id, power_event, cluster_action, **rule_kwargs)
+        
+        if result['success']:
+            print_success(result['message'])
+            print(f"Rule ID: {result['rule']['id']}")
+        else:
+            print_error(f"Failed to create power rule: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to create power rule: {e}")
+
+@rules.command('list')
+@click.option('--ups-id', type=int, help='Filter by UPS ID')
+@click.option('--cluster-id', type=int, help='Filter by cluster ID')
+@click.option('--json-output', is_flag=True, help='Output in JSON format')
+def list_rules(ups_id, cluster_id, json_output):
+    """List power management rules."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            rules = controller.get_power_rules(ups_id, cluster_id)
+        
+        if not rules:
+            print_warning("No power management rules found")
+            return
+        
+        if json_output:
+            print(json.dumps(rules, indent=2))
+        else:
+            print_info(f"Power Management Rules ({len(rules)}):")
+            
+            # Create table data
+            table_data = []
+            for rule in rules:
+                table_data.append([
+                    rule['id'],
+                    rule['name'],
+                    rule['power_event'],
+                    rule['cluster_action'],
+                    rule['priority'],
+                    "✅" if rule['enabled'] else "❌",
+                    f"{rule['success_rate']:.1f}%" if rule['execution_count'] > 0 else 'N/A'
+                ])
+            
+            headers = ['ID', 'Name', 'Event', 'Action', 'Priority', 'Enabled', 'Success Rate']
+            print(tabulate(table_data, headers=headers, tablefmt="grid"))
+            
+    except Exception as e:
+        print_error(f"Failed to list power rules: {e}")
+
+@rules.command()
+@click.argument('rule_id', type=int)
+def delete(rule_id):
+    """Delete a power management rule."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    if not click.confirm('Are you sure you want to delete this power management rule?'):
+        print_info("Operation cancelled")
+        return
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            result = controller.delete_power_rule(rule_id)
+        
+        if result['success']:
+            print_success(result['message'])
+        else:
+            print_error(f"Failed to delete power rule: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to delete power rule: {e}")
+
+@ups.group()
+def monitor():
+    """Power monitoring commands."""
+    pass
+
+@monitor.command()
+def start():
+    """Start power event monitoring."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            result = controller.start_power_monitoring()
+        
+        if result['success']:
+            print_success(result['message'])
+        else:
+            print_error(f"Failed to start monitoring: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to start power monitoring: {e}")
+
+@monitor.command()
+def stop():
+    """Stop power event monitoring."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            result = controller.stop_power_monitoring()
+        
+        if result['success']:
+            print_success(result['message'])
+        else:
+            print_error(f"Failed to stop monitoring: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to stop power monitoring: {e}")
+
+@monitor.command()
+@click.option('--json-output', is_flag=True, help='Output in JSON format')
+def status(json_output):
+    """Get power monitoring status."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            status = controller.get_power_monitoring_status()
+        
+        if json_output:
+            print(json.dumps(status, indent=2))
+        else:
+            print_info("Power Monitoring Status:")
+            print(f"Monitoring Active: {'✅ Yes' if status['monitoring_active'] else '❌ No'}")
+            print(f"Monitoring Interval: {status['monitoring_interval']} seconds")
+            
+    except Exception as e:
+        print_error(f"Failed to get monitoring status: {e}")
+
+@ups.command()
+def services():
+    """Check NUT service status."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            result = controller.get_nut_service_status()
+        
+        if result['success']:
+            print_info("NUT Service Status:")
+            for service, running in result['services'].items():
+                status = "✅ Running" if running else "❌ Stopped"
+                print(f"{service.title()}: {status}")
+        else:
+            print_error(f"Failed to get service status: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to get NUT service status: {e}")
+
+@ups.command()
+def restart():
+    """Restart NUT services."""
+    from app import create_app
+    from app.services.ups_controller import UPSController
+    
+    try:
+        app = create_app()
+        with app.app_context():
+            controller = UPSController()
+            result = controller.restart_nut_services()
+        
+        if result['success']:
+            print_success(result['message'])
+        else:
+            print_error(f"Failed to restart services: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        print_error(f"Failed to restart NUT services: {e}")
+
 if __name__ == '__main__':
     cli()

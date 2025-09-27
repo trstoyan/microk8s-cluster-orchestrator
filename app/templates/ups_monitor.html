@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}Power Monitoring{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="fas fa-chart-line"></i> Power Monitoring</h1>
+                <div>
+                    <a href="{{ url_for('web.ups_list') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-battery-three-quarters"></i> UPS Devices
+                    </a>
+                    <a href="{{ url_for('web.ups_rules') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-cogs"></i> Power Rules
+                    </a>
+                </div>
+            </div>
+
+            <!-- Monitoring Status -->
+            <div class="row">
+                <div class="col-lg-6 mb-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5><i class="fas fa-chart-line"></i> Power Event Monitoring</h5>
+                            <div>
+                                {% if monitoring_status.monitoring_active %}
+                                    <span class="badge badge-success">Active</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">Inactive</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-6">
+                                    <strong>Status:</strong><br>
+                                    {% if monitoring_status.monitoring_active %}
+                                        <span class="text-success">Monitoring Active</span>
+                                    {% else %}
+                                        <span class="text-muted">Monitoring Inactive</span>
+                                    {% endif %}
+                                </div>
+                                <div class="col-6">
+                                    <strong>Interval:</strong><br>
+                                    <span class="text-muted">{{ monitoring_status.monitoring_interval }} seconds</span>
+                                </div>
+                            </div>
+                            
+                            <hr>
+                            
+                            <div class="btn-group w-100" role="group">
+                                {% if monitoring_status.monitoring_active %}
+                                    <form method="POST" action="{{ url_for('web.ups_monitor_stop') }}" class="d-inline w-50">
+                                        <button type="submit" class="btn btn-danger w-100">
+                                            <i class="fas fa-stop"></i> Stop Monitoring
+                                        </button>
+                                    </form>
+                                {% else %}
+                                    <form method="POST" action="{{ url_for('web.ups_monitor_start') }}" class="d-inline w-50">
+                                        <button type="submit" class="btn btn-success w-100">
+                                            <i class="fas fa-play"></i> Start Monitoring
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NUT Services Status -->
+                <div class="col-lg-6 mb-4">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5><i class="fas fa-cogs"></i> NUT Services</h5>
+                            <form method="POST" action="{{ url_for('web.ups_services_restart') }}" class="d-inline">
+                                <button type="submit" class="btn btn-warning btn-sm">
+                                    <i class="fas fa-redo"></i> Restart
+                                </button>
+                            </form>
+                        </div>
+                        <div class="card-body">
+                            {% if nut_services.success %}
+                            <div class="row">
+                                {% for service, running in nut_services.services.items() %}
+                                <div class="col-6 mb-3">
+                                    <div class="d-flex align-items-center">
+                                        {% if running %}
+                                            <i class="fas fa-check-circle text-success mr-2"></i>
+                                            <span class="text-success">{{ service.title() }}</span>
+                                        {% else %}
+                                            <i class="fas fa-times-circle text-danger mr-2"></i>
+                                            <span class="text-danger">{{ service.title() }}</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                Unable to retrieve NUT service status: {{ nut_services.error }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monitoring Information -->
+            <div class="row">
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-info-circle"></i> Monitoring Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>How Power Monitoring Works</h6>
+                                    <ul>
+                                        <li>Continuously monitors UPS status every {{ monitoring_status.monitoring_interval }} seconds</li>
+                                        <li>Checks for power events (power loss, low battery, etc.)</li>
+                                        <li>Executes configured cluster actions when events occur</li>
+                                        <li>Logs all actions and results for audit purposes</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Power Events Monitored</h6>
+                                    <ul>
+                                        <li><strong>Power Loss:</strong> UPS switches to battery power</li>
+                                        <li><strong>Low Battery:</strong> Battery charge below threshold</li>
+                                        <li><strong>Critical Battery:</strong> Battery critically low (10%)</li>
+                                        <li><strong>Power Restored:</strong> Main power returns</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="row">
+                <div class="col-12 mb-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-3 mb-2">
+                                    <a href="{{ url_for('web.ups_list') }}" class="btn btn-outline-primary w-100">
+                                        <i class="fas fa-battery-three-quarters"></i><br>
+                                        <small>Manage UPS Devices</small>
+                                    </a>
+                                </div>
+                                <div class="col-md-3 mb-2">
+                                    <a href="{{ url_for('web.ups_rules') }}" class="btn btn-outline-success w-100">
+                                        <i class="fas fa-cogs"></i><br>
+                                        <small>Power Management Rules</small>
+                                    </a>
+                                </div>
+                                <div class="col-md-3 mb-2">
+                                    <a href="{{ url_for('web.ups_rule_create') }}" class="btn btn-outline-warning w-100">
+                                        <i class="fas fa-plus"></i><br>
+                                        <small>Create New Rule</small>
+                                    </a>
+                                </div>
+                                <div class="col-md-3 mb-2">
+                                    <form method="POST" action="{{ url_for('web.ups_services_restart') }}" class="d-inline w-100">
+                                        <button type="submit" class="btn btn-outline-info w-100">
+                                            <i class="fas fa-redo"></i><br>
+                                            <small>Restart NUT Services</small>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Requirements -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-exclamation-triangle"></i> System Requirements</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <h6><i class="fas fa-info-circle"></i> Prerequisites for Power Monitoring</h6>
+                                <ul class="mb-0">
+                                    <li><strong>NUT Packages:</strong> Install with <code>sudo apt install nut nut-client nut-server nut-driver</code></li>
+                                    <li><strong>UPS Connection:</strong> UPS must be connected via USB and detected by the system</li>
+                                    <li><strong>NUT Configuration:</strong> UPS must be configured in NUT with proper drivers</li>
+                                    <li><strong>Service Permissions:</strong> NUT services must be running and accessible</li>
+                                    <li><strong>Power Rules:</strong> At least one power management rule must be configured</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Auto-refresh monitoring status every 30 seconds
+setInterval(function() {
+    if ({{ monitoring_status.monitoring_active|lower }}) {
+        location.reload();
+    }
+}, 30000);
+</script>
+{% endblock %}

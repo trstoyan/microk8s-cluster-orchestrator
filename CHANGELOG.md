@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **UPS Power Management System**: Comprehensive power management for Raspberry Pi 5 deployments
+  - USB UPS device detection and automatic configuration
+  - NUT (Network UPS Tools) integration and service management
+  - Power event monitoring (power loss, low battery, power restored)
+  - Automated cluster shutdown/startup based on power events
+  - Configurable power management rules with priority-based execution
+  - Real-time UPS status monitoring (battery, voltage, load, temperature)
+  - Web interface for UPS management and rule configuration
+  - CLI commands for all UPS operations
+  - REST API endpoints for UPS management
 - Comprehensive hardware reporting system
 - Detailed disk partition and filesystem information collection
 - Docker and Kubernetes volume tracking
@@ -22,11 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hardware report web interface with tabular data display
 
 ### Changed
-- **BREAKING**: Database schema updated with new hardware fields
+- **BREAKING**: Database schema updated with new hardware fields and UPS tables
 - Hardware data collection now uses SCP for large JSON transfers
 - Disk total calculation now sums all physical disks instead of just root filesystem
 - Improved data parsing with line-based extraction instead of regex patterns
 - Enhanced error handling for hardware collection failures
+- Navigation menu updated to include UPS Management section
 
 ### Fixed
 - SCP connection issues with incorrect SSH user authentication
@@ -42,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced Ansible playbook with comprehensive hardware collection tasks
 - Improved database migration scripts for schema updates
 - Added debug utilities for troubleshooting hardware collection issues
+- **UPS System Architecture**:
+  - Created `UPS` and `UPSClusterRule` database models
+  - Implemented `UPSScanner` for USB device detection
+  - Built `NUTConfigurator` for automatic UPS configuration
+  - Developed `PowerManagementService` for event monitoring and cluster actions
+  - Added `UPSController` as high-level interface for all UPS operations
+  - Created comprehensive web templates for UPS management
+  - Added database migration script `migrate_ups_tables.py`
 
 ## [Previous Versions]
 

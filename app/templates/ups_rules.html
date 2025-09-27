@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Power Management Rules{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="fas fa-cogs"></i> Power Management Rules</h1>
+                <div>
+                    <a href="{{ url_for('web.ups_rule_create') }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Create Rule
+                    </a>
+                    <a href="{{ url_for('web.ups_list') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-battery-three-quarters"></i> UPS Devices
+                    </a>
+                    <a href="{{ url_for('web.ups_monitor') }}" class="btn btn-outline-info">
+                        <i class="fas fa-chart-line"></i> Monitor
+                    </a>
+                </div>
+            </div>
+
+            {% if rules %}
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-list"></i> Power Management Rules ({{ rules|length }})</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>UPS Device</th>
+                                    <th>Cluster</th>
+                                    <th>Power Event</th>
+                                    <th>Cluster Action</th>
+                                    <th>Priority</th>
+                                    <th>Status</th>
+                                    <th>Success Rate</th>
+                                    <th>Last Triggered</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for rule in rules %}
+                                <tr>
+                                    <td>{{ rule.id }}</td>
+                                    <td>
+                                        <strong>{{ rule.name }}</strong>
+                                        {% if rule.description %}
+                                        <br><small class="text-muted">{{ rule.description }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% for ups in ups_devices %}
+                                            {% if ups.id == rule.ups_id %}
+                                                <span class="badge badge-primary">{{ ups.name }}</span>
+                                                <br><small class="text-muted">{{ ups.model or 'Unknown' }}</small>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        {% for cluster in clusters %}
+                                            {% if cluster.id == rule.cluster_id %}
+                                                <span class="badge badge-info">{{ cluster.name }}</span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-warning">
+                                            {{ rule.power_event.replace('_', ' ').title() }}
+                                        </span>
+                                        {% if rule.battery_threshold %}
+                                        <br><small class="text-muted">{{ rule.battery_threshold }}% threshold</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-success">
+                                            {{ rule.cluster_action.replace('_', ' ').title() }}
+                                        </span>
+                                        {% if rule.action_delay > 0 %}
+                                        <br><small class="text-muted">{{ rule.action_delay }}s delay</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-secondary">{{ rule.priority }}</span>
+                                    </td>
+                                    <td>
+                                        {% if rule.enabled %}
+                                            <span class="badge badge-success">Enabled</span>
+                                        {% else %}
+                                            <span class="badge badge-secondary">Disabled</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if rule.execution_count > 0 %}
+                                            <div class="progress" style="height: 20px;">
+                                                <div class="progress-bar 
+                                                    {% if rule.success_rate >= 80 %}bg-success
+                                                    {% elif rule.success_rate >= 60 %}bg-warning
+                                                    {% else %}bg-danger{% endif %}" 
+                                                     role="progressbar" 
+                                                     style="width: {{ rule.success_rate }}%"
+                                                     aria-valuenow="{{ rule.success_rate }}" 
+                                                     aria-valuemin="0" 
+                                                     aria-valuemax="100">
+                                                    {{ "%.1f"|format(rule.success_rate) }}%
+                                                </div>
+                                            </div>
+                                            <small class="text-muted">
+                                                {{ rule.success_count }}/{{ rule.execution_count }} successful
+                                            </small>
+                                        {% else %}
+                                            <span class="text-muted">No executions</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if rule.last_triggered %}
+                                            <small>{{ rule.last_triggered }}</small>
+                                        {% else %}
+                                            <span class="text-muted">Never</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <form method="POST" action="{{ url_for('web.ups_rule_delete', rule_id=rule.id) }}" 
+                                                  class="d-inline" 
+                                                  onsubmit="return confirm('Are you sure you want to delete this rule?')">
+                                                <button type="submit" class="btn btn-danger btn-sm" title="Delete Rule">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="alert alert-info text-center">
+                <i class="fas fa-info-circle fa-3x mb-3"></i>
+                <h4>No Power Management Rules</h4>
+                <p>No power management rules are currently configured. Create rules to automatically manage your clusters based on UPS power events.</p>
+                <a href="{{ url_for('web.ups_rule_create') }}" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Create Power Management Rule
+                </a>
+            </div>
+            {% endif %}
+
+            <!-- Quick Stats -->
+            {% if rules %}
+            <div class="row mt-4">
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-primary">{{ rules|length }}</h5>
+                            <p class="card-text">Total Rules</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-success">{{ rules|selectattr('enabled')|list|length }}</h5>
+                            <p class="card-text">Enabled Rules</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-warning">{{ rules|selectattr('last_triggered')|list|length }}</h5>
+                            <p class="card-text">Rules Triggered</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-info">{{ ups_devices|length }}</h5>
+                            <p class="card-text">UPS Devices</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
