@@ -266,6 +266,24 @@ def scan_cluster_state(cluster_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/clusters/<int:cluster_id>/shutdown', methods=['POST'])
+@login_required
+def shutdown_cluster(cluster_id):
+    """Gracefully shutdown a cluster."""
+    try:
+        cluster = Cluster.query.get_or_404(cluster_id)
+        data = request.get_json() or {}
+        graceful = data.get('graceful', True)  # Default to graceful shutdown
+        
+        operation = orchestrator.shutdown_cluster(cluster, graceful=graceful)
+        # Set the user who initiated the operation
+        operation.user_id = current_user.id
+        operation.created_by = current_user.full_name
+        db.session.commit()
+        return jsonify(operation.to_dict()), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Router/Switch orchestration endpoints
 @bp.route('/router-switches/<int:router_switch_id>/backup-config', methods=['POST'])
 def backup_router_config(router_switch_id):

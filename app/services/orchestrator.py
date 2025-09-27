@@ -869,6 +869,59 @@ class OrchestrationService:
         
         return operation
     
+    def shutdown_cluster(self, cluster: Cluster, graceful: bool = True) -> Operation:
+        """Gracefully shutdown a MicroK8s cluster."""
+        shutdown_type = 'graceful' if graceful else 'force'
+        operation = self._create_operation(
+            operation_type='shutdown',
+            operation_name=f'Shutdown Cluster ({shutdown_type})',
+            description=f'{shutdown_type.title()} shutdown of cluster {cluster.name}',
+            cluster=cluster,
+            playbook_path='playbooks/shutdown_cluster.yml'
+        )
+        
+        try:
+            self._update_operation_status(operation, 'running')
+            
+            nodes = cluster.nodes
+            if not nodes:
+                self._update_operation_status(operation, 'failed', success=False,
+                                            error_message="Cluster has no nodes to shutdown")
+                return operation
+            
+            inventory_file = self._generate_inventory(nodes)
+            playbook_path = os.path.join(self.playbooks_dir, 'shutdown_cluster.yml')
+            
+            extra_vars = {
+                'cluster_name': cluster.name,
+                'graceful_shutdown': graceful,
+                'shutdown_timeout': 300 if graceful else 60  # 5 minutes for graceful, 1 minute for force
+            }
+            
+            success, output = self._run_ansible_playbook(playbook_path, inventory_file, extra_vars)
+            
+            if success:
+                # Update cluster status
+                cluster.status = 'shutdown'
+                cluster.health_score = 0
+                
+                # Update node statuses
+                for node in nodes:
+                    node.microk8s_status = 'shutdown'
+                    node.last_seen = datetime.utcnow()
+                
+                db.session.commit()
+                self._update_operation_status(operation, 'completed', success=True, output=output)
+            else:
+                self._update_operation_status(operation, 'failed', success=False,
+                                            output=output, error_message='Cluster shutdown failed')
+        
+        except Exception as e:
+            self._update_operation_status(operation, 'failed', success=False,
+                                        error_message=f"Cluster shutdown failed: {str(e)}")
+        
+        return operation
+    
     def _parse_scan_results(self, ansible_output: str) -> Dict[str, Any]:
         """Parse Ansible scan output and extract health metrics."""
         results = {

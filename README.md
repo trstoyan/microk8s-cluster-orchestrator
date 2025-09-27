@@ -5,7 +5,7 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
 ## Features
 
 - **Node Management**: Add, remove, and monitor cluster nodes
-- **Cluster Orchestration**: Automated cluster setup and configuration
+- **Cluster Orchestration**: Automated cluster setup, configuration, and graceful shutdown
 - **Ansible Integration**: Uses Ansible playbooks for all operations
 - **SQLite Database**: Persistent storage for cluster state and history
 - **Web Interface**: Modern web UI for cluster management
@@ -148,6 +148,12 @@ python cli.py cluster add --name prod --description "Production cluster" --ha
 
 # Setup a cluster
 python cli.py cluster setup 1
+
+# Gracefully shutdown a cluster
+python cli.py cluster shutdown 1 --graceful
+
+# Force shutdown a cluster (immediate termination)
+python cli.py cluster shutdown 1 --force
 ```
 
 ### Operations

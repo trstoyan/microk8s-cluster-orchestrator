@@ -102,6 +102,12 @@
                                         <li><a class="dropdown-item" href="{{ url_for('web.cluster_hardware_report', cluster_id=cluster.id) }}">
                                             <i class="bi bi-cpu"></i> Hardware Report
                                         </a></li>
+                                        <li><a class="dropdown-item text-warning" href="#" onclick="shutdownCluster({{ cluster.id }}, '{{ cluster.name }}', true)">
+                                            <i class="bi bi-power"></i> Graceful Shutdown
+                                        </a></li>
+                                        <li><a class="dropdown-item text-danger" href="#" onclick="shutdownCluster({{ cluster.id }}, '{{ cluster.name }}', false)">
+                                            <i class="bi bi-exclamation-triangle"></i> Force Shutdown
+                                        </a></li>
                                         <li><hr class="dropdown-divider"></li>
                                         {% endif %}
                                         <li><a class="dropdown-item" href="#" onclick="viewClusterDetails({{ cluster.id }})">
@@ -190,6 +196,37 @@ function viewClusterDetails(clusterId) {
 function editCluster(clusterId) {
     // For now, just show an alert. This can be expanded to show an edit modal or navigate to an edit page
     alert(`Edit cluster ${clusterId} - Feature coming soon!`);
+}
+
+function shutdownCluster(clusterId, clusterName, graceful) {
+    const shutdownType = graceful ? 'graceful' : 'force';
+    const confirmMessage = graceful 
+        ? `Are you sure you want to gracefully shutdown cluster '${clusterName}'? This will safely stop all services and workloads.`
+        : `Are you sure you want to force shutdown cluster '${clusterName}'? This will immediately terminate all services and may cause data loss.`;
+    
+    if (confirm(confirmMessage)) {
+        fetch(`/api/clusters/${clusterId}/shutdown`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                graceful: graceful
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error starting cluster shutdown: ' + data.error);
+            } else {
+                alert(`${shutdownType.charAt(0).toUpperCase() + shutdownType.slice(1)} shutdown started for cluster '${clusterName}'. Check the operations page for progress.`);
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error starting cluster shutdown: ' + error);
+        });
+    }
 }
 
 function deleteCluster(clusterId, clusterName) {

@@ -1,6 +1,6 @@
 """Web interface endpoints for the MicroK8s Cluster Orchestrator."""
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
 from ..models.database import db
 from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
@@ -621,7 +621,7 @@ def node_hardware_report(node_id):
 def ups_list():
     """UPS management page."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     ups_devices = controller.get_all_ups()
     return render_template('ups_list.html', ups_devices=ups_devices)
 
@@ -630,7 +630,7 @@ def ups_list():
 def ups_detail(ups_id):
     """UPS detail page."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     ups_device = controller.get_ups_by_id(ups_id)
     if not ups_device:
@@ -650,7 +650,7 @@ def ups_detail(ups_id):
 def ups_scan():
     """Scan for UPS devices."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     try:
         ups_devices = controller.scan_and_configure_ups()
@@ -668,7 +668,7 @@ def ups_scan():
 def ups_test(ups_id):
     """Test UPS connection."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     try:
         result = controller.test_ups_connection(ups_id)
@@ -686,7 +686,7 @@ def ups_test(ups_id):
 def ups_remove(ups_id):
     """Remove UPS configuration."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     try:
         result = controller.remove_ups(ups_id)
@@ -704,7 +704,7 @@ def ups_remove(ups_id):
 def ups_rules():
     """Power management rules page."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     rules = controller.get_power_rules()
     clusters = Cluster.query.all()
@@ -720,7 +720,7 @@ def ups_rules():
 def ups_rule_create():
     """Create power management rule."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     if request.method == 'POST':
         try:
@@ -761,7 +761,7 @@ def ups_rule_create():
 def ups_rule_delete(rule_id):
     """Delete power management rule."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     try:
         result = controller.delete_power_rule(rule_id)
@@ -779,7 +779,7 @@ def ups_rule_delete(rule_id):
 def ups_monitor():
     """Power monitoring page."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     monitoring_status = controller.get_power_monitoring_status()
     nut_services = controller.get_nut_service_status()
@@ -793,7 +793,7 @@ def ups_monitor():
 def ups_monitor_start():
     """Start power monitoring."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     try:
         result = controller.start_power_monitoring()
@@ -811,7 +811,7 @@ def ups_monitor_start():
 def ups_monitor_stop():
     """Stop power monitoring."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     try:
         result = controller.stop_power_monitoring()
@@ -829,7 +829,7 @@ def ups_monitor_stop():
 def ups_services_restart():
     """Restart NUT services."""
     from ..services.ups_controller import UPSController
-    controller = UPSController()
+    controller = UPSController(app=current_app._get_current_object())
     
     try:
         result = controller.restart_nut_services()

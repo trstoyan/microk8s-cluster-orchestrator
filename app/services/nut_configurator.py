@@ -58,6 +58,61 @@ class NUTConfigurator:
             self.logger.error(f"Error installing NUT: {e}")
             return False
     
+    def create_config_directory(self) -> bool:
+        """Create NUT configuration directory with proper permissions."""
+        try:
+            self.logger.info(f"Creating NUT configuration directory: {self.nut_config_dir}")
+            
+            # Create directory if it doesn't exist
+            self.nut_config_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Set proper ownership (nut:nut)
+            subprocess.run(['sudo', 'chown', '-R', 'nut:nut', str(self.nut_config_dir)], 
+                         check=True, capture_output=True)
+            
+            # Set proper permissions
+            subprocess.run(['sudo', 'chmod', '755', str(self.nut_config_dir)], 
+                         check=True, capture_output=True)
+            
+            self.logger.info("NUT configuration directory created successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create NUT configuration directory: {e}")
+            return False
+    
+    def _write_file_with_sudo(self, file_path, content, mode=0o644, owner='nut:nut'):
+        """Write file content using sudo with proper permissions."""
+        import tempfile
+        try:
+            # Write to temporary file first
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+            
+            # Copy to destination using sudo
+            subprocess.run(['sudo', 'cp', temp_file_path, str(file_path)], check=True)
+            subprocess.run(['sudo', 'chown', owner, str(file_path)], check=True)
+            subprocess.run(['sudo', 'chmod', oct(mode)[2:], str(file_path)], check=True)
+            
+            # Clean up temp file
+            os.unlink(temp_file_path)
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to write file {file_path}: {e}")
+            return False
+    
+    def _read_file_with_sudo(self, file_path):
+        """Read file content using sudo."""
+        try:
+            result = subprocess.run(['sudo', 'cat', str(file_path)], 
+                                 capture_output=True, text=True, check=True)
+            return result.stdout
+        except Exception as e:
+            self.logger.error(f"Failed to read file {file_path}: {e}")
+            return ""
+    
     def configure_nut(self, ups: UPS) -> bool:
         """Configure NUT for a specific UPS."""
         try:
@@ -115,8 +170,7 @@ class NUTConfigurator:
 MODE=standalone
 """
             
-            with open(self.nut_config_files['nut_conf'], 'w') as f:
-                f.write(nut_conf_content)
+            self._write_file_with_sudo(self.nut_config_files['nut_conf'], nut_conf_content)
             
             self.logger.info("Configured nut.conf")
             return True
@@ -133,8 +187,7 @@ MODE=standalone
             existing_content = ""
             
             if ups_conf_path.exists():
-                with open(ups_conf_path, 'r') as f:
-                    existing_content = f.read()
+                existing_content = self._read_file_with_sudo(ups_conf_path)
             
             # Check if UPS already configured
             if f"[{ups.name}]" in existing_content:
@@ -151,9 +204,8 @@ MODE=standalone
     desc = "{ups.model}"
 """
             
-            # Append to existing content
-            with open(ups_conf_path, 'a') as f:
-                f.write(ups_config)
+            # Append to existing content using sudo
+            self._write_file_with_sudo(ups_conf_path, existing_content + ups_config, mode=0o640)
             
             self.logger.info(f"Added UPS {ups.name} to ups.conf")
             return True
@@ -178,8 +230,7 @@ MODE=standalone
     upsmon primary
 """
             
-            with open(self.nut_config_files['upsd_users'], 'w') as f:
-                f.write(upsd_users_content)
+            self._write_file_with_sudo(self.nut_config_files['upsd_users'], upsd_users_content, mode=0o600)
             
             self.logger.info("Configured upsd.users")
             return True
@@ -196,8 +247,7 @@ MODE=standalone
             existing_content = ""
             
             if upsmon_conf_path.exists():
-                with open(upsmon_conf_path, 'r') as f:
-                    existing_content = f.read()
+                existing_content = self._read_file_with_sudo(upsmon_conf_path)
             
             # Check if UPS already monitored
             if f"{ups.name}@localhost" in existing_content:
@@ -211,8 +261,7 @@ MONITOR {ups.name}@localhost 1 monuser monpass primary
 """
             
             # Append to existing content
-            with open(upsmon_conf_path, 'a') as f:
-                f.write(upsmon_config)
+            self._write_file_with_sudo(upsmon_conf_path, existing_content + upsmon_config)
             
             self.logger.info(f"Added UPS {ups.name} to upsmon.conf")
             return True
@@ -407,8 +456,8 @@ MONITOR {ups.name}@localhost 1 monuser monpass primary
             if not ups_conf_path.exists():
                 return
             
-            with open(ups_conf_path, 'r') as f:
-                lines = f.readlines()
+            content = self._read_file_with_sudo(ups_conf_path)
+            lines = content.splitlines(keepends=True)
             
             # Remove UPS section
             new_lines = []
@@ -424,8 +473,7 @@ MONITOR {ups.name}@localhost 1 monuser monpass primary
                 if not skip_section:
                     new_lines.append(line)
             
-            with open(ups_conf_path, 'w') as f:
-                f.writelines(new_lines)
+            self._write_file_with_sudo(ups_conf_path, ''.join(new_lines), mode=0o640)
             
             self.logger.info(f"Removed UPS {ups.name} from ups.conf")
             
@@ -440,8 +488,8 @@ MONITOR {ups.name}@localhost 1 monuser monpass primary
             if not upsmon_conf_path.exists():
                 return
             
-            with open(upsmon_conf_path, 'r') as f:
-                lines = f.readlines()
+            content = self._read_file_with_sudo(upsmon_conf_path)
+            lines = content.splitlines(keepends=True)
             
             # Remove UPS monitoring line
             new_lines = []
@@ -449,8 +497,7 @@ MONITOR {ups.name}@localhost 1 monuser monpass primary
                 if f"{ups.name}@localhost" not in line:
                     new_lines.append(line)
             
-            with open(upsmon_conf_path, 'w') as f:
-                f.writelines(new_lines)
+            self._write_file_with_sudo(upsmon_conf_path, ''.join(new_lines))
             
             self.logger.info(f"Removed UPS {ups.name} from upsmon.conf")
             

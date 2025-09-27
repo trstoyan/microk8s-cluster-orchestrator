@@ -377,6 +377,47 @@ def setup_cluster(cluster_id):
     finally:
         session.close()
 
+@cluster.command('shutdown')
+@click.argument('cluster_id', type=int)
+@click.option('--force', is_flag=True, help='Force shutdown (immediate termination)')
+@click.option('--graceful', is_flag=True, default=True, help='Graceful shutdown (default)')
+def shutdown_cluster(cluster_id, force, graceful):
+    """Shutdown a cluster gracefully or forcefully."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        cluster = session.query(Cluster).filter_by(id=cluster_id).first()
+        if not cluster:
+            print_error(f"Cluster with ID {cluster_id} not found.")
+            return
+        
+        if not cluster.nodes:
+            print_error(f"Cluster '{cluster.name}' has no nodes assigned.")
+            return
+        
+        # Determine shutdown type
+        is_graceful = graceful and not force
+        
+        shutdown_type = "graceful" if is_graceful else "force"
+        print_info(f"Starting {shutdown_type} shutdown of cluster '{cluster.name}'...")
+        
+        operation = orchestrator.shutdown_cluster(cluster, graceful=is_graceful)
+        
+        print_info(f"Cluster shutdown started with operation ID {operation.id}")
+        print_info("Check the operations list for progress.")
+        
+        if is_graceful:
+            print_info("Graceful shutdown will safely stop all services and workloads.")
+        else:
+            print_warning("Force shutdown will immediately terminate all services.")
+    
+    except Exception as e:
+        print_error(f"Failed to shutdown cluster: {e}")
+    
+    finally:
+        session.close()
+
 @cli.group()
 def router():
     """Manage router switches."""
@@ -1906,6 +1947,80 @@ def delete(rule_id):
             
     except Exception as e:
         print_error(f"Failed to delete power rule: {e}")
+
+@ups.command()
+def install_nut():
+    """Install and configure NUT packages."""
+    from app import create_app
+    from app.services.nut_configurator import NUTConfigurator
+    
+    try:
+        print_info("Installing NUT packages...")
+        configurator = NUTConfigurator()
+        
+        # Install NUT packages
+        if configurator.install_nut():
+            print_success("NUT packages installed successfully")
+            
+            # Create NUT configuration directory
+            configurator.create_config_directory()
+            print_success("NUT configuration directory created")
+            
+            print_info("NUT installation completed!")
+            print_info("Run 'python cli.py ups scan' to detect and configure UPS devices")
+        else:
+            print_error("Failed to install NUT packages")
+            
+    except Exception as e:
+        print_error(f"Failed to install NUT: {e}")
+
+@ups.command()
+def setup_nut():
+    """Complete NUT setup (install + configure)."""
+    from app import create_app
+    from app.services.nut_configurator import NUTConfigurator
+    from app.services.ups_controller import UPSController
+    
+    try:
+        print_info("Starting complete NUT setup...")
+        
+        # Install NUT
+        configurator = NUTConfigurator()
+        if not configurator.install_nut():
+            print_error("Failed to install NUT packages")
+            return
+        
+        print_success("NUT packages installed")
+        
+        # Create config directory
+        configurator.create_config_directory()
+        print_success("NUT configuration directory created")
+        
+        # Scan and configure UPS
+        app = create_app()
+        with app.app_context():
+            controller = UPSController(app)
+            ups_devices = controller.scan_and_configure_ups()
+            
+            if ups_devices:
+                print_success(f"Found and configured {len(ups_devices)} UPS device(s)")
+                
+                # Start NUT services
+                if configurator.start_nut_services():
+                    print_success("NUT services started")
+                    print_success("NUT setup completed successfully!")
+                    print_info("You can now:")
+                    print_info("  - View UPS status: python cli.py ups list")
+                    print_info("  - Create power rules: python cli.py ups rules create")
+                    print_info("  - Start monitoring: python cli.py ups monitor start")
+                else:
+                    print_error("Failed to start NUT services")
+            else:
+                print_warning("No UPS devices found")
+                print_info("Connect a UPS device and run 'python cli.py ups scan'")
+                
+    except Exception as e:
+        print_error(f"Failed to setup NUT: {e}")
 
 @ups.group()
 def monitor():

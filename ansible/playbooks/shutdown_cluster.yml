@@ -1,0 +1,91 @@
+---
+- name: Shutdown MicroK8s Cluster
+  hosts: all
+  become: yes
+  vars:
+    shutdown_timeout: "{{ shutdown_timeout | default(300) }}"
+    graceful_shutdown: "{{ graceful_shutdown | default(true) }}"
+  
+  tasks:
+    - name: Display shutdown information
+      debug:
+        msg: |
+          Cluster: {{ cluster_name }}
+          Shutdown type: {{ 'Graceful' if graceful_shutdown else 'Force' }}
+          Timeout: {{ shutdown_timeout }} seconds
+      
+    - name: Check if MicroK8s is running
+      command: microk8s status --wait-ready
+      register: microk8s_status
+      failed_when: false
+      changed_when: false
+      
+    - name: Display MicroK8s status
+      debug:
+        msg: "MicroK8s status: {{ microk8s_status.stdout if microk8s_status.stdout else 'Not responding' }}"
+      
+    - name: Stop all MicroK8s services gracefully
+      block:
+        - name: Disable MicroK8s services
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+            enabled: false
+          loop:
+            - snap.microk8s.daemon-apiserver
+            - snap.microk8s.daemon-apiserver-kicker
+            - snap.microk8s.daemon-containerd
+            - snap.microk8s.daemon-etcd
+            - snap.microk8s.daemon-kubelite
+            - snap.microk8s.daemon-proxy
+            - snap.microk8s.daemon-scheduler
+          when: graceful_shutdown
+          
+        - name: Wait for services to stop gracefully
+          wait_for:
+            timeout: "{{ shutdown_timeout }}"
+          when: graceful_shutdown
+          
+        - name: Force stop MicroK8s snap
+          command: snap stop microk8s
+          when: not graceful_shutdown
+          ignore_errors: true
+          
+        - name: Disable MicroK8s snap
+          command: snap disable microk8s
+          ignore_errors: true
+          
+    - name: Verify MicroK8s is stopped
+      command: microk8s status
+      register: final_status
+      failed_when: false
+      changed_when: false
+      
+    - name: Display final status
+      debug:
+        msg: "Final MicroK8s status: {{ final_status.stdout if final_status.stdout else 'Stopped' }}"
+      
+    - name: Clean up any remaining processes
+      shell: |
+        pkill -f microk8s || true
+        pkill -f containerd || true
+        pkill -f etcd || true
+      when: not graceful_shutdown
+      ignore_errors: true
+      
+    - name: Remove any stale socket files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/snap/microk8s/common/run/containerd.sock
+        - /var/snap/microk8s/common/run/kubelet.sock
+      ignore_errors: true
+      
+    - name: Display shutdown completion message
+      debug:
+        msg: |
+          MicroK8s cluster shutdown completed successfully.
+          Shutdown type: {{ 'Graceful' if graceful_shutdown else 'Force' }}
+          Cluster: {{ cluster_name }}
+          Node: {{ inventory_hostname }}

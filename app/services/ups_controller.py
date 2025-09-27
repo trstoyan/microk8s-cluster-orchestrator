@@ -19,10 +19,11 @@ from app.services.power_management import PowerManagementService
 class UPSController:
     """High-level controller for UPS operations and power management."""
     
-    def __init__(self):
+    def __init__(self, app=None):
+        self.app = app
         self.scanner = UPSScanner()
         self.nut_configurator = NUTConfigurator()
-        self.power_management = PowerManagementService()
+        self.power_management = PowerManagementService(app)
         self.logger = logging.getLogger(__name__)
     
     def scan_and_configure_ups(self) -> List[Dict]:
@@ -40,70 +41,80 @@ class UPSController:
             
             configured_ups = []
             
-            for ups_info in detected_ups:
-                # Check if UPS already exists in database
-                existing_ups = db.session.query(UPS).filter(
-                    UPS.vendor_id == ups_info['vendor_id'],
-                    UPS.product_id == ups_info['product_id']
-                ).first()
-                
-                if existing_ups:
-                    self.logger.info(f"UPS {existing_ups.name} already exists")
-                    configured_ups.append(existing_ups.to_dict())
-                    continue
-                
-                # Create new UPS record
-                ups = UPS(
-                    name=ups_info['name'],
-                    model=ups_info['model'],
-                    vendor_id=ups_info['vendor_id'],
-                    product_id=ups_info['product_id'],
-                    driver=ups_info['recommended_driver'],
-                    port=ups_info['port'],
-                    connection_type=ups_info['connection_type'],
-                    usb_bus=ups_info['usb_bus'],
-                    usb_device=ups_info['usb_device'],
-                    usb_vendor_name=ups_info['usb_vendor_name'],
-                    usb_product_name=ups_info['usb_product_name'],
-                    is_local=ups_info['is_local'],
-                    system_protected=ups_info['system_protected'],
-                    last_scan=datetime.utcnow()
-                )
-                
-                db.session.add(ups)
-                db.session.commit()
-                
-                # Check if UPS is already configured in NUT
-                if ups_info.get('nut_configured', False):
-                    # UPS is already configured, just check service status
-                    service_status = self.nut_configurator.get_nut_service_status()
-                    ups.nut_services_running = service_status.get('all_running', False)
-                    ups.nut_driver_running = service_status.get('services', {}).get('nut-driver', False)
-                    db.session.commit()
-                    
-                    self.logger.info(f"UPS {ups.name} already configured in NUT")
-                    configured_ups.append(ups.to_dict())
-                else:
-                    # Configure NUT for this UPS
-                    if self.nut_configurator.configure_nut(ups):
-                        # Start NUT services
-                        if self.nut_configurator.start_nut_services():
-                            ups.nut_services_running = True
-                            ups.nut_driver_running = True
-                            db.session.commit()
-                            
-                            self.logger.info(f"UPS {ups.name} configured and started successfully")
-                            configured_ups.append(ups.to_dict())
-                        else:
-                            self.logger.error(f"Failed to start NUT services for UPS {ups.name}")
-                    else:
-                        self.logger.error(f"Failed to configure NUT for UPS {ups.name}")
-            
-            return configured_ups
+            if self.app:
+                with self.app.app_context():
+                    return self._process_detected_ups(detected_ups)
+            else:
+                return self._process_detected_ups(detected_ups)
             
         except Exception as e:
             self.logger.error(f"Error scanning and configuring UPS: {e}")
             return []
+    
+    def _process_detected_ups(self, detected_ups: List[Dict]) -> List[Dict]:
+        """Process detected UPS devices and configure them."""
+        configured_ups = []
+        
+        for ups_info in detected_ups:
+            # Check if UPS already exists in database
+            existing_ups = db.session.query(UPS).filter(
+                UPS.vendor_id == ups_info['vendor_id'],
+                UPS.product_id == ups_info['product_id']
+            ).first()
+            
+            if existing_ups:
+                self.logger.info(f"UPS {existing_ups.name} already exists")
+                configured_ups.append(existing_ups.to_dict())
+                continue
+            
+            # Create new UPS record
+            ups = UPS(
+                name=ups_info['name'],
+                model=ups_info['model'],
+                vendor_id=ups_info['vendor_id'],
+                product_id=ups_info['product_id'],
+                driver=ups_info['recommended_driver'],
+                port=ups_info['port'],
+                connection_type=ups_info['connection_type'],
+                usb_bus=ups_info['usb_bus'],
+                usb_device=ups_info['usb_device'],
+                usb_vendor_name=ups_info['usb_vendor_name'],
+                usb_product_name=ups_info['usb_product_name'],
+                is_local=ups_info['is_local'],
+                system_protected=ups_info['system_protected'],
+                last_scan=datetime.utcnow()
+            )
+            
+            db.session.add(ups)
+            db.session.commit()
+            
+            # Check if UPS is already configured in NUT
+            if ups_info.get('nut_configured', False):
+                # UPS is already configured, just check service status
+                service_status = self.nut_configurator.get_nut_service_status()
+                ups.nut_services_running = service_status.get('all_running', False)
+                ups.nut_driver_running = service_status.get('services', {}).get('nut-driver', False)
+                db.session.commit()
+                
+                self.logger.info(f"UPS {ups.name} already configured in NUT")
+                configured_ups.append(ups.to_dict())
+            else:
+                # Configure NUT for this UPS
+                if self.nut_configurator.configure_nut(ups):
+                    # Start NUT services
+                    if self.nut_configurator.start_nut_services():
+                        ups.nut_services_running = True
+                        ups.nut_driver_running = True
+                        db.session.commit()
+                        
+                        self.logger.info(f"UPS {ups.name} configured and started successfully")
+                        configured_ups.append(ups.to_dict())
+                    else:
+                        self.logger.error(f"Failed to start NUT services for UPS {ups.name}")
+                else:
+                    self.logger.error(f"Failed to configure NUT for UPS {ups.name}")
+        
+        return configured_ups
     
     def get_ups_status(self, ups_id: int) -> Dict:
         """Get current status of a UPS."""
@@ -342,8 +353,13 @@ class UPSController:
     def get_all_ups(self) -> List[Dict]:
         """Get all UPS devices."""
         try:
-            ups_devices = db.session.query(UPS).all()
-            return [ups.to_dict() for ups in ups_devices]
+            if self.app:
+                with self.app.app_context():
+                    ups_devices = db.session.query(UPS).all()
+                    return [ups.to_dict() for ups in ups_devices]
+            else:
+                ups_devices = db.session.query(UPS).all()
+                return [ups.to_dict() for ups in ups_devices]
             
         except Exception as e:
             self.logger.error(f"Error getting UPS devices: {e}")
@@ -352,8 +368,13 @@ class UPSController:
     def get_ups_by_id(self, ups_id: int) -> Optional[Dict]:
         """Get UPS by ID."""
         try:
-            ups = db.session.query(UPS).filter(UPS.id == ups_id).first()
-            return ups.to_dict() if ups else None
+            if self.app:
+                with self.app.app_context():
+                    ups = db.session.query(UPS).filter(UPS.id == ups_id).first()
+                    return ups.to_dict() if ups else None
+            else:
+                ups = db.session.query(UPS).filter(UPS.id == ups_id).first()
+                return ups.to_dict() if ups else None
             
         except Exception as e:
             self.logger.error(f"Error getting UPS by ID: {e}")

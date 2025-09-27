@@ -23,7 +23,8 @@ from app.services.orchestrator import OrchestrationService
 class PowerManagementService:
     """Service for managing power events and cluster actions."""
     
-    def __init__(self):
+    def __init__(self, app=None):
+        self.app = app
         self.scanner = UPSScanner()
         self.orchestrator = OrchestrationService()
         self.logger = logging.getLogger(__name__)
