@@ -53,15 +53,15 @@ dev-install: install
 
 setup:
 	@echo "🚀 Running interactive setup..."
-	./setup_system.sh
+	./scripts/setup_system.sh
 
 quick-setup:
 	@echo "⚡ Running quick setup..."
-	./quick_setup.sh
+	./scripts/quick_setup.sh
 
 system-setup:
 	@echo "🏗️  Running comprehensive system setup..."
-	./setup_system.sh
+	./scripts/setup_system.sh
 
 # Development commands
 run:

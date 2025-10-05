@@ -47,7 +47,7 @@ def main():
     if not check_root():
         print("\n❌ Error: This script requires root privileges or sudo access.")
         print("Please run with sudo or as root:")
-        print("  sudo python3 setup_nut.py")
+        print("  sudo python3 scripts/setup_nut.py")
         sys.exit(1)
     
     # Step 1: Install NUT packages

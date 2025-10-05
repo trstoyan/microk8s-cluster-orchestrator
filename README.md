@@ -2,6 +2,8 @@
 
 A comprehensive, agnostic system for managing MicroK8s clusters using Ansible automation and a Python application. This orchestrator provides a complete solution for deploying, configuring, monitoring, and troubleshooting MicroK8s clusters across multiple nodes.
 
+📚 **Documentation**: See the [docs/](docs/) directory for detailed guides and documentation.
+
 ## Features
 
 - **Node Management**: Add, remove, and monitor cluster nodes
@@ -171,14 +173,14 @@ sudo chown root:root /etc/sudoers.d/microk8s-orchestrator
 ```bash
 git clone <repository-url>
 cd microk8s-cluster-orchestrator
-./setup_system.sh
+./scripts/setup_system.sh
 ```
 
 **Quick Setup (Minimal Configuration):**
 ```bash
 git clone <repository-url>
 cd microk8s-cluster-orchestrator
-./quick_setup.sh
+./scripts/quick_setup.sh
 ```
 
 #### Option 2: Manual Installation
@@ -224,7 +226,7 @@ cd microk8s-cluster-orchestrator
 
 8. **Check and apply database migrations** (if upgrading from a previous version):
    ```bash
-   python check_migrations.py
+   python scripts/check_migrations.py
    ```
 
 ### Basic Usage
@@ -394,13 +396,13 @@ python cli.py migrate run
 python cli.py migrate run --dry-run
 
 # Simple migration checker (user-friendly)
-python check_migrations.py
+python scripts/check_migrations.py
 
 # Check status only
-python check_migrations.py --status
+python scripts/check_migrations.py --status
 
 # Dry run with simple checker
-python check_migrations.py --dry-run
+python scripts/check_migrations.py --dry-run
 ```
 
 ### System Management
@@ -559,14 +561,16 @@ microk8s-cluster-orchestrator/
 │   ├── backup_db.py
 │   └── setup_orchestrator_privileges.py  # Privilege setup automation
 ├── ssh_keys/              # SSH key storage directory (created automatically)
-├── calculate_disk_total.py # Hardware calculation utility
-├── check_migrations.py    # Simple migration checker script
 ├── cli.py                 # Command-line interface
 ├── requirements.txt       # Python dependencies
-├── setup_system.sh        # Complete system setup script
-├── quick_setup.sh         # Quick minimal setup script
 ├── README.md             # This file
-└── CHANGELOG.md          # Version history and changes
+└── docs/                 # Documentation directory
+    ├── README.md         # Documentation index
+    ├── CHANGELOG.md      # Version history and changes
+    ├── DEPLOYMENT.md     # Deployment guide
+    ├── LONGHORN_SETUP_GUIDE.md  # Longhorn storage setup
+    ├── NUT_SETUP_GUIDE.md       # UPS setup guide
+    └── [other documentation files]
 ```
 
 ## Database Schema
