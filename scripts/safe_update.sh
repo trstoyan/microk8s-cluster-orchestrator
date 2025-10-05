@@ -66,6 +66,7 @@ echo "📁 Temporary directory: $TMP_DIR"
 cleanup() {
     echo "🧹 Cleaning up temporary files..."
     rm -rf "$TMP_DIR"
+    rm -f /tmp/merge-check.txt
 }
 trap cleanup EXIT
 
@@ -75,21 +76,84 @@ git config --global credential.helper 'cache --timeout=86400'
 git config --global credential.helper cache
 echo "   Git credentials will be cached for 24 hours"
 
-# Clone latest code to temporary location
-echo "📥 Cloning latest code..."
-if command -v pv >/dev/null 2>&1; then
-    echo "📊 Cloning with progress indicator..."
-    git clone --progress --depth 1 "$REPO_URL" "$TMP_DIR/microk8s-cluster-orchestrator" 2>&1 | while read line; do
-        echo "   $line"
-    done
+# Fetch latest changes from remote
+echo "📥 Fetching latest changes from remote..."
+git fetch origin main
+
+# Check if we're ahead of remote (have local commits)
+LOCAL_COMMITS=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo "0")
+REMOTE_COMMITS=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "0")
+
+echo "📊 Update status:"
+echo "   Local commits ahead: $LOCAL_COMMITS"
+echo "   Remote commits ahead: $REMOTE_COMMITS"
+
+# Check if this is a self-update scenario
+if [ "$SAFE_UPDATE_SELF_UPDATE" = "true" ]; then
+    echo "🔄 Running in self-update mode - skipping self-update check"
+    echo "   This process will handle the actual codebase update"
 else
-    git clone --depth 1 "$REPO_URL" "$TMP_DIR/microk8s-cluster-orchestrator"
+    # Check if safe_update.sh itself has changed on remote
+    CURRENT_SCRIPT_HASH=$(git hash-object "$0")
+    REMOTE_SCRIPT_HASH=$(git ls-tree origin/main:scripts/safe_update.sh 2>/dev/null | cut -d' ' -f3 || echo "")
+
+    if [ "$REMOTE_SCRIPT_HASH" != "" ] && [ "$CURRENT_SCRIPT_HASH" != "$REMOTE_SCRIPT_HASH" ]; then
+    echo "🔄 Newer version of safe_update.sh detected on remote"
+    echo "   Current version: $CURRENT_SCRIPT_HASH"
+    echo "   Remote version:  $REMOTE_SCRIPT_HASH"
+    echo "🔄 Downloading new version and running as side process..."
+    
+    # Create backup of current script
+    cp "$0" "$TMP_DIR/safe_update_backup.sh"
+    
+    # Download new version to temporary location
+    git show origin/main:scripts/safe_update.sh > "$TMP_DIR/safe_update_new.sh"
+    chmod +x "$TMP_DIR/safe_update_new.sh"
+    
+    # First, update the current script file with the new version
+    echo "🔄 Updating current script file with new version..."
+    cp "$TMP_DIR/safe_update_new.sh" "$0"
+    
+    # Run the new version (which is now the current script) as a side process
+    echo "🚀 Starting updated safe_update.sh as side process..."
+    echo "   New process will handle the actual update while current process monitors"
+    
+    # Set environment variable to indicate this is a self-update scenario
+    export SAFE_UPDATE_SELF_UPDATE="true"
+    
+    # Run the updated script as background process
+    nohup "$0" > "$TMP_DIR/update.log" 2>&1 &
+    NEW_PID=$!
+    
+    echo "   New update process started with PID: $NEW_PID"
+    echo "   Log file: $TMP_DIR/update.log"
+    echo "🔄 Waiting for new process to complete..."
+    
+    # Wait for the new process to finish
+    wait $NEW_PID
+    EXIT_CODE=$?
+    
+    if [ $EXIT_CODE -eq 0 ]; then
+        echo "✅ Update process completed successfully"
+        echo "🔄 Script has been updated and is ready for future use"
+    else
+        echo "❌ Update process failed with exit code: $EXIT_CODE"
+        echo "   Check the log file: $TMP_DIR/update.log"
+        echo "   Restoring backup script..."
+        cp "$TMP_DIR/safe_update_backup.sh" "$0"
+    fi
+    
+    # Exit current process since the new one handled everything
+    exit $EXIT_CODE
+    fi
 fi
 
-# Checkout main branch
-cd "$TMP_DIR/microk8s-cluster-orchestrator"
-git checkout main
-cd "$CURRENT_DIR"
+if [ "$REMOTE_COMMITS" -eq 0 ]; then
+    echo "✅ Already up to date with remote"
+    echo "🔄 No update needed, but will still create backup for safety"
+else
+    echo "🔄 Remote has $REMOTE_COMMITS new commit(s) to pull"
+fi
 
 # Create backup of current state
 echo "💾 Creating backup of current state..."
@@ -172,40 +236,52 @@ else
     echo "✅ No uncommitted changes found"
 fi
 
-# Apply the update using rsync (exclude important directories)
-echo "🔄 Applying update with rsync..."
-echo "   Source: $TMP_DIR/microk8s-cluster-orchestrator/"
-echo "   Destination: $CURRENT_DIR/"
-echo "   Excluding: .git, .venv, data/, logs/, backups/, ssh_keys/, instance/, __pycache__/, *.pyc"
-
-if command -v pv >/dev/null 2>&1; then
-    echo "📊 Syncing files with progress indicator..."
-    rsync -av --delete --progress \
-        --exclude='.git' \
-        --exclude='.venv' \
-        --exclude='data/' \
-        --exclude='logs/' \
-        --exclude='backups/' \
-        --exclude='ssh_keys/' \
-        --exclude='instance/' \
-        --exclude='__pycache__/' \
-        --exclude='*.pyc' \
-        "$TMP_DIR/microk8s-cluster-orchestrator/" "$CURRENT_DIR/"
+# Apply the update using git merge (preserves local changes)
+if [ "$REMOTE_COMMITS" -gt 0 ]; then
+    echo "🔄 Applying update using git merge..."
+    echo "   This will merge remote changes while preserving local commits"
+    
+    # Check if there are any conflicts before merging
+    echo "🔍 Checking for potential merge conflicts..."
+    git merge-tree $(git merge-base HEAD origin/main) HEAD origin/main > /tmp/merge-check.txt 2>/dev/null || true
+    
+    if grep -q "<<<<<<< " /tmp/merge-check.txt; then
+        echo "⚠️  Potential merge conflicts detected:"
+        echo "   The following files may have conflicts:"
+        grep -B1 -A1 "<<<<<<< " /tmp/merge-check.txt | grep "^[a-zA-Z]" | sort -u | sed 's/^/     - /'
+        echo "   Consider resolving conflicts manually or stashing local changes"
+        read -p "   Continue with merge anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "❌ Update cancelled by user"
+            exit 1
+        fi
+    fi
+    
+    # Perform the merge
+    echo "🔄 Merging remote changes..."
+    if git merge origin/main --no-edit; then
+        echo "✅ Merge completed successfully"
+    else
+        echo "❌ Merge failed due to conflicts"
+        echo "🔄 Attempting to resolve conflicts automatically..."
+        
+        # Try to resolve common conflicts automatically
+        if git status --porcelain | grep -q "^UU"; then
+            echo "⚠️  Manual conflict resolution required"
+            echo "   Run 'git status' to see conflicted files"
+            echo "   Edit conflicted files and run 'git add <file>' for each"
+            echo "   Then run 'git commit' to complete the merge"
+            exit 1
+        else
+            echo "✅ Conflicts resolved automatically"
+        fi
+    fi
 else
-    rsync -av --delete \
-        --exclude='.git' \
-        --exclude='.venv' \
-        --exclude='data/' \
-        --exclude='logs/' \
-        --exclude='backups/' \
-        --exclude='ssh_keys/' \
-        --exclude='instance/' \
-        --exclude='__pycache__/' \
-        --exclude='*.pyc' \
-        "$TMP_DIR/microk8s-cluster-orchestrator/" "$CURRENT_DIR/"
+    echo "✅ No remote changes to apply"
 fi
 
-echo "✅ File sync completed"
+echo "✅ Update process completed"
 
 # Initialize database if needed and run migrations
 echo "🔄 Checking database status..."
@@ -266,18 +342,22 @@ BACKUP_PERMANENT_DIR="backups/code-backup-$TIMESTAMP"
 echo "📁 Moving backup to permanent location: $BACKUP_PERMANENT_DIR"
 mkdir -p backups
 
-if command -v pv >/dev/null 2>&1 && [ -d "$BACKUP_DIR" ]; then
-    echo "📊 Moving backup with progress indicator..."
-    # Calculate size for progress bar
-    BACKUP_SIZE=$(du -sb "$BACKUP_DIR" 2>/dev/null | cut -f1 || echo "0")
-    if [ "$BACKUP_SIZE" -gt 0 ]; then
-        tar -cf - -C "$TMP_DIR" "backup-$TIMESTAMP" | pv -s "$BACKUP_SIZE" | tar -xf - -C "$(dirname "$BACKUP_PERMANENT_DIR")"
-        rm -rf "$BACKUP_DIR"
+if [ -d "$BACKUP_DIR" ]; then
+    if command -v pv >/dev/null 2>&1; then
+        echo "📊 Moving backup with progress indicator..."
+        # Calculate size for progress bar
+        BACKUP_SIZE=$(du -sb "$BACKUP_DIR" 2>/dev/null | cut -f1 || echo "0")
+        if [ "$BACKUP_SIZE" -gt 0 ]; then
+            tar -cf - -C "$TMP_DIR" "backup-$TIMESTAMP" | pv -s "$BACKUP_SIZE" | tar -xf - -C "$(dirname "$BACKUP_PERMANENT_DIR")"
+            rm -rf "$BACKUP_DIR"
+        else
+            mv "$BACKUP_DIR" "$BACKUP_PERMANENT_DIR"
+        fi
     else
         mv "$BACKUP_DIR" "$BACKUP_PERMANENT_DIR"
     fi
 else
-    mv "$BACKUP_DIR" "$BACKUP_PERMANENT_DIR"
+    echo "⚠️  Backup directory not found, skipping backup move"
 fi
 
 echo ""
