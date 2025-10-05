@@ -95,6 +95,9 @@ cd "$CURRENT_DIR"
 echo "💾 Creating backup of current state..."
 BACKUP_DIR="$TMP_DIR/backup-$TIMESTAMP"
 
+# Create the backup directory
+mkdir -p "$BACKUP_DIR"
+
 # Add timeout for backup operation (10 minutes)
 BACKUP_TIMEOUT=600
 
