@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     sshpass \
     curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ansible
@@ -24,7 +25,10 @@ COPY . .
 RUN ansible-galaxy install -r ansible/requirements.yml
 
 # Create necessary directories
-RUN mkdir -p logs config ansible/inventory
+RUN mkdir -p logs config ansible/inventory ssh_keys backups migrations
+
+# Set proper permissions for SSH keys directory
+RUN chmod 700 ssh_keys
 
 # Initialize the application
 RUN python cli.py init

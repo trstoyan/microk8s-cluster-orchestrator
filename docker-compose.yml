@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   orchestrator:
     build: .
@@ -9,12 +7,23 @@ services:
       - ./cluster_data.db:/app/cluster_data.db
       - ./config:/app/config
       - ./logs:/app/logs
+      - ./ssh_keys:/app/ssh_keys
+      - ./backups:/app/backups
+      - ./migrations:/app/migrations
       - ~/.ssh:/root/.ssh:ro
     environment:
       - FLASK_ENV=production
       - DATABASE_PATH=/app/cluster_data.db
       - ORCHESTRATOR_CONFIG=/app/config/production.yml
+      - SSH_KEYS_DIR=/app/ssh_keys
+      - BACKUPS_DIR=/app/backups
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/system/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     
   # Optional: Add a monitoring service
   # prometheus:
