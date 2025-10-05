@@ -5,9 +5,50 @@
 
 set -e  # Exit on any error
 
+# Start timing
+SECONDS=0
+
+# Progress bar function
+show_progress() {
+    local duration=$1
+    local task_name=$2
+    local progress=0
+    local bar_length=30
+    
+    echo -n "📊 $task_name: ["
+    for ((i=0; i<bar_length; i++)); do echo -n " "; done
+    echo -n "] 0%"
+    
+    while [ $progress -lt 100 ]; do
+        sleep $((duration * 10 / 100 / 10)) 2>/dev/null || sleep 1
+        progress=$((progress + 100 / bar_length))
+        if [ $progress -gt 100 ]; then progress=100; fi
+        
+        echo -ne "\r📊 $task_name: ["
+        for ((i=0; i<bar_length; i++)); do
+            if [ $i -lt $((progress * bar_length / 100)) ]; then
+                echo -n "█"
+            else
+                echo -n " "
+            fi
+        done
+        echo -ne "] $progress%"
+    done
+    echo ""
+}
+
 echo "🔄 Starting safe codebase update..."
 echo "📅 Timestamp: $(date)"
 echo "📁 Current directory: $(pwd)"
+
+# Check for progress bar tools
+if ! command -v pv >/dev/null 2>&1; then
+    echo "💡 Tip: Install 'pv' package for better progress bars:"
+    echo "   Ubuntu/Debian: sudo apt install pv"
+    echo "   CentOS/RHEL: sudo yum install pv"
+    echo "   Arch: sudo pacman -S pv"
+    echo ""
+fi
 
 # Get the current directory and repository URL
 CURRENT_DIR=$(pwd)
@@ -36,7 +77,14 @@ echo "   Git credentials will be cached for 24 hours"
 
 # Clone latest code to temporary location
 echo "📥 Cloning latest code..."
-git clone --depth 1 "$REPO_URL" "$TMP_DIR/microk8s-cluster-orchestrator"
+if command -v pv >/dev/null 2>&1; then
+    echo "📊 Cloning with progress indicator..."
+    git clone --progress --depth 1 "$REPO_URL" "$TMP_DIR/microk8s-cluster-orchestrator" 2>&1 | while read line; do
+        echo "   $line"
+    done
+else
+    git clone --depth 1 "$REPO_URL" "$TMP_DIR/microk8s-cluster-orchestrator"
+fi
 
 # Checkout main branch
 cd "$TMP_DIR/microk8s-cluster-orchestrator"
@@ -46,7 +94,16 @@ cd "$CURRENT_DIR"
 # Create backup of current state
 echo "💾 Creating backup of current state..."
 BACKUP_DIR="$TMP_DIR/backup-$TIMESTAMP"
-cp -r "$CURRENT_DIR" "$BACKUP_DIR"
+
+# Check if pv (pipe viewer) is available for progress bar
+if command -v pv >/dev/null 2>&1; then
+    echo "📊 Creating backup with progress indicator..."
+    tar -cf - -C "$CURRENT_DIR" . | pv -s $(du -sb "$CURRENT_DIR" | cut -f1) | tar -xf - -C "$BACKUP_DIR"
+else
+    echo "📊 Creating backup (no progress bar available)..."
+    echo "   Installing 'pv' package will show progress bars for file operations"
+    cp -r "$CURRENT_DIR" "$BACKUP_DIR"
+fi
 
 # Check for any local uncommitted changes
 echo "🔍 Checking for local uncommitted changes..."
@@ -73,17 +130,32 @@ echo "   Source: $TMP_DIR/microk8s-cluster-orchestrator/"
 echo "   Destination: $CURRENT_DIR/"
 echo "   Excluding: .git, .venv, data/, logs/, backups/, ssh_keys/, instance/, __pycache__/, *.pyc"
 
-rsync -av --delete \
-    --exclude='.git' \
-    --exclude='.venv' \
-    --exclude='data/' \
-    --exclude='logs/' \
-    --exclude='backups/' \
-    --exclude='ssh_keys/' \
-    --exclude='instance/' \
-    --exclude='__pycache__/' \
-    --exclude='*.pyc' \
-    "$TMP_DIR/microk8s-cluster-orchestrator/" "$CURRENT_DIR/"
+if command -v pv >/dev/null 2>&1; then
+    echo "📊 Syncing files with progress indicator..."
+    rsync -av --delete --progress \
+        --exclude='.git' \
+        --exclude='.venv' \
+        --exclude='data/' \
+        --exclude='logs/' \
+        --exclude='backups/' \
+        --exclude='ssh_keys/' \
+        --exclude='instance/' \
+        --exclude='__pycache__/' \
+        --exclude='*.pyc' \
+        "$TMP_DIR/microk8s-cluster-orchestrator/" "$CURRENT_DIR/"
+else
+    rsync -av --delete \
+        --exclude='.git' \
+        --exclude='.venv' \
+        --exclude='data/' \
+        --exclude='logs/' \
+        --exclude='backups/' \
+        --exclude='ssh_keys/' \
+        --exclude='instance/' \
+        --exclude='__pycache__/' \
+        --exclude='*.pyc' \
+        "$TMP_DIR/microk8s-cluster-orchestrator/" "$CURRENT_DIR/"
+fi
 
 echo "✅ File sync completed"
 
@@ -93,8 +165,12 @@ if [ -f ".venv/bin/python" ]; then
     echo "📊 Checking if database exists..."
     if [ ! -f "cluster_data.db" ] && [ ! -f "data/cluster_data.db" ]; then
         echo "📝 Database not found. Initializing database first..."
-        .venv/bin/python cli.py init --force
-        if [ $? -ne 0 ]; then
+        echo "📊 Database initialization progress:"
+        .venv/bin/python cli.py init --force 2>&1 | while read line; do
+            echo "   $line"
+        done
+        
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "❌ Database initialization failed!"
             exit 1
         fi
@@ -104,13 +180,25 @@ if [ -f ".venv/bin/python" ]; then
     fi
     
     echo "🔄 Running database migrations..."
-    .venv/bin/python cli.py migrate run
-    if [ $? -ne 0 ]; then
+    echo "📊 Migration progress:"
+    .venv/bin/python cli.py migrate run 2>&1 | while read line; do
+        echo "   $line"
+    done
+    
+    if [ ${PIPESTATUS[0]} -ne 0 ]; then
         echo "⚠️  Some migrations failed. This might be normal if tables don't exist yet."
         echo "🔄 Trying to initialize database and retry migrations..."
-        .venv/bin/python cli.py init --force
-        .venv/bin/python cli.py migrate run
-        if [ $? -ne 0 ]; then
+        show_progress 3 "Initializing database"
+        .venv/bin/python cli.py init --force 2>&1 | while read line; do
+            echo "   $line"
+        done
+        
+        echo "📊 Retrying migrations:"
+        .venv/bin/python cli.py migrate run 2>&1 | while read line; do
+            echo "   $line"
+        done
+        
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "❌ Migration failed after retry. Please check manually."
             echo "   You can run: python cli.py migrate status"
             echo "   Then: python cli.py migrate run"
@@ -129,7 +217,20 @@ fi
 BACKUP_PERMANENT_DIR="backups/code-backup-$TIMESTAMP"
 echo "📁 Moving backup to permanent location: $BACKUP_PERMANENT_DIR"
 mkdir -p backups
-mv "$BACKUP_DIR" "$BACKUP_PERMANENT_DIR"
+
+if command -v pv >/dev/null 2>&1 && [ -d "$BACKUP_DIR" ]; then
+    echo "📊 Moving backup with progress indicator..."
+    # Calculate size for progress bar
+    BACKUP_SIZE=$(du -sb "$BACKUP_DIR" 2>/dev/null | cut -f1 || echo "0")
+    if [ "$BACKUP_SIZE" -gt 0 ]; then
+        tar -cf - -C "$TMP_DIR" "backup-$TIMESTAMP" | pv -s "$BACKUP_SIZE" | tar -xf - -C "$(dirname "$BACKUP_PERMANENT_DIR")"
+        rm -rf "$BACKUP_DIR"
+    else
+        mv "$BACKUP_DIR" "$BACKUP_PERMANENT_DIR"
+    fi
+else
+    mv "$BACKUP_DIR" "$BACKUP_PERMANENT_DIR"
+fi
 
 echo ""
 echo "🎉 Code update complete!"
@@ -142,6 +243,11 @@ echo "   ✅ Files synchronized safely"
 echo "   ✅ Database initialized/updated"
 echo "   ✅ Migrations applied"
 echo "   ✅ Backup created for rollback"
+echo ""
+echo "📈 Process Statistics:"
+echo "   📁 Files processed: $(find . -type f -not -path './.git/*' -not -path './.venv/*' -not -path './data/*' -not -path './logs/*' -not -path './backups/*' | wc -l)"
+echo "   💾 Backup size: $(du -sh "$BACKUP_PERMANENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+echo "   ⏱️  Total time: $((SECONDS/60))m $((SECONDS%60))s"
 echo ""
 echo "🔐 Git credential cache status:"
 git credential-cache get <<< "protocol=https
