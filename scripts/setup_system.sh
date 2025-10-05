@@ -14,7 +14,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="$PROJECT_DIR/.venv"
 PYTHON_VERSION="3.8"
 ANSIBLE_VERSION="2.15"
@@ -67,6 +67,18 @@ check_os() {
         . /etc/os-release
         print_info "Detected OS: $NAME $VERSION"
         
+        # Check if running on Raspberry Pi
+        if [[ -f /proc/device-tree/model ]] && grep -q "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
+            print_info "Detected Raspberry Pi hardware"
+            RASPBERRY_PI=true
+        else
+            RASPBERRY_PI=false
+        fi
+        
+        # Check architecture
+        ARCH=$(uname -m)
+        print_info "Architecture: $ARCH"
+        
         if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
             print_warning "This script is optimized for Ubuntu/Debian systems."
             print_warning "Other distributions may require manual adjustments."
@@ -80,42 +92,49 @@ check_os() {
 install_system_dependencies() {
     print_header "Installing System Dependencies"
     
+    # Determine the correct package manager
+    if command -v apt >/dev/null 2>&1; then
+        PKG_MANAGER="apt"
+        PKG_UPDATE="update"
+        PKG_INSTALL="install"
+    elif command -v apt-get >/dev/null 2>&1; then
+        PKG_MANAGER="apt-get"
+        PKG_UPDATE="update"
+        PKG_INSTALL="install"
+    else
+        print_error "No supported package manager found (apt or apt-get)"
+        exit 1
+    fi
+    
+    print_info "Using package manager: $PKG_MANAGER"
     print_info "Updating package list..."
-    sudo apt update
+    if ! sudo $PKG_MANAGER $PKG_UPDATE; then
+        print_error "Failed to update package list"
+        exit 1
+    fi
     
     print_info "Installing essential packages..."
-    sudo apt install -y \
-        python3 \
-        python3-pip \
-        python3-venv \
-        python3-dev \
-        build-essential \
-        curl \
-        wget \
-        git \
-        snapd \
-        openssh-server \
-        sudo \
-        ufw \
-        apt-transport-https \
-        ca-certificates \
-        gnupg \
-        lsb-release \
-        software-properties-common \
-        iptables \
-        net-tools \
-        iputils-ping \
-        dnsutils \
-        htop \
-        vim \
-        nano \
-        unzip \
-        jq \
-        bc \
-        lvm2 \
-        mdadm \
-        ansible \
-        ansible-core
+    
+    # Base packages that should work on all systems
+    BASE_PACKAGES="python3 python3-pip python3-venv python3-dev build-essential curl wget git openssh-server sudo ufw apt-transport-https ca-certificates gnupg lsb-release software-properties-common iptables net-tools iputils-ping dnsutils htop vim nano unzip jq bc lvm2 mdadm"
+    
+    # Packages that might not be available on all systems
+    OPTIONAL_PACKAGES="snapd ansible ansible-core"
+    
+    # Install base packages
+    if ! sudo $PKG_MANAGER $PKG_INSTALL -y $BASE_PACKAGES; then
+        print_error "Failed to install base system dependencies"
+        exit 1
+    fi
+    
+    # Try to install optional packages, but don't fail if they're not available
+    for package in $OPTIONAL_PACKAGES; do
+        if sudo $PKG_MANAGER $PKG_INSTALL -y $package 2>/dev/null; then
+            print_info "Installed optional package: $package"
+        else
+            print_warning "Optional package not available: $package"
+        fi
+    done
     
     print_success "System dependencies installed"
 }
@@ -153,13 +172,33 @@ setup_python_environment() {
 setup_ansible() {
     print_header "Setting up Ansible"
     
+    # Check if Ansible is installed
+    if ! command -v ansible >/dev/null 2>&1; then
+        print_warning "Ansible not found, attempting to install via pip..."
+        if pip install ansible; then
+            print_success "Ansible installed via pip"
+        else
+            print_error "Failed to install Ansible"
+            print_warning "Continuing without Ansible - some features may not work"
+            return 0
+        fi
+    fi
+    
     # Check Ansible version
     ansible_version=$(ansible --version | head -n1 | cut -d' ' -f2)
     print_info "Ansible version: $ansible_version"
     
-    # Install Ansible collections
-    print_info "Installing Ansible collections..."
-    ansible-galaxy install -r ansible/requirements.yml
+    # Install Ansible collections if requirements file exists
+    if [[ -f "$PROJECT_DIR/ansible/requirements.yml" ]]; then
+        print_info "Installing Ansible collections..."
+        if ansible-galaxy install -r "$PROJECT_DIR/ansible/requirements.yml"; then
+            print_success "Ansible collections installed"
+        else
+            print_warning "Failed to install some Ansible collections"
+        fi
+    else
+        print_warning "Ansible requirements file not found, skipping collections installation"
+    fi
     
     print_success "Ansible setup complete"
 }
