@@ -1,5 +1,6 @@
 """API endpoints for the MicroK8s Cluster Orchestrator."""
 
+import os
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
@@ -239,10 +240,31 @@ def check_node_status(node_id):
     """Check the status of a node."""
     try:
         node = Node.query.get_or_404(node_id)
+        
+        # Validate node has required SSH configuration
+        if not node.ssh_key_path or not os.path.exists(node.ssh_key_path):
+            return jsonify({
+                'error': f'SSH key not configured or not found for node {node.hostname}',
+                'details': 'Please configure SSH key in node settings'
+            }), 400
+        
         operation = orchestrator.check_node_status(node)
         return jsonify(operation.to_dict()), 202
+    except FileNotFoundError as e:
+        return jsonify({
+            'error': 'Required file not found',
+            'details': str(e)
+        }), 500
+    except PermissionError as e:
+        return jsonify({
+            'error': 'Permission denied',
+            'details': str(e)
+        }), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': 'Failed to check node status',
+            'details': str(e)
+        }), 500
 
 @bp.route('/nodes/<int:node_id>/check-longhorn-prerequisites', methods=['POST'])
 @login_required
@@ -379,10 +401,39 @@ def scan_cluster_state(cluster_id):
     """Scan cluster to validate configuration and detect drift."""
     try:
         cluster = Cluster.query.get_or_404(cluster_id)
+        
+        # Validate cluster has nodes
+        if not cluster.nodes:
+            return jsonify({
+                'error': f'Cluster {cluster.name} has no nodes to scan',
+                'details': 'Please add nodes to the cluster before scanning'
+            }), 400
+        
+        # Validate all nodes have SSH configuration
+        for node in cluster.nodes:
+            if not node.ssh_key_path or not os.path.exists(node.ssh_key_path):
+                return jsonify({
+                    'error': f'SSH key not configured for node {node.hostname}',
+                    'details': 'Please configure SSH keys for all cluster nodes'
+                }), 400
+        
         operation = orchestrator.scan_cluster_state(cluster)
         return jsonify(operation.to_dict()), 202
+    except FileNotFoundError as e:
+        return jsonify({
+            'error': 'Required file not found',
+            'details': str(e)
+        }), 500
+    except PermissionError as e:
+        return jsonify({
+            'error': 'Permission denied',
+            'details': str(e)
+        }), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': 'Failed to scan cluster state',
+            'details': str(e)
+        }), 500
 
 @bp.route('/clusters/<int:cluster_id>/shutdown', methods=['POST'])
 @login_required

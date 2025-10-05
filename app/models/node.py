@@ -89,7 +89,7 @@ class Node(Base):
     # Relationships
     cluster_id = Column(Integer, ForeignKey('clusters.id'))
     operations = relationship("Operation", back_populates="node")
-    lease_info = relationship("NetworkLease", back_populates="node", uselist=False)
+    lease_info = relationship("NetworkLease", back_populates="node", uselist=False, lazy="select")
     
     def __repr__(self):
         return f'<Node {self.hostname} ({self.ip_address})>'

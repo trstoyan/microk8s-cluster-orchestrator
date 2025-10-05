@@ -139,7 +139,7 @@ class Node(db.Model):
     
     # Relationships
     cluster_id = db.Column(db.Integer, db.ForeignKey('clusters.id'))
-    lease_info = db.relationship("NetworkLease", back_populates="node")
+    lease_info = db.relationship("NetworkLease", back_populates="node", lazy="select")
     
     def __repr__(self):
         return f'<Node {self.hostname} ({self.ip_address})>'
@@ -523,8 +523,8 @@ class RouterSwitch(db.Model):
     
     # Relationships
     cluster_id = db.Column(db.Integer, db.ForeignKey('clusters.id'), nullable=True)
-    leases = db.relationship("NetworkLease", back_populates="router_switch")
-    interfaces = db.relationship("NetworkInterface", back_populates="router_switch")
+    leases = db.relationship("NetworkLease", back_populates="router_switch", lazy="select")
+    interfaces = db.relationship("NetworkInterface", back_populates="router_switch", lazy="select")
     
     # Metadata
     tags = db.Column(db.Text)

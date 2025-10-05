@@ -53,9 +53,9 @@ class NetworkLease(db.Model):
     
     # Relationships
     router_switch_id = Column(Integer, ForeignKey('router_switches.id'), nullable=False)
-    router_switch = relationship("RouterSwitch", back_populates="leases")
+    router_switch = relationship("RouterSwitch", back_populates="leases", lazy="select")
     node_id = Column(Integer, ForeignKey('nodes.id'), nullable=True)  # If this lease corresponds to a cluster node
-    node = relationship("Node", back_populates="lease_info")
+    node = relationship("Node", back_populates="lease_info", lazy="select")
     
     # Metadata
     discovered_by = Column(String(100), default='dhcp_scan')  # dhcp_scan, arp_scan, manual
@@ -175,7 +175,7 @@ class NetworkInterface(db.Model):
     
     # Relationships
     router_switch_id = Column(Integer, ForeignKey('router_switches.id'), nullable=False)
-    router_switch = relationship("RouterSwitch", back_populates="interfaces")
+    router_switch = relationship("RouterSwitch", back_populates="interfaces", lazy="select")
     
     # Metadata
     description = Column(Text)

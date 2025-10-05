@@ -1797,14 +1797,48 @@ def setup_new_node(node_id):
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
 @click.option('--port', default=5000, help='Port to bind to')
 @click.option('--debug', is_flag=True, help='Enable debug mode')
-def start_web(host, port, debug):
+@click.option('--production', is_flag=True, help='Start in production mode using Gunicorn')
+def start_web(host, port, debug, production):
     """Start the web interface."""
     try:
-        from app import create_app
-        
-        app = create_app()
-        print_info(f"Starting web interface on http://{host}:{port}")
-        app.run(host=host, port=port, debug=debug)
+        if production:
+            # Start with Gunicorn for production
+            import subprocess
+            import sys
+            
+            # Check if Gunicorn is installed
+            try:
+                import gunicorn
+            except ImportError:
+                print_error("Gunicorn not found. Install it with: pip install gunicorn")
+                return
+            
+            # Build Gunicorn command
+            cmd = [
+                sys.executable, '-m', 'gunicorn',
+                '--bind', f'{host}:{port}',
+                '--workers', '4',
+                '--timeout', '30',
+                '--access-logfile', '-',
+                '--error-logfile', '-',
+                '--log-level', 'info',
+                'wsgi:application'
+            ]
+            
+            if debug:
+                cmd.extend(['--reload', '--log-level', 'debug'])
+            
+            print_info(f"Starting production web server on http://{host}:{port}")
+            print_info("Using Gunicorn WSGI server")
+            subprocess.run(cmd)
+        else:
+            # Development mode with Flask dev server
+            from app import create_app
+            
+            app = create_app()
+            print_info(f"Starting development web interface on http://{host}:{port}")
+            print_warning("WARNING: This is a development server. Use --production for production deployment.")
+            app.run(host=host, port=port, debug=debug)
     
     except ImportError as e:
         print_error(f"Failed to import Flask app: {e}")

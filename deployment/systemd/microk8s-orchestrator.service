@@ -1,0 +1,34 @@
+[Unit]
+Description=MicroK8s Cluster Orchestrator
+After=network.target
+
+[Service]
+Type=exec
+User=orchestrator
+Group=orchestrator
+WorkingDirectory=/opt/microk8s-orchestrator
+Environment=PATH=/opt/microk8s-orchestrator/venv/bin
+Environment=PYTHONPATH=/opt/microk8s-orchestrator
+Environment=FLASK_APP=wsgi:application
+ExecStart=/opt/microk8s-orchestrator/venv/bin/gunicorn --config gunicorn.conf.py wsgi:application
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=microk8s-orchestrator
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/microk8s-orchestrator
+ReadWritePaths=/var/lib/microk8s-orchestrator
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
