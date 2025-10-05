@@ -469,6 +469,33 @@ def cluster_detail(cluster_id):
                          ups_rules=ups_rules,
                          stats=stats)
 
+@bp.route('/clusters/<int:cluster_id>/configure-hosts', methods=['POST'])
+@login_required
+def configure_cluster_hosts(cluster_id):
+    """Configure /etc/hosts file for cluster nodes."""
+    try:
+        cluster = Cluster.query.get_or_404(cluster_id)
+        
+        if not cluster.nodes:
+            flash('Cluster has no nodes assigned.', 'error')
+            return redirect(url_for('web.cluster_detail', cluster_id=cluster_id))
+        
+        from ..services.orchestrator import OrchestrationService
+        orchestrator = OrchestrationService()
+        
+        operation = orchestrator.configure_hosts_file(cluster)
+        # Set the user who initiated the operation
+        operation.user_id = current_user.id
+        operation.created_by = current_user.full_name
+        db.session.commit()
+        
+        flash(f'Hosts file configuration started for cluster "{cluster.name}". Operation ID: {operation.id}', 'success')
+        return redirect(url_for('web.cluster_detail', cluster_id=cluster_id))
+        
+    except Exception as e:
+        flash(f'Error configuring hosts file: {str(e)}', 'error')
+        return redirect(url_for('web.cluster_detail', cluster_id=cluster_id))
+
 @bp.route('/clusters/add', methods=['GET', 'POST'])
 @login_required
 def add_cluster():

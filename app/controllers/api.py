@@ -349,6 +349,31 @@ def setup_cluster(cluster_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/clusters/<int:cluster_id>/configure-hosts', methods=['POST'])
+@login_required
+def configure_hosts_file(cluster_id):
+    """Configure /etc/hosts file on all cluster nodes for proper hostname resolution."""
+    try:
+        cluster = Cluster.query.get_or_404(cluster_id)
+        
+        if not cluster.nodes:
+            return jsonify({'error': 'Cluster has no nodes assigned'}), 400
+        
+        operation = orchestrator.configure_hosts_file(cluster)
+        # Set the user who initiated the operation
+        operation.user_id = current_user.id
+        operation.created_by = current_user.full_name
+        db.session.commit()
+        
+        return jsonify({
+            'operation': operation.to_dict(),
+            'message': f'Hosts file configuration started for cluster {cluster.name}',
+            'nodes_count': len(cluster.nodes),
+            'nodes': [{'hostname': node.hostname, 'ip_address': node.ip_address} for node in cluster.nodes]
+        }), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @bp.route('/clusters/<int:cluster_id>/scan', methods=['POST'])
 def scan_cluster_state(cluster_id):
     """Scan cluster to validate configuration and detect drift."""

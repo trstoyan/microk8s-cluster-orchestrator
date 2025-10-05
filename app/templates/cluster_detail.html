@@ -26,6 +26,9 @@
             <li><a class="dropdown-item" href="#" onclick="scanCluster({{ cluster.id }})">
                 <i class="bi bi-search"></i> Scan Cluster
             </a></li>
+            <li><a class="dropdown-item" href="#" onclick="configureHosts({{ cluster.id }}, '{{ cluster.name }}')">
+                <i class="bi bi-file-text"></i> Configure /etc/hosts
+            </a></li>
             <li><a class="dropdown-item" href="{{ url_for('web.cluster_hardware_report', cluster_id=cluster.id) }}">
                 <i class="bi bi-cpu"></i> Hardware Report
             </a></li>
@@ -754,6 +757,30 @@ function scanCluster(clusterId) {
         .catch(error => {
             alert('Error starting cluster scan: ' + error);
         });
+    }
+}
+
+function configureHosts(clusterId, clusterName) {
+    const confirmMessage = `Configure /etc/hosts file for cluster '${clusterName}'?\n\nThis will:\n- Backup original /etc/hosts files\n- Add hostname-to-IP mappings for all cluster nodes\n- Verify hostname resolution works correctly\n- Test DNS resolution for all nodes\n\nThis is essential for MicroK8s HA cluster communication.`;
+    
+    if (confirm(confirmMessage)) {
+        // Create a form and submit it to the web endpoint
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/clusters/${clusterId}/configure-hosts`;
+        
+        // Add CSRF token if available
+        const csrfToken = document.querySelector('meta[name="csrf-token"]');
+        if (csrfToken) {
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = csrfToken.getAttribute('content');
+            form.appendChild(csrfInput);
+        }
+        
+        document.body.appendChild(form);
+        form.submit();
     }
 }
 

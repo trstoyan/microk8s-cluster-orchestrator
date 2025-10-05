@@ -669,6 +669,56 @@ def setup_cluster(cluster_id):
     finally:
         session.close()
 
+@cluster.command('configure-hosts')
+@click.argument('cluster_id', type=int)
+@click.option('--backup', is_flag=True, default=True, help='Backup original /etc/hosts file (default: True)')
+def configure_hosts_file(cluster_id, backup):
+    """Configure /etc/hosts file on all cluster nodes for proper hostname resolution."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        cluster = session.query(Cluster).filter_by(id=cluster_id).first()
+        if not cluster:
+            print_error(f"Cluster with ID {cluster_id} not found.")
+            return
+        
+        if not cluster.nodes:
+            print_error(f"Cluster '{cluster.name}' has no nodes assigned.")
+            return
+        
+        print_info(f"Configuring /etc/hosts file for cluster '{cluster.name}'...")
+        print_info(f"Nodes to configure: {len(cluster.nodes)}")
+        
+        # Display nodes that will be configured
+        print_info("Cluster nodes:")
+        for node in cluster.nodes:
+            print_info(f"  - {node.hostname} ({node.ip_address})")
+        
+        if backup:
+            print_info("Original /etc/hosts files will be backed up before modification.")
+        
+        # Confirm before proceeding
+        if not click.confirm("Do you want to proceed with /etc/hosts configuration?"):
+            print_info("Operation cancelled.")
+            return
+        
+        operation = orchestrator.configure_hosts_file(cluster)
+        
+        print_info(f"Hosts file configuration started with operation ID {operation.id}")
+        print_info("Check the operations list for progress.")
+        print_info("This operation will:")
+        print_info("  - Backup original /etc/hosts files")
+        print_info("  - Add hostname-to-IP mappings for all cluster nodes")
+        print_info("  - Verify hostname resolution works correctly")
+        print_info("  - Test DNS resolution for all nodes")
+    
+    except Exception as e:
+        print_error(f"Failed to configure hosts file: {e}")
+    
+    finally:
+        session.close()
+
 @cluster.command('shutdown')
 @click.argument('cluster_id', type=int)
 @click.option('--force', is_flag=True, help='Force shutdown (immediate termination)')

@@ -13,6 +13,11 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
   - Connection testing and validation
   - Key regeneration capabilities
 - **Cluster Orchestration**: Automated cluster setup, configuration, and graceful shutdown
+- **Hosts File Configuration**: Automatic `/etc/hosts` configuration for MicroK8s HA clusters
+  - Ensures proper hostname resolution across all cluster nodes
+  - Creates backups of original files before modification
+  - Validates hostname resolution and DNS functionality
+  - Essential for MicroK8s High Availability cluster communication
 - **Ansible Integration**: Uses Ansible playbooks for all operations
 - **SQLite Database**: Persistent storage for cluster state and history
 - **Web Interface**: Modern web UI for cluster management
@@ -317,6 +322,9 @@ python cli.py cluster add --name prod --description "Production cluster" --ha
 # Setup a cluster
 python cli.py cluster setup 1
 
+# Configure /etc/hosts file for HA cluster communication
+python cli.py cluster configure-hosts 1
+
 # Gracefully shutdown a cluster
 python cli.py cluster shutdown 1 --graceful
 
@@ -351,7 +359,7 @@ python cli.py web-stop --force
 **Cluster Management:**
 - Navigate to "Clusters" section
 - Use the Actions dropdown for each cluster
-- Available operations: Setup, Scan, Hardware Report, Graceful Shutdown, Force Shutdown
+- Available operations: Setup, Scan, Configure /etc/hosts, Hardware Report, Graceful Shutdown, Force Shutdown
 - Monitor operation progress in the Operations page
 
 **Shutdown Options:**

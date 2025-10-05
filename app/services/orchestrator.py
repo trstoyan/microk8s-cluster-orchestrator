@@ -1310,3 +1310,140 @@ class OrchestrationService:
             db.session.rollback()
             print(f"Error updating node hardware info: {e}")
             raise
+    
+    def configure_hosts_file(self, cluster: Cluster) -> Operation:
+        """Configure /etc/hosts file on all cluster nodes for proper hostname resolution."""
+        operation = self._create_operation(
+            operation_type='configure',
+            operation_name='Configure /etc/hosts',
+            description=f'Configure /etc/hosts file for cluster {cluster.name} to ensure proper hostname resolution',
+            cluster=cluster,
+            playbook_path='playbooks/configure_hosts_file.yml'
+        )
+        
+        try:
+            self._update_operation_status(operation, 'running')
+            
+            nodes = cluster.nodes
+            if not nodes:
+                self._update_operation_status(operation, 'failed', success=False,
+                                            error_message="Cluster has no nodes to configure")
+                return operation
+            
+            # Validate SSH connections before proceeding
+            all_ready, ssh_issues = self._validate_ssh_connections(nodes)
+            if not all_ready:
+                self._update_operation_status(operation, 'failed', success=False,
+                                            output="\n".join(ssh_issues),
+                                            error_message="SSH connection validation failed")
+                return operation
+            
+            inventory_file = self._generate_inventory(nodes)
+            playbook_path = os.path.join(self.playbooks_dir, 'configure_hosts_file.yml')
+            
+            extra_vars = {
+                'cluster_name': cluster.name,
+                'backup_original': True
+            }
+            
+            success, output = self._run_ansible_playbook(playbook_path, inventory_file, extra_vars)
+            
+            if success:
+                # Parse configuration results
+                config_results = self._parse_hosts_config_results(output)
+                
+                # Update cluster status
+                cluster.status = 'active'
+                cluster.health_score = min(100, cluster.health_score + 10)  # Boost health score
+                
+                # Update node statuses
+                for node in nodes:
+                    node.last_seen = datetime.utcnow()
+                    if node.status != 'online':
+                        node.status = 'online'
+                
+                db.session.commit()
+                
+                # Create detailed output with results
+                detailed_output = f"Hosts file configuration completed successfully!\n\n"
+                detailed_output += f"Cluster: {cluster.name}\n"
+                detailed_output += f"Nodes configured: {len(nodes)}\n"
+                detailed_output += f"Configuration results:\n{json.dumps(config_results, indent=2)}\n\n"
+                detailed_output += f"Ansible output:\n{output}"
+                
+                self._update_operation_status(operation, 'completed', success=True, output=detailed_output)
+            else:
+                cluster.status = 'degraded'
+                db.session.commit()
+                self._update_operation_status(operation, 'failed', success=False,
+                                            output=output, error_message='Hosts file configuration failed')
+        
+        except Exception as e:
+            self._update_operation_status(operation, 'failed', success=False,
+                                        error_message=f"Hosts file configuration failed: {str(e)}")
+        
+        return operation
+    
+    def _parse_hosts_config_results(self, ansible_output: str) -> Dict[str, Any]:
+        """Parse hosts configuration results from Ansible output."""
+        results = {
+            'overall_success': True,
+            'nodes_configured': 0,
+            'nodes_failed': 0,
+            'verification_results': {},
+            'backup_info': {},
+            'issues': []
+        }
+        
+        try:
+            # Look for configuration summary in the output
+            lines = ansible_output.split('\n')
+            current_node = None
+            
+            for line in lines:
+                # Look for node configuration results
+                if 'ok: [' in line and ']' in line:
+                    host_match = re.search(r'ok: \[([^\]]+)\]', line)
+                    if host_match:
+                        current_node = host_match.group(1)
+                        results['nodes_configured'] += 1
+                
+                # Look for verification results
+                if 'Hostname' in line and 'resolves to:' in line:
+                    hostname_match = re.search(r'Hostname ([^\s]+) resolves to: (.+)', line)
+                    if hostname_match:
+                        hostname = hostname_match.group(1)
+                        resolution = hostname_match.group(2)
+                        results['verification_results'][hostname] = resolution
+                        if resolution == 'FAILED':
+                            results['overall_success'] = False
+                            results['issues'].append(f"Hostname resolution failed for {hostname}")
+                
+                # Look for backup information
+                if 'Original /etc/hosts backed up to:' in line:
+                    backup_match = re.search(r'Original /etc/hosts backed up to: (.+)', line)
+                    if backup_match and current_node:
+                        results['backup_info'][current_node] = backup_match.group(1)
+                
+                # Look for DNS test results
+                if 'DNS resolution for' in line and ':' in line:
+                    dns_match = re.search(r'DNS resolution for ([^:]+): (.+)', line)
+                    if dns_match:
+                        hostname = dns_match.group(1)
+                        dns_result = dns_match.group(2)
+                        if dns_result == 'FAILED':
+                            results['issues'].append(f"DNS resolution failed for {hostname}")
+                
+                # Look for duplicate entries warning
+                if 'WARNING: Duplicate entries found' in line:
+                    results['issues'].append("Duplicate entries found in /etc/hosts file")
+                    results['overall_success'] = False
+            
+            # Count failed nodes
+            results['nodes_failed'] = len([line for line in lines if 'failed:' in line and ']' in line])
+            
+        except Exception as e:
+            results['issues'].append(f"Failed to parse configuration results: {str(e)}")
+            results['overall_success'] = False
+        
+        return results
