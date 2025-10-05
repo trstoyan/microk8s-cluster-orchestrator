@@ -1,7 +1,7 @@
 # MicroK8s Cluster Orchestrator - Makefile
 # Provides convenient commands for development, testing, and deployment
 
-.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models
+.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update
 
 # Default target
 help:
@@ -34,6 +34,7 @@ help:
 	@echo ""
 	@echo "System Commands:"
 	@echo "  init             Initialize the application"
+	@echo "  update           Pull latest code and run migrations"
 	@echo "  backup           Create database backup"
 	@echo "  restore          Restore from backup"
 
@@ -126,6 +127,10 @@ docker-logs:
 init:
 	@echo "🏗️  Initializing application..."
 	.venv/bin/python cli.py init
+
+update:
+	@echo "🔄 Running safe codebase update..."
+	./scripts/safe_update.sh
 
 backup:
 	@echo "💾 Creating database backup..."
