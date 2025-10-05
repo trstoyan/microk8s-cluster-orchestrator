@@ -95,14 +95,59 @@ cd "$CURRENT_DIR"
 echo "💾 Creating backup of current state..."
 BACKUP_DIR="$TMP_DIR/backup-$TIMESTAMP"
 
+# Add timeout for backup operation (10 minutes)
+BACKUP_TIMEOUT=600
+
 # Check if pv (pipe viewer) is available for progress bar
 if command -v pv >/dev/null 2>&1; then
     echo "📊 Creating backup with progress indicator..."
-    tar -cf - -C "$CURRENT_DIR" . | pv -s $(du -sb "$CURRENT_DIR" | cut -f1) | tar -xf - -C "$BACKUP_DIR"
+    # Calculate directory size first
+    DIR_SIZE=$(du -sb "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo "0")
+    echo "   📁 Directory size: $(du -sh "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+    echo "   📊 Starting backup..."
+    
+    # Create backup with progress bar
+    tar -cf - -C "$CURRENT_DIR" . | pv -s "$DIR_SIZE" -p -t -e -r | tar -xf - -C "$BACKUP_DIR"
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Backup created successfully"
+    else
+        echo "❌ Backup failed, trying alternative method..."
+        cp -r "$CURRENT_DIR" "$BACKUP_DIR"
+    fi
 else
     echo "📊 Creating backup (no progress bar available)..."
     echo "   Installing 'pv' package will show progress bars for file operations"
-    cp -r "$CURRENT_DIR" "$BACKUP_DIR"
+    echo "   📁 Directory size: $(du -sh "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+    echo "   📊 Starting backup..."
+    
+    # Use rsync for better progress indication even without pv
+    echo "   🔄 Using rsync for backup..."
+    timeout $BACKUP_TIMEOUT rsync -a --progress "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' 2>&1 | while read line; do
+        echo "   $line"
+    done
+    
+    if [ ${PIPESTATUS[0]} -ne 0 ]; then
+        echo "❌ Rsync backup failed or timed out, trying cp..."
+        echo "   🔄 Using cp for backup..."
+        timeout $BACKUP_TIMEOUT cp -r "$CURRENT_DIR" "$BACKUP_DIR"
+        if [ $? -eq 0 ]; then
+            echo "✅ Backup completed with cp"
+        else
+            echo "❌ Backup failed completely"
+            exit 1
+        fi
+    else
+        echo "✅ Backup completed with rsync"
+    fi
+fi
+
+# Verify backup was created successfully
+if [ ! -d "$BACKUP_DIR" ]; then
+    echo "❌ Backup directory was not created. Something went wrong."
+    exit 1
+else
+    echo "✅ Backup verified: $(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1 || echo 'Unknown size')"
 fi
 
 # Check for any local uncommitted changes
