@@ -43,11 +43,10 @@
                         </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="ssh_key_path" class="form-label">SSH Private Key Path</label>
-                        <input type="text" class="form-control" id="ssh_key_path" name="ssh_key_path"
-                               placeholder="e.g., ~/.ssh/id_rsa">
-                        <div class="form-text">Path to SSH private key file (optional if using SSH agent)</div>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>SSH Key Management:</strong> A unique SSH key pair will be automatically generated for this node. 
+                        You will receive setup instructions after adding the node.
                     </div>
 
                     <div class="mb-3">
@@ -88,11 +87,19 @@
                 <p class="mb-2">Before adding a node, ensure:</p>
                 <ul class="mb-0">
                     <li>The target machine is running Ubuntu 20.04+ or similar Linux distribution</li>
-                    <li>SSH access is configured with key-based authentication</li>
-                    <li>The SSH user has sudo privileges without password prompt</li>
+                    <li>SSH access is available (password or existing key authentication)</li>
+                    <li>The SSH user has sudo privileges</li>
                     <li>The machine has internet connectivity for downloading packages</li>
                     <li>Ports 22 (SSH), 16443 (Kubernetes API), and 10250-10259 (Kubelet) are accessible</li>
                 </ul>
+                <div class="mt-3">
+                    <p class="mb-1"><strong>Note:</strong> After adding the node, you will receive:</p>
+                    <ul class="mb-0">
+                        <li>A unique SSH key pair generated automatically</li>
+                        <li>Step-by-step instructions to add the public key to the target node</li>
+                        <li>Connection testing to verify the setup</li>
+                    </ul>
+                </div>
             </div>
         </div>
     </div>

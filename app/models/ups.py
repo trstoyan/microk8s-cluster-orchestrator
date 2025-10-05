@@ -6,10 +6,10 @@ Designed for Raspberry Pi 5 with USB-connected UPS devices.
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from app.models.database import Base
+from app.models.database import Base, db
 
 
-class UPS(Base):
+class UPS(db.Model):
     """UPS model for storing local USB UPS information and configuration."""
     
     __tablename__ = 'ups'

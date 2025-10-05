@@ -28,6 +28,8 @@
                             <th style="min-width: 100px;">MicroK8s Status</th>
                             <th style="min-width: 120px;">Cluster</th>
                             <th style="min-width: 100px;">Control Plane</th>
+                            <th style="min-width: 120px;">SSH Key</th>
+                            <th style="min-width: 120px;">Wake-on-LAN</th>
                             <th style="min-width: 120px;">Last Seen</th>
                             <th style="min-width: 100px;">Actions</th>
                         </tr>
@@ -37,7 +39,7 @@
                         <tr>
                             <td>{{ node.id }}</td>
                             <td>
-                                <strong><a href="#" onclick="viewNodeDetails({{ node.id }})" class="text-decoration-none">{{ node.hostname }}</a></strong>
+                                <strong><a href="{{ url_for('web.node_detail', node_id=node.id) }}" class="text-decoration-none">{{ node.hostname }}</a></strong>
                                 {% if node.notes %}
                                     <br><small class="text-muted">{{ node.notes[:50] }}{% if node.notes|length > 50 %}...{% endif %}</small>
                                 {% endif %}
@@ -80,6 +82,41 @@
                                 {% endif %}
                             </td>
                             <td>
+                                {% set ssh_key_generated = node.ssh_key_generated|default(false) %}
+                                {% if node.ssh_connection_ready %}
+                                    <span class="badge bg-success" title="{{ node.ssh_status_description }}">
+                                        <i class="bi bi-key-fill"></i> Ready
+                                    </span>
+                                {% elif node.ssh_key_ready %}
+                                    <span class="badge bg-warning" title="{{ node.ssh_status_description }}">
+                                        <i class="bi bi-key"></i> Setup Required
+                                    </span>
+                                {% elif ssh_key_generated %}
+                                    <span class="badge bg-info" title="{{ node.ssh_status_description }}">
+                                        <i class="bi bi-key"></i> Generated
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary" title="{{ node.ssh_status_description }}">
+                                        <i class="bi bi-key"></i> Not Generated
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if node.wol_configured %}
+                                    <span class="badge bg-success" title="{{ node.wol_description }}">
+                                        <i class="bi bi-lightning-fill"></i> Ready
+                                    </span>
+                                {% elif node.wol_enabled %}
+                                    <span class="badge bg-warning" title="{{ node.wol_description }}">
+                                        <i class="bi bi-exclamation-triangle"></i> Partial
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary" title="{{ node.wol_description }}">
+                                        <i class="bi bi-x-circle"></i> Disabled
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>
                                 {% if node.last_seen %}
                                     {{ node.last_seen.strftime('%Y-%m-%d %H:%M') }}
                                 {% else %}
@@ -98,11 +135,27 @@
                                         <li><a class="dropdown-item" href="{{ url_for('web.node_hardware_report', node_id=node.id) }}">
                                             <i class="bi bi-cpu"></i> Hardware Report
                                         </a></li>
+                                        {% set ssh_key_generated = node.ssh_key_generated|default(false) %}
+                                        {% if ssh_key_generated %}
+                                        <li><a class="dropdown-item" href="{{ url_for('web.node_ssh_setup', node_id=node.id) }}">
+                                            <i class="bi bi-key"></i> SSH Setup
+                                        </a></li>
+                                        {% endif %}
                                         {% if node.microk8s_status == 'not_installed' %}
                                         <li><a class="dropdown-item" href="#" onclick="installMicroK8s({{ node.id }})">
                                             <i class="bi bi-download"></i> Install MicroK8s
                                         </a></li>
                                         {% endif %}
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-success" href="#" onclick="wakeNode({{ node.id }}, '{{ node.hostname }}')">
+                                            <i class="bi bi-lightning"></i> Wake Node
+                                        </a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="configureWoL({{ node.id }}, '{{ node.hostname }}')">
+                                            <i class="bi bi-gear"></i> Configure WoL
+                                        </a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="collectMacAddress({{ node.id }}, '{{ node.hostname }}')">
+                                            <i class="bi bi-wifi"></i> Collect MAC
+                                        </a></li>
                                         <li><hr class="dropdown-divider"></li>
                                         <li><a class="dropdown-item text-danger" href="#" onclick="deleteNode({{ node.id }}, '{{ node.hostname }}')">
                                             <i class="bi bi-trash"></i> Delete
@@ -129,14 +182,85 @@
         </div>
     </div>
 {% endif %}
+
+<!-- Wake-on-LAN Configuration Modal -->
+<div class="modal fade" id="wolConfigModal" tabindex="-1" aria-labelledby="wolConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="wolConfigModalLabel">Configure Wake-on-LAN</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="wolConfigForm">
+                    <input type="hidden" id="wolNodeId" name="nodeId">
+                    <div class="mb-3">
+                        <label for="wolNodeName" class="form-label">Node</label>
+                        <input type="text" class="form-control" id="wolNodeName" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="wolEnabled" name="wolEnabled">
+                            <label class="form-check-label" for="wolEnabled">
+                                Enable Wake-on-LAN
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="isVirtualNode" name="isVirtualNode">
+                            <label class="form-check-label" for="isVirtualNode">
+                                Virtual Node (Proxmox VM)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3" id="macAddressGroup">
+                        <label for="wolMacAddress" class="form-label">MAC Address</label>
+                        <input type="text" class="form-control" id="wolMacAddress" name="macAddress" 
+                               placeholder="aa:bb:cc:dd:ee:ff" pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$">
+                        <div class="form-text">Enter the MAC address of the network interface for Wake-on-LAN</div>
+                    </div>
+                    <div class="mb-3" id="proxmoxGroup" style="display: none;">
+                        <label for="proxmoxVmId" class="form-label">Proxmox VM ID</label>
+                        <input type="number" class="form-control" id="proxmoxVmId" name="proxmoxVmId" placeholder="101">
+                    </div>
+                    <div class="mb-3" id="proxmoxHostGroup" style="display: none;">
+                        <label for="proxmoxHostId" class="form-label">Proxmox Host ID</label>
+                        <input type="number" class="form-control" id="proxmoxHostId" name="proxmoxHostId" placeholder="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolMethod" class="form-label">Wake Method</label>
+                        <select class="form-select" id="wolMethod" name="wolMethod">
+                            <option value="ethernet">Ethernet</option>
+                            <option value="wifi">WiFi</option>
+                            <option value="pci">PCI</option>
+                            <option value="usb">USB</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolPort" class="form-label">UDP Port</label>
+                        <input type="number" class="form-control" id="wolPort" name="wolPort" value="9" min="1" max="65535">
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolBroadcast" class="form-label">Broadcast Address (Optional)</label>
+                        <input type="text" class="form-control" id="wolBroadcast" name="wolBroadcast" 
+                               placeholder="255.255.255.255">
+                        <div class="form-text">Leave empty for default broadcast address</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveWoLConfig()">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-function viewNodeDetails(nodeId) {
-    // For now, just show an alert. This can be expanded to show a modal or navigate to a details page
-    alert(`View details for node ${nodeId} - Feature coming soon!`);
-}
 
 function checkStatus(nodeId) {
     if (confirm('Check the status of this node?')) {
@@ -194,5 +318,165 @@ function deleteNode(nodeId, hostname) {
         });
     }
 }
+
+function wakeNode(nodeId, hostname) {
+    if (confirm(`Send Wake-on-LAN packet to node '${hostname}'?`)) {
+        fetch(`/api/nodes/${nodeId}/wol/wake`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                retries: 3,
+                delay: 1.0
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Successfully sent ${data.packets_sent} Wake-on-LAN packets to ${hostname}.`);
+            } else {
+                alert(`Failed to wake ${hostname}: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            alert('Error sending Wake-on-LAN packet: ' + error);
+        });
+    }
+}
+
+function configureWoL(nodeId, hostname) {
+    // Load current node data and populate modal
+    fetch(`/api/nodes/${nodeId}/wol/status`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error loading node status: ' + data.error);
+                return;
+            }
+            
+            // Populate modal with current values
+            document.getElementById('wolNodeId').value = nodeId;
+            document.getElementById('wolNodeName').value = hostname;
+            document.getElementById('wolEnabled').checked = data.wol_enabled || false;
+            document.getElementById('isVirtualNode').checked = data.is_virtual_node || false;
+            document.getElementById('wolMacAddress').value = data.mac_address || '';
+            document.getElementById('proxmoxVmId').value = data.proxmox_vm_id || '';
+            document.getElementById('proxmoxHostId').value = data.proxmox_host_id || '';
+            document.getElementById('wolMethod').value = data.method || 'ethernet';
+            document.getElementById('wolPort').value = data.port || 9;
+            document.getElementById('wolBroadcast').value = data.broadcast_address || '';
+            
+            // Toggle virtual node fields
+            toggleVirtualNodeFields();
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('wolConfigModal'));
+            modal.show();
+        })
+        .catch(error => {
+            alert('Error loading node status: ' + error);
+        });
+}
+
+function toggleVirtualNodeFields() {
+    const isVirtual = document.getElementById('isVirtualNode').checked;
+    const macAddressGroup = document.getElementById('macAddressGroup');
+    const proxmoxGroup = document.getElementById('proxmoxGroup');
+    const proxmoxHostGroup = document.getElementById('proxmoxHostGroup');
+    
+    if (isVirtual) {
+        macAddressGroup.style.display = 'none';
+        proxmoxGroup.style.display = 'block';
+        proxmoxHostGroup.style.display = 'block';
+    } else {
+        macAddressGroup.style.display = 'block';
+        proxmoxGroup.style.display = 'none';
+        proxmoxHostGroup.style.display = 'none';
+    }
+}
+
+function saveWoLConfig() {
+    const nodeId = document.getElementById('wolNodeId').value;
+    const hostname = document.getElementById('wolNodeName').value;
+    
+    const configData = {
+        wol_enabled: document.getElementById('wolEnabled').checked,
+        wol_mac_address: document.getElementById('wolMacAddress').value,
+        wol_method: document.getElementById('wolMethod').value,
+        wol_port: parseInt(document.getElementById('wolPort').value),
+        wol_broadcast_address: document.getElementById('wolBroadcast').value || null,
+        is_virtual_node: document.getElementById('isVirtualNode').checked
+    };
+    
+    // Add Proxmox fields if virtual node
+    if (configData.is_virtual_node) {
+        const proxmoxVmId = document.getElementById('proxmoxVmId').value;
+        const proxmoxHostId = document.getElementById('proxmoxHostId').value;
+        
+        if (proxmoxVmId) configData.proxmox_vm_id = parseInt(proxmoxVmId);
+        if (proxmoxHostId) configData.proxmox_host_id = parseInt(proxmoxHostId);
+    }
+    
+    fetch(`/api/nodes/${nodeId}/wol/configure`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(configData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Wake-on-LAN configuration updated for ${hostname}.`);
+            bootstrap.Modal.getInstance(document.getElementById('wolConfigModal')).hide();
+            location.reload();
+        } else {
+            alert(`Failed to configure Wake-on-LAN: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert('Error configuring Wake-on-LAN: ' + error);
+    });
+}
+
+function collectMacAddress(nodeId, hostname) {
+    if (confirm(`Collect MAC address from node '${hostname}'? This requires SSH access.`)) {
+        fetch(`/api/nodes/wol/collect-mac`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                node_ids: [nodeId]
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data[hostname] && data[hostname].success) {
+                const macAddresses = data[hostname].mac_addresses;
+                let message = `Found ${macAddresses.length} network interfaces:\n\n`;
+                macAddresses.forEach(mac => {
+                    message += `${mac.interface}: ${mac.mac_address}\n`;
+                });
+                message += '\nUse "Configure WoL" to set the MAC address for Wake-on-LAN.';
+                alert(message);
+            } else {
+                alert(`Failed to collect MAC address from ${hostname}: ${data[hostname]?.error || 'Unknown error'}`);
+            }
+        })
+        .catch(error => {
+            alert('Error collecting MAC address: ' + error);
+        });
+    }
+}
+
+// Add event listener for virtual node checkbox
+document.addEventListener('DOMContentLoaded', function() {
+    const isVirtualCheckbox = document.getElementById('isVirtualNode');
+    if (isVirtualCheckbox) {
+        isVirtualCheckbox.addEventListener('change', toggleVirtualNodeFields);
+    }
+});
 </script>
 {% endblock %}

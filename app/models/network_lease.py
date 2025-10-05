@@ -5,7 +5,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Foreign
 from sqlalchemy.orm import relationship
 from .database import Base, db
 
-class NetworkLease(Base):
+class NetworkLease(db.Model):
     """Represents a DHCP lease from router/switch devices."""
     
     __tablename__ = 'network_leases'
@@ -134,7 +134,7 @@ class NetworkLease(Base):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
-class NetworkInterface(Base):
+class NetworkInterface(db.Model):
     """Represents network interfaces on router/switch devices."""
     
     __tablename__ = 'network_interfaces'

@@ -33,6 +33,11 @@
       - bc
       - lvm2
       - mdadm
+      # Longhorn prerequisites
+      - nfs-common
+      - open-iscsi
+      - util-linux
+      - liblvm2cmd2.03
     
     required_python_packages:
       - pip

@@ -7,7 +7,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, 
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
-from app.models.database import Base
+from app.models.database import Base, db
 
 
 class PowerEventType(enum.Enum):
@@ -32,7 +32,7 @@ class ClusterActionType(enum.Enum):
     WAKE_ON_LAN = "wake_on_lan"  # Wake cluster nodes using Wake-on-LAN
 
 
-class UPSClusterRule(Base):
+class UPSClusterRule(db.Model):
     """Rules linking UPS devices to clusters for power management."""
     
     __tablename__ = 'ups_cluster_rules'

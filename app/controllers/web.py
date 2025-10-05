@@ -3,7 +3,8 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
+from ..models.network_lease import NetworkLease, NetworkInterface
 
 bp = Blueprint('web', __name__)
 
@@ -45,19 +46,50 @@ def add_node():
     """Add a new node."""
     if request.method == 'POST':
         try:
+            # Create the node first
             node = Node(
                 hostname=request.form['hostname'],
                 ip_address=request.form['ip_address'],
                 ssh_user=request.form.get('ssh_user', 'ubuntu'),
                 ssh_port=int(request.form.get('ssh_port', 22)),
-                ssh_key_path=request.form.get('ssh_key_path'),
                 cluster_id=request.form.get('cluster_id') or None,
                 notes=request.form.get('notes')
             )
             db.session.add(node)
-            db.session.commit()
-            flash('Node added successfully!', 'success')
-            return redirect(url_for('web.nodes'))
+            db.session.flush()  # Get the node ID
+            
+            # Generate SSH key pair
+            from ..services.ssh_key_manager import SSHKeyManager
+            ssh_manager = SSHKeyManager()
+            
+            try:
+                key_info = ssh_manager.generate_key_pair(node.id, node.hostname)
+                
+                # Update node with SSH key information
+                node.ssh_key_path = key_info['private_key_path']
+                node.ssh_public_key = key_info['public_key']
+                node.ssh_key_fingerprint = key_info['fingerprint']
+                node.ssh_key_generated = True
+                node.ssh_key_status = 'generated'
+                
+                # Generate setup instructions
+                instructions = ssh_manager.get_setup_instructions(
+                    node.hostname, 
+                    key_info['public_key'],
+                    node.ssh_user
+                )
+                node.ssh_setup_instructions = instructions
+                
+                db.session.commit()
+                
+                flash(f'Node "{node.hostname}" added successfully! SSH key generated. Please follow the setup instructions.', 'success')
+                return redirect(url_for('web.node_ssh_setup', node_id=node.id))
+                
+            except Exception as key_error:
+                db.session.rollback()
+                flash(f'Error generating SSH key: {str(key_error)}', 'error')
+                return redirect(url_for('web.add_node'))
+                
         except Exception as e:
             db.session.rollback()
             flash(f'Error adding node: {str(e)}', 'error')
@@ -65,12 +97,352 @@ def add_node():
     clusters = Cluster.query.all()
     return render_template('add_node.html', clusters=clusters)
 
+@bp.route('/nodes/<int:node_id>/ssh-setup')
+@login_required
+def node_ssh_setup(node_id):
+    """SSH key setup page for a node."""
+    node = Node.query.get_or_404(node_id)
+    
+    # Handle cases where SSH key fields might not exist (backward compatibility)
+    ssh_key_generated = getattr(node, 'ssh_key_generated', False)
+    
+    if not ssh_key_generated:
+        flash('SSH key not generated for this node.', 'error')
+        return redirect(url_for('web.nodes'))
+    
+    return render_template('node_ssh_setup.html', node=node)
+
+@bp.route('/nodes/<int:node_id>/test-ssh', methods=['POST'])
+@login_required
+def test_ssh_connection(node_id):
+    """Test SSH connection to a node."""
+    node = Node.query.get_or_404(node_id)
+    
+    if not node.ssh_key_ready:
+        flash('SSH key not ready for testing.', 'error')
+        return redirect(url_for('web.node_ssh_setup', node_id=node.id))
+    
+    try:
+        from ..services.ssh_key_manager import SSHKeyManager
+        import json
+        
+        ssh_manager = SSHKeyManager()
+        test_result = ssh_manager.validate_ssh_connection(
+            node.hostname,
+            node.ip_address,
+            node.ssh_user,
+            node.ssh_port,
+            node.ssh_key_path
+        )
+        
+        # Update node with test results
+        node.ssh_connection_tested = True
+        node.ssh_connection_test_result = json.dumps(test_result)
+        
+        if test_result['success']:
+            node.ssh_key_status = 'tested'
+            flash('SSH connection test successful! Node is ready for cluster operations.', 'success')
+        else:
+            node.ssh_key_status = 'failed'
+            flash(f'SSH connection test failed: {test_result.get("message", "Unknown error")}', 'error')
+        
+        db.session.commit()
+        
+    except Exception as e:
+        flash(f'Error testing SSH connection: {str(e)}', 'error')
+    
+    return redirect(url_for('web.node_ssh_setup', node_id=node.id))
+
+@bp.route('/nodes/<int:node_id>/regenerate-ssh-key', methods=['POST'])
+@login_required
+def regenerate_ssh_key(node_id):
+    """Regenerate SSH key for a node."""
+    node = Node.query.get_or_404(node_id)
+    
+    try:
+        from ..services.ssh_key_manager import SSHKeyManager
+        
+        # Clean up existing key if it exists
+        if node.ssh_key_path:
+            ssh_manager = SSHKeyManager()
+            ssh_manager.cleanup_key_pair(node.ssh_key_path)
+        
+        # Generate new key pair
+        ssh_manager = SSHKeyManager()
+        key_info = ssh_manager.generate_key_pair(node.id, node.hostname)
+        
+        # Update node with new SSH key information
+        node.ssh_key_path = key_info['private_key_path']
+        node.ssh_public_key = key_info['public_key']
+        node.ssh_key_fingerprint = key_info['fingerprint']
+        node.ssh_key_generated = True
+        node.ssh_key_status = 'generated'
+        node.ssh_connection_tested = False
+        node.ssh_connection_test_result = None
+        
+        # Generate new setup instructions
+        instructions = ssh_manager.get_setup_instructions(
+            node.hostname, 
+            key_info['public_key'],
+            node.ssh_user
+        )
+        node.ssh_setup_instructions = instructions
+        
+        db.session.commit()
+        
+        flash('SSH key regenerated successfully! Please follow the new setup instructions.', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error regenerating SSH key: {str(e)}', 'error')
+    
+    return redirect(url_for('web.node_ssh_setup', node_id=node.id))
+
+@bp.route('/api/nodes/<int:node_id>/check-ssh-keys', methods=['POST'])
+@login_required
+def api_check_ssh_keys(node_id):
+    """API endpoint to check SSH key status and file existence."""
+    from flask import jsonify
+    node = Node.query.get_or_404(node_id)
+    
+    try:
+        from ..services.ssh_key_manager import SSHKeyManager
+        from pathlib import Path
+        
+        ssh_manager = SSHKeyManager()
+        
+        # Check if key files exist
+        key_files_exist = False
+        key_path = None
+        fingerprint = None
+        sync_needed = False
+        
+        if node.ssh_key_path:
+            key_path = Path(node.ssh_key_path)
+            public_key_path = key_path.with_suffix('.pub')
+            
+            if key_path.exists() and public_key_path.exists():
+                key_files_exist = True
+                
+                # Get key info if files exist
+                key_info = ssh_manager.get_key_info(str(key_path))
+                if key_info:
+                    fingerprint = key_info['fingerprint']
+                    
+                    # Check if database is in sync with files
+                    db_has_key = getattr(node, 'ssh_key_generated', False)
+                    if not db_has_key:
+                        sync_needed = True
+                        
+                        # Auto-sync if needed
+                        try:
+                            node.ssh_key_generated = True
+                            node.ssh_key_status = 'generated'
+                            node.ssh_public_key = key_info['public_key']
+                            node.ssh_key_fingerprint = key_info['fingerprint']
+                            
+                            # Generate setup instructions
+                            instructions = ssh_manager.get_setup_instructions(
+                                node.hostname, 
+                                key_info['public_key'],
+                                node.ssh_user
+                            )
+                            node.ssh_setup_instructions = instructions
+                            
+                            db.session.commit()
+                            
+                        except Exception as sync_error:
+                            db.session.rollback()
+                            return jsonify({
+                                'success': False,
+                                'error': f'Failed to sync database: {str(sync_error)}'
+                            })
+        
+        # Get database status
+        db_status = getattr(node, 'ssh_key_status', 'not_generated')
+        if getattr(node, 'ssh_key_generated', False):
+            db_status = f"Generated ({db_status})"
+        else:
+            db_status = "Not Generated"
+        
+        return jsonify({
+            'success': True,
+            'key_files_exist': key_files_exist,
+            'database_status': db_status,
+            'fingerprint': fingerprint,
+            'key_path': str(key_path) if key_path else None,
+            'sync_needed': sync_needed,
+            'sync_performed': sync_needed
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+@bp.route('/api/nodes/<int:node_id>/regenerate-ssh-key', methods=['POST'])
+@login_required
+def api_regenerate_ssh_key(node_id):
+    """API endpoint to regenerate SSH key for a node."""
+    from flask import jsonify
+    node = Node.query.get_or_404(node_id)
+    
+    try:
+        from ..services.ssh_key_manager import SSHKeyManager
+        
+        # Clean up existing key if it exists
+        if node.ssh_key_path:
+            ssh_manager = SSHKeyManager()
+            ssh_manager.cleanup_key_pair(node.ssh_key_path)
+        
+        # Generate new key pair
+        ssh_manager = SSHKeyManager()
+        key_info = ssh_manager.generate_key_pair(node.id, node.hostname)
+        
+        # Update node with new SSH key information
+        node.ssh_key_path = key_info['private_key_path']
+        node.ssh_public_key = key_info['public_key']
+        node.ssh_key_fingerprint = key_info['fingerprint']
+        node.ssh_key_generated = True
+        node.ssh_key_status = 'generated'
+        node.ssh_connection_tested = False
+        node.ssh_connection_test_result = None
+        
+        # Generate new setup instructions
+        instructions = ssh_manager.get_setup_instructions(
+            node.hostname, 
+            key_info['public_key'],
+            node.ssh_user
+        )
+        node.ssh_setup_instructions = instructions
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'SSH key regenerated successfully',
+            'fingerprint': key_info['fingerprint']
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+@bp.route('/nodes/<int:node_id>')
+@login_required
+def node_detail(node_id):
+    """Node detail page."""
+    node = Node.query.get_or_404(node_id)
+    
+    # Get recent operations for this node
+    recent_operations = Operation.query.filter_by(node_id=node_id).order_by(Operation.created_at.desc()).limit(10).all()
+    
+    # Parse JSON fields for display
+    import json
+    parsed_info = {}
+    
+    try:
+        if hasattr(node, 'cpu_info') and node.cpu_info:
+            parsed_info['cpu'] = json.loads(node.cpu_info)
+        else:
+            parsed_info['cpu'] = None
+    except json.JSONDecodeError:
+        parsed_info['cpu'] = None
+    
+    try:
+        if hasattr(node, 'memory_info') and node.memory_info:
+            parsed_info['memory'] = json.loads(node.memory_info)
+        else:
+            parsed_info['memory'] = None
+    except json.JSONDecodeError:
+        parsed_info['memory'] = None
+    
+    try:
+        if hasattr(node, 'disk_info') and node.disk_info:
+            parsed_info['disk'] = json.loads(node.disk_info)
+        else:
+            parsed_info['disk'] = None
+    except json.JSONDecodeError:
+        parsed_info['disk'] = None
+    
+    try:
+        if hasattr(node, 'network_info') and node.network_info:
+            parsed_info['network'] = json.loads(node.network_info)
+        else:
+            parsed_info['network'] = None
+    except json.JSONDecodeError:
+        parsed_info['network'] = None
+    
+    try:
+        if hasattr(node, 'hardware_info') and node.hardware_info:
+            parsed_info['hardware'] = json.loads(node.hardware_info)
+        else:
+            parsed_info['hardware'] = None
+    except json.JSONDecodeError:
+        parsed_info['hardware'] = None
+    
+    # Calculate node statistics
+    stats = {
+        'total_operations': len(recent_operations),
+        'successful_operations': len([op for op in recent_operations if op.success]),
+        'failed_operations': len([op for op in recent_operations if not op.success]),
+        'wol_configured': node.wol_configured,
+        'ssh_ready': node.ssh_connection_ready,
+        'microk8s_ready': node.microk8s_status == 'running'
+    }
+    
+    return render_template('node_detail.html', 
+                         node=node, 
+                         recent_operations=recent_operations,
+                         parsed_info=parsed_info,
+                         stats=stats)
+
 @bp.route('/clusters')
 @login_required
 def clusters():
     """Clusters management page."""
     clusters = Cluster.query.all()
     return render_template('clusters.html', clusters=clusters)
+
+@bp.route('/clusters/<int:cluster_id>')
+@login_required
+def cluster_detail(cluster_id):
+    """Cluster detail page."""
+    cluster = Cluster.query.get_or_404(cluster_id)
+    
+    # Get cluster nodes
+    nodes = Node.query.filter_by(cluster_id=cluster_id).all()
+    
+    # Get recent operations for this cluster
+    recent_operations = Operation.query.filter_by(cluster_id=cluster_id).order_by(Operation.created_at.desc()).limit(10).all()
+    
+    # Get UPS rules for this cluster
+    from ..models.ups_cluster_rule import UPSClusterRule
+    ups_rules = UPSClusterRule.query.filter_by(cluster_id=cluster_id).all()
+    
+    # Calculate cluster statistics
+    stats = {
+        'total_nodes': len(nodes),
+        'online_nodes': len([n for n in nodes if n.status == 'online']),
+        'offline_nodes': len([n for n in nodes if n.status == 'offline']),
+        'control_plane_nodes': len([n for n in nodes if n.is_control_plane]),
+        'worker_nodes': len([n for n in nodes if not n.is_control_plane]),
+        'wol_configured_nodes': len([n for n in nodes if n.wol_configured]),
+        'virtual_nodes': len([n for n in nodes if n.is_virtual_node]),
+        'recent_operations': len(recent_operations),
+        'ups_rules': len(ups_rules)
+    }
+    
+    return render_template('cluster_detail.html', 
+                         cluster=cluster, 
+                         nodes=nodes, 
+                         recent_operations=recent_operations,
+                         ups_rules=ups_rules,
+                         stats=stats)
 
 @bp.route('/clusters/add', methods=['GET', 'POST'])
 @login_required

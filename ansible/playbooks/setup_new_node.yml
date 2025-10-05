@@ -1,0 +1,354 @@
+---
+- name: Setup new node for MicroK8s cluster with Longhorn support
+  hosts: new_nodes
+  become: yes
+  gather_facts: yes
+  serial: 1
+  
+  vars:
+    microk8s_channel: "1.28/stable"
+    
+    # Longhorn prerequisites
+    longhorn_packages:
+      - lvm2
+      - liblvm2cmd2.03
+      - nfs-common
+      - open-iscsi
+      - util-linux
+    
+    # Basic prerequisites
+    basic_packages:
+      - python3
+      - python3-pip
+      - curl
+      - wget
+      - git
+      - snapd
+      - openssh-server
+      - sudo
+      - ufw
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - build-essential
+      - iptables
+      - net-tools
+      - iputils-ping
+      - dnsutils
+      - htop
+      - vim
+      - nano
+      - unzip
+      - jq
+      - bc
+      - mdadm
+    
+    microk8s_ports:
+      - 16443  # API server
+      - 10250  # Kubelet API
+      - 10251  # Scheduler
+      - 10252  # Controller manager
+      - 10255  # Read-only Kubelet API
+      - 2379   # etcd server client API
+      - 2380   # etcd server peer API
+      - 10259  # Read-only Kubelet API (alternative)
+      - 6443   # Kubernetes API server
+  
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+    
+    - name: Install basic system packages
+      package:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ basic_packages }}"
+      when: ansible_os_family == "Debian"
+    
+    - name: Install Longhorn prerequisite packages
+      package:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ longhorn_packages }}"
+      when: ansible_os_family == "Debian"
+    
+    - name: Start and enable SSH service
+      systemd:
+        name: ssh
+        state: started
+        enabled: yes
+    
+    - name: Start and enable snapd service
+      systemd:
+        name: snapd
+        state: started
+        enabled: yes
+    
+    - name: Wait for snapd to be ready
+      command: snap wait system seed.loaded
+      timeout: 60
+      changed_when: false
+    
+    - name: Configure sudo for ansible user
+      lineinfile:
+        path: /etc/sudoers.d/ansible
+        line: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL"
+        create: yes
+        mode: '0440'
+        validate: 'visudo -cf %s'
+    
+    - name: Add user to sudo group
+      user:
+        name: "{{ ansible_user }}"
+        groups: sudo
+        append: yes
+    
+    - name: Create microk8s group
+      group:
+        name: microk8s
+        state: present
+    
+    - name: Add user to microk8s group
+      user:
+        name: "{{ ansible_user }}"
+        groups: microk8s
+        append: yes
+    
+    - name: Configure firewall for MicroK8s
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ microk8s_ports }}"
+      ignore_errors: yes
+    
+    - name: Configure firewall for MicroK8s (UDP)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: udp
+      loop: "{{ microk8s_ports }}"
+      ignore_errors: yes
+    
+    - name: Allow SSH through firewall
+      ufw:
+        rule: allow
+        port: "{{ ansible_ssh_port | default(22) }}"
+        proto: tcp
+    
+    - name: Enable firewall
+      ufw:
+        state: enabled
+        policy: deny
+      ignore_errors: yes
+    
+    - name: Configure system limits for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: 'fs.file-max', value: '2097152' }
+        - { name: 'vm.max_map_count', value: '262144' }
+        - { name: 'vm.swappiness', value: '1' }
+        - { name: 'net.core.somaxconn', value: '65535' }
+        - { name: 'net.ipv4.ip_local_port_range', value: '1024 65535' }
+        - { name: 'net.ipv4.tcp_keepalive_time', value: '600' }
+        - { name: 'net.ipv4.tcp_keepalive_intvl', value: '60' }
+        - { name: 'net.ipv4.tcp_keepalive_probes', value: '10' }
+    
+    - name: Configure system limits for Kubernetes (permanent)
+      lineinfile:
+        path: /etc/sysctl.conf
+        line: "{{ item.name }} = {{ item.value }}"
+        state: present
+      loop:
+        - { name: 'fs.file-max', value: '2097152' }
+        - { name: 'vm.max_map_count', value: '262144' }
+        - { name: 'vm.swappiness', value: '1' }
+        - { name: 'net.core.somaxconn', value: '65535' }
+        - { name: 'net.ipv4.ip_local_port_range', value: '1024 65535' }
+        - { name: 'net.ipv4.tcp_keepalive_time', value: '600' }
+        - { name: 'net.ipv4.tcp_keepalive_intvl', value: '60' }
+        - { name: 'net.ipv4.tcp_keepalive_probes', value: '10' }
+      ignore_errors: yes
+    
+    - name: Configure user limits
+      pam_limits:
+        domain: "{{ ansible_user }}"
+        limit_type: soft
+        limit_item: "{{ item.item }}"
+        value: "{{ item.value }}"
+      loop:
+        - { item: 'nofile', value: '65536' }
+        - { item: 'nproc', value: '65536' }
+      ignore_errors: yes
+    
+    - name: Disable swap (required for Kubernetes)
+      shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+      ignore_errors: yes
+    
+    # Longhorn-specific setup
+    - name: Start and enable iSCSI service
+      systemd:
+        name: iscsid
+        state: started
+        enabled: yes
+    
+    - name: Start and enable multipath service
+      systemd:
+        name: multipathd
+        state: started
+        enabled: yes
+    
+    - name: Configure iSCSI initiator name
+      lineinfile:
+        path: /etc/iscsi/initiatorname.iscsi
+        line: "InitiatorName=iqn.1993-08.org.debian:01:{{ ansible_hostname }}"
+        create: yes
+        mode: '0644'
+      notify: restart iscsid
+    
+    - name: Configure multipath
+      copy:
+        content: |
+          defaults {
+              user_friendly_names yes
+              find_multipaths yes
+          }
+          blacklist {
+              devnode "^(ram|raw|loop|fd|md|dm-|sr|scd|st)[0-9]*"
+              devnode "^hd[a-z]"
+          }
+        dest: /etc/multipath.conf
+        mode: '0644'
+      notify: restart multipathd
+    
+    # Install MicroK8s
+    - name: Install MicroK8s snap
+      snap:
+        name: microk8s
+        channel: "{{ microk8s_channel }}"
+        classic: yes
+        state: present
+    
+    - name: Wait for MicroK8s to be ready
+      command: microk8s status --wait-ready
+      timeout: 300
+      changed_when: false
+    
+    - name: Enable basic addons
+      command: "microk8s enable {{ item }}"
+      loop:
+        - dns
+        - storage
+      register: addon_result
+      changed_when: "'already enabled' not in addon_result.stdout"
+    
+    - name: Get MicroK8s status
+      command: microk8s status
+      register: microk8s_status
+      changed_when: false
+    
+    - name: Get system information
+      setup:
+        gather_subset:
+          - hardware
+          - network
+          - virtual
+    
+    - name: Store node information
+      set_fact:
+        node_info:
+          hostname: "{{ ansible_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          os_version: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          kernel_version: "{{ ansible_kernel }}"
+          cpu_cores: "{{ ansible_processor_vcpus }}"
+          memory_gb: "{{ (ansible_memtotal_mb / 1024) | round(2) }}"
+          disk_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first / 1024 / 1024 / 1024) | round(2) }}"
+          microk8s_version: "{{ microk8s_status.stdout | regex_search('microk8s is running.*') }}"
+          microk8s_status: "running"
+    
+    - name: Verify Longhorn prerequisites
+      command: which {{ item }}
+      register: longhorn_command_check
+      loop:
+        - lvm
+        - pvcreate
+        - vgcreate
+        - lvcreate
+        - iscsiadm
+        - multipath
+        - mount.nfs4
+        - umount.nfs4
+      failed_when: false
+      changed_when: false
+    
+    - name: Test LVM functionality
+      command: lvm version
+      register: lvm_test
+      changed_when: false
+    
+    - name: Test iSCSI functionality
+      command: iscsiadm --version
+      register: iscsi_test
+      changed_when: false
+    
+    - name: Test multipath functionality
+      command: multipath -v0
+      register: multipath_test
+      changed_when: false
+    
+    - name: Compile setup report
+      set_fact:
+        setup_report:
+          hostname: "{{ ansible_hostname }}"
+          node_info: "{{ node_info }}"
+          longhorn_prerequisites:
+            commands_available: "{{ longhorn_command_check.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list }}"
+            commands_missing: "{{ longhorn_command_check.results | selectattr('rc', '!=', 0) | map(attribute='item') | list }}"
+            lvm_working: "{{ lvm_test.rc == 0 }}"
+            iscsi_working: "{{ iscsi_test.rc == 0 }}"
+            multipath_working: "{{ multipath_test.rc == 0 }}"
+            prerequisites_met: "{{ (longhorn_command_check.results | selectattr('rc', '!=', 0) | list | length == 0) and (lvm_test.rc == 0) and (iscsi_test.rc == 0) and (multipath_test.rc == 0) }}"
+          setup_successful: "{{ microk8s_status.rc == 0 and (longhorn_command_check.results | selectattr('rc', '!=', 0) | list | length == 0) }}"
+    
+    - name: Display setup report
+      debug:
+        var: setup_report
+    
+    - name: Write setup report to file
+      copy:
+        content: "{{ setup_report | to_nice_json }}"
+        dest: "/tmp/node_setup_report_{{ ansible_hostname }}.json"
+        mode: '0644'
+    
+    - name: Final status message
+      debug:
+        msg: |
+          Node setup completed for {{ ansible_hostname }}
+          MicroK8s Status: {{ 'INSTALLED' if microk8s_status.rc == 0 else 'FAILED' }}
+          Longhorn Prerequisites: {{ 'MET' if setup_report.longhorn_prerequisites.prerequisites_met else 'NOT MET' }}
+          Overall Status: {{ 'SUCCESS' if setup_report.setup_successful else 'FAILED' }}
+          
+          {{ 'Node is ready to join the cluster and support Longhorn storage.' if setup_report.setup_successful else 'Please address the issues before joining the cluster.' }}
+  
+  handlers:
+    - name: restart iscsid
+      systemd:
+        name: iscsid
+        state: restarted
+    
+    - name: restart multipathd
+      systemd:
+        name: multipathd
+        state: restarted

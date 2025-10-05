@@ -101,6 +101,86 @@ def cli(ctx, config_file, verbose):
     
     # Initialize database
     init_database()
+    
+    # Run any pending migrations
+    try:
+        from app.utils.migration_manager import MigrationManager
+        manager = MigrationManager()
+        success, messages = manager.run_all_pending_migrations()
+        
+        if not success:
+            print_warning("Some migrations failed. The application may not work correctly.")
+            for message in messages:
+                if "failed" in message.lower() or "error" in message.lower():
+                    print_error(message)
+                else:
+                    print_info(message)
+        elif messages and "No pending migrations" not in messages[0]:
+            print_success("Database migrations completed successfully!")
+    except Exception as e:
+        print_warning(f"Failed to run migrations: {e}")
+        print_info("Continuing with application startup...")
+
+@cli.group()
+def migrate():
+    """Manage database migrations."""
+    pass
+
+@migrate.command('run')
+@click.option('--dry-run', is_flag=True, help='Show what would be run without executing')
+def run_migrations(dry_run):
+    """Run all pending database migrations."""
+    try:
+        from app.utils.migration_manager import MigrationManager
+        
+        manager = MigrationManager()
+        success, messages = manager.run_all_pending_migrations(dry_run)
+        
+        for message in messages:
+            if success:
+                print_success(message)
+            elif "failed" in message.lower() or "error" in message.lower():
+                print_error(message)
+            else:
+                print_info(message)
+        
+        if not dry_run and success:
+            print_success("Database migrations completed successfully!")
+        elif not dry_run:
+            print_error("Some migrations failed. Check the output above for details.")
+            
+    except Exception as e:
+        print_error(f"Failed to run migrations: {e}")
+
+@migrate.command('status')
+def migration_status():
+    """Show current migration status."""
+    try:
+        from app.utils.migration_manager import MigrationManager
+        
+        manager = MigrationManager()
+        status = manager.get_migration_status()
+        
+        print_info("Migration Status:")
+        print_info(f"  Database exists: {status['database_exists']}")
+        print_info(f"  Migrations table exists: {status['migrations_table_exists']}")
+        print_info(f"  Applied migrations: {len(status['applied_migrations'])}")
+        print_info(f"  Pending migrations: {len(status['pending_migrations'])}")
+        print_info(f"  Total migrations: {status['total_migrations']}")
+        print_info(f"  Status: {status['status']}")
+        
+        if status['applied_migrations']:
+            print_info("\nApplied migrations:")
+            for migration in status['applied_migrations']:
+                print_success(f"  ✓ {migration}")
+        
+        if status['pending_migrations']:
+            print_info("\nPending migrations:")
+            for migration in status['pending_migrations']:
+                print_warning(f"  ⏳ {migration}")
+                
+    except Exception as e:
+        print_error(f"Failed to get migration status: {e}")
 
 @cli.group()
 def node():
@@ -149,10 +229,10 @@ def list_nodes(format):
 @click.option('--ip', '-i', required=True, help='Node IP address')
 @click.option('--user', '-u', default='ubuntu', help='SSH user')
 @click.option('--port', '-p', default=22, help='SSH port')
-@click.option('--key-path', '-k', help='SSH private key path')
 @click.option('--cluster-id', type=int, help='Cluster ID to assign node to')
 @click.option('--notes', help='Additional notes')
-def add_node(hostname, ip, user, port, key_path, cluster_id, notes):
+@click.option('--generate-ssh-key', is_flag=True, default=True, help='Generate SSH key pair (default: True)')
+def add_node(hostname, ip, user, port, cluster_id, notes, generate_ssh_key):
     """Add a new node."""
     session = get_session()
     try:
@@ -169,24 +249,236 @@ def add_node(hostname, ip, user, port, key_path, cluster_id, notes):
                 print_error(f"Cluster with ID {cluster_id} not found.")
                 return
         
+        # Create the node first
         node = Node(
             hostname=hostname,
             ip_address=ip,
             ssh_user=user,
             ssh_port=port,
-            ssh_key_path=key_path,
             cluster_id=cluster_id,
             notes=notes
         )
         
         session.add(node)
+        session.flush()  # Get the node ID
+        
+        # Generate SSH key pair if requested
+        if generate_ssh_key:
+            try:
+                from app.services.ssh_key_manager import SSHKeyManager
+                ssh_manager = SSHKeyManager()
+                
+                print_info(f"Generating SSH key pair for node '{hostname}'...")
+                key_info = ssh_manager.generate_key_pair(node.id, node.hostname)
+                
+                # Update node with SSH key information
+                node.ssh_key_path = key_info['private_key_path']
+                node.ssh_public_key = key_info['public_key']
+                node.ssh_key_fingerprint = key_info['fingerprint']
+                node.ssh_key_generated = True
+                node.ssh_key_status = 'generated'
+                
+                # Generate setup instructions
+                instructions = ssh_manager.get_setup_instructions(
+                    node.hostname, 
+                    key_info['public_key'],
+                    node.ssh_user
+                )
+                node.ssh_setup_instructions = instructions
+                
+                print_success(f"SSH key pair generated successfully.")
+                print_info(f"Private key: {key_info['private_key_path']}")
+                print_info(f"Public key: {key_info['public_key_path']}")
+                print_info(f"Fingerprint: {key_info['fingerprint']}")
+                
+            except Exception as key_error:
+                session.rollback()
+                print_error(f"Failed to generate SSH key: {key_error}")
+                return
+        
         session.commit()
         
         print_success(f"Node '{hostname}' added successfully with ID {node.id}.")
+        
+        if generate_ssh_key:
+            print_info("\n" + "="*60)
+            print_info("SSH KEY SETUP INSTRUCTIONS")
+            print_info("="*60)
+            print_info(instructions)
+            print_info("="*60)
+            print_info("After completing the setup, test the connection with:")
+            print_info(f"  microk8s-cluster node test-ssh {node.id}")
     
     except Exception as e:
         session.rollback()
         print_error(f"Failed to add node: {e}")
+    
+    finally:
+        session.close()
+
+@node.command('test-ssh')
+@click.argument('node_id', type=int)
+def test_ssh_connection(node_id):
+    """Test SSH connection to a node."""
+    session = get_session()
+    try:
+        node = session.query(Node).filter_by(id=node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found.")
+            return
+        
+        if not node.ssh_key_ready:
+            print_error("SSH key not ready for testing.")
+            return
+        
+        print_info(f"Testing SSH connection to node '{node.hostname}' ({node.ip_address})...")
+        
+        from app.services.ssh_key_manager import SSHKeyManager
+        ssh_manager = SSHKeyManager()
+        
+        test_result = ssh_manager.validate_ssh_connection(
+            node.hostname,
+            node.ip_address,
+            node.ssh_user,
+            node.ssh_port,
+            node.ssh_key_path
+        )
+        
+        # Update node with test results
+        import json
+        node.ssh_connection_tested = True
+        node.ssh_connection_test_result = json.dumps(test_result)
+        
+        if test_result['success']:
+            node.ssh_key_status = 'tested'
+            print_success("SSH connection test successful!")
+            print_info(f"SSH connection: {'✓' if test_result['ssh_connection'] else '✗'}")
+            print_info(f"Sudo access: {'✓' if test_result['sudo_access'] else '✗'}")
+            print_info("Node is ready for cluster operations.")
+        else:
+            node.ssh_key_status = 'failed'
+            print_error("SSH connection test failed!")
+            print_error(f"Error: {test_result.get('message', 'Unknown error')}")
+        
+        session.commit()
+        
+    except Exception as e:
+        session.rollback()
+        print_error(f"Error testing SSH connection: {e}")
+    
+    finally:
+        session.close()
+
+@node.command('regenerate-ssh-key')
+@click.argument('node_id', type=int)
+@click.option('--force', is_flag=True, help='Force regeneration without confirmation')
+def regenerate_ssh_key(node_id, force):
+    """Regenerate SSH key for a node."""
+    session = get_session()
+    try:
+        node = session.query(Node).filter_by(id=node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found.")
+            return
+        
+        if not force:
+            if not click.confirm(f"Regenerate SSH key for node '{node.hostname}'? This will invalidate the current key."):
+                print_info("Operation cancelled.")
+                return
+        
+        print_info(f"Regenerating SSH key for node '{node.hostname}'...")
+        
+        from app.services.ssh_key_manager import SSHKeyManager
+        ssh_manager = SSHKeyManager()
+        
+        # Clean up existing key if it exists
+        if node.ssh_key_path:
+            ssh_manager.cleanup_key_pair(node.ssh_key_path)
+        
+        # Generate new key pair
+        key_info = ssh_manager.generate_key_pair(node.id, node.hostname)
+        
+        # Update node with new SSH key information
+        node.ssh_key_path = key_info['private_key_path']
+        node.ssh_public_key = key_info['public_key']
+        node.ssh_key_fingerprint = key_info['fingerprint']
+        node.ssh_key_generated = True
+        node.ssh_key_status = 'generated'
+        node.ssh_connection_tested = False
+        node.ssh_connection_test_result = None
+        
+        # Generate new setup instructions
+        instructions = ssh_manager.get_setup_instructions(
+            node.hostname, 
+            key_info['public_key'],
+            node.ssh_user
+        )
+        node.ssh_setup_instructions = instructions
+        
+        session.commit()
+        
+        print_success("SSH key regenerated successfully!")
+        print_info(f"Private key: {key_info['private_key_path']}")
+        print_info(f"Public key: {key_info['public_key_path']}")
+        print_info(f"Fingerprint: {key_info['fingerprint']}")
+        print_info("\n" + "="*60)
+        print_info("NEW SSH KEY SETUP INSTRUCTIONS")
+        print_info("="*60)
+        print_info(instructions)
+        print_info("="*60)
+        
+    except Exception as e:
+        session.rollback()
+        print_error(f"Error regenerating SSH key: {e}")
+    
+    finally:
+        session.close()
+
+@node.command('ssh-status')
+@click.argument('node_id', type=int)
+def show_ssh_status(node_id):
+    """Show SSH key status for a node."""
+    session = get_session()
+    try:
+        node = session.query(Node).filter_by(id=node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found.")
+            return
+        
+        print_info(f"SSH Key Status for Node '{node.hostname}'")
+        print_info("="*50)
+        print_info(f"Hostname: {node.hostname}")
+        print_info(f"IP Address: {node.ip_address}")
+        print_info(f"SSH User: {node.ssh_user}")
+        print_info(f"SSH Port: {node.ssh_port}")
+        print_info(f"Key Generated: {'✓' if node.ssh_key_generated else '✗'}")
+        print_info(f"Key Status: {node.ssh_key_status}")
+        print_info(f"Connection Tested: {'✓' if node.ssh_connection_tested else '✗'}")
+        print_info(f"Connection Ready: {'✓' if node.ssh_connection_ready else '✗'}")
+        
+        if node.ssh_key_fingerprint:
+            print_info(f"Fingerprint: {node.ssh_key_fingerprint}")
+        
+        if node.ssh_key_path:
+            print_info(f"Private Key: {node.ssh_key_path}")
+        
+        if node.ssh_connection_test_result:
+            import json
+            try:
+                test_result = json.loads(node.ssh_connection_test_result)
+                print_info("\nLast Connection Test Result:")
+                print_info(f"  Success: {'✓' if test_result.get('success') else '✗'}")
+                print_info(f"  SSH Connection: {'✓' if test_result.get('ssh_connection') else '✗'}")
+                print_info(f"  Sudo Access: {'✓' if test_result.get('sudo_access') else '✗'}")
+                if not test_result.get('success'):
+                    print_info(f"  Error: {test_result.get('message', 'Unknown error')}")
+            except json.JSONDecodeError:
+                print_info(f"Test Result: {node.ssh_connection_test_result}")
+        
+        print_info(f"\nStatus Description: {node.get_ssh_status_description()}")
+        
+    except Exception as e:
+        print_error(f"Error showing SSH status: {e}")
     
     finally:
         session.close()
@@ -1263,6 +1555,194 @@ def show_network_lease(lease_id):
     finally:
         session.close()
 
+@cli.command('check-longhorn-prerequisites')
+@click.option('--node-id', type=int, help='Check prerequisites for specific node ID')
+@click.option('--hostname', help='Check prerequisites for specific hostname')
+@click.option('--all', 'check_all', is_flag=True, help='Check prerequisites for all nodes')
+def check_longhorn_prerequisites(node_id, hostname, check_all):
+    """Check Longhorn prerequisites on nodes."""
+    try:
+        from app.models.database import db
+        from app.models.flask_models import Node
+        from app.services.orchestrator import OrchestrationService
+        
+        session = db.create_session()
+        orchestrator = OrchestrationService()
+        
+        try:
+            if node_id:
+                nodes = [session.query(Node).filter(Node.id == node_id).first()]
+                if not nodes[0]:
+                    print_error(f"Node with ID {node_id} not found")
+                    return
+            elif hostname:
+                nodes = [session.query(Node).filter(Node.hostname == hostname).first()]
+                if not nodes[0]:
+                    print_error(f"Node with hostname {hostname} not found")
+                    return
+            elif check_all:
+                nodes = session.query(Node).all()
+            else:
+                print_error("Please specify --node-id, --hostname, or --all")
+                return
+            
+            if not nodes:
+                print_warning("No nodes found")
+                return
+            
+            print_info(f"Checking Longhorn prerequisites for {len(nodes)} node(s)...")
+            
+            for node in nodes:
+                print_info(f"Checking prerequisites for {node.hostname} ({node.ip_address})...")
+                
+                # Create operation record
+                from app.models.flask_models import Operation
+                operation = Operation(
+                    operation_type='check_longhorn_prerequisites',
+                    operation_name='Check Longhorn Prerequisites',
+                    description=f'Check Longhorn prerequisites on node {node.hostname}',
+                    playbook_path='ansible/playbooks/check_longhorn_prerequisites.yml',
+                    node_id=node.id,
+                    user_id=1  # System user
+                )
+                session.add(operation)
+                session.commit()
+                
+                # Run the operation
+                result = orchestrator.run_operation(operation.id)
+                
+                if result:
+                    print_success(f"Prerequisites check started for {node.hostname} (Operation ID: {operation.id})")
+                else:
+                    print_error(f"Failed to start prerequisites check for {node.hostname}")
+        
+        finally:
+            session.close()
+    
+    except Exception as e:
+        print_error(f"Error checking Longhorn prerequisites: {e}")
+
+@cli.command('install-longhorn-prerequisites')
+@click.option('--node-id', type=int, help='Install prerequisites for specific node ID')
+@click.option('--hostname', help='Install prerequisites for specific hostname')
+@click.option('--all', 'install_all', is_flag=True, help='Install prerequisites for all nodes')
+def install_longhorn_prerequisites(node_id, hostname, install_all):
+    """Install Longhorn prerequisites on nodes."""
+    try:
+        from app.models.database import db
+        from app.models.flask_models import Node
+        from app.services.orchestrator import OrchestrationService
+        
+        session = db.create_session()
+        orchestrator = OrchestrationService()
+        
+        try:
+            if node_id:
+                nodes = [session.query(Node).filter(Node.id == node_id).first()]
+                if not nodes[0]:
+                    print_error(f"Node with ID {node_id} not found")
+                    return
+            elif hostname:
+                nodes = [session.query(Node).filter(Node.hostname == hostname).first()]
+                if not nodes[0]:
+                    print_error(f"Node with hostname {hostname} not found")
+                    return
+            elif install_all:
+                nodes = session.query(Node).all()
+            else:
+                print_error("Please specify --node-id, --hostname, or --all")
+                return
+            
+            if not nodes:
+                print_warning("No nodes found")
+                return
+            
+            print_info(f"Installing Longhorn prerequisites for {len(nodes)} node(s)...")
+            
+            for node in nodes:
+                print_info(f"Installing prerequisites for {node.hostname} ({node.ip_address})...")
+                
+                # Create operation record
+                from app.models.flask_models import Operation
+                operation = Operation(
+                    operation_type='install_longhorn_prerequisites',
+                    operation_name='Install Longhorn Prerequisites',
+                    description=f'Install Longhorn prerequisites on node {node.hostname}',
+                    playbook_path='ansible/playbooks/install_longhorn_prerequisites.yml',
+                    node_id=node.id,
+                    user_id=1  # System user
+                )
+                session.add(operation)
+                session.commit()
+                
+                # Run the operation
+                result = orchestrator.run_operation(operation.id)
+                
+                if result:
+                    print_success(f"Prerequisites installation started for {node.hostname} (Operation ID: {operation.id})")
+                else:
+                    print_error(f"Failed to start prerequisites installation for {node.hostname}")
+        
+        finally:
+            session.close()
+    
+    except Exception as e:
+        print_error(f"Error installing Longhorn prerequisites: {e}")
+
+@cli.command('setup-new-node')
+@click.option('--node-id', type=int, required=True, help='Node ID to setup')
+def setup_new_node(node_id):
+    """Setup a new node with all prerequisites and MicroK8s."""
+    try:
+        from app.models.database import db
+        from app.models.flask_models import Node
+        from app.services.orchestrator import OrchestrationService
+        
+        session = db.create_session()
+        orchestrator = OrchestrationService()
+        
+        try:
+            node = session.query(Node).filter(Node.id == node_id).first()
+            if not node:
+                print_error(f"Node with ID {node_id} not found")
+                return
+            
+            print_info(f"Setting up new node: {node.hostname} ({node.ip_address})")
+            print_warning("This will install all prerequisites, MicroK8s, and configure Longhorn support.")
+            print_warning("This process may take 10-15 minutes.")
+            
+            if not click.confirm("Do you want to continue?"):
+                print_info("Setup cancelled")
+                return
+            
+            # Create operation record
+            from app.models.flask_models import Operation
+            operation = Operation(
+                operation_type='setup_new_node',
+                operation_name='Setup New Node',
+                description=f'Complete setup of new node {node.hostname} with MicroK8s and Longhorn prerequisites',
+                playbook_path='ansible/playbooks/setup_new_node.yml',
+                node_id=node.id,
+                user_id=1  # System user
+            )
+            session.add(operation)
+            session.commit()
+            
+            # Run the operation
+            result = orchestrator.run_operation(operation.id)
+            
+            if result:
+                print_success(f"Node setup started for {node.hostname} (Operation ID: {operation.id})")
+                print_info("Check the operations page in the web interface for progress updates.")
+            else:
+                print_error(f"Failed to start node setup for {node.hostname}")
+        
+        finally:
+            session.close()
+    
+    except Exception as e:
+        print_error(f"Error setting up new node: {e}")
+
 @cli.command('web')
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
 @click.option('--port', default=5000, help='Port to bind to')
@@ -1279,6 +1759,194 @@ def start_web(host, port, debug):
     except ImportError as e:
         print_error(f"Failed to import Flask app: {e}")
         print_info("Make sure Flask and other web dependencies are installed.")
+
+@cli.command('web-stop')
+@click.option('--force', is_flag=True, help='Force kill all web server processes')
+def web_stop(force):
+    """Stop the web interface server."""
+    try:
+        import subprocess
+        import signal
+        import os
+        
+        # Find web server processes
+        try:
+            # Try to find processes by command line
+            result = subprocess.run([
+                'pgrep', '-f', 'python.*cli.py web'
+            ], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                pids = result.stdout.strip().split('\n')
+                pids = [pid for pid in pids if pid]  # Remove empty strings
+                
+                if pids:
+                    print_info(f"Found {len(pids)} web server process(es): {', '.join(pids)}")
+                    
+                    for pid in pids:
+                        try:
+                            if force:
+                                print_info(f"Force killing process {pid}...")
+                                os.kill(int(pid), signal.SIGKILL)
+                            else:
+                                print_info(f"Stopping process {pid} gracefully...")
+                                os.kill(int(pid), signal.SIGTERM)
+                            
+                            print_success(f"Process {pid} stopped successfully")
+                            
+                        except ProcessLookupError:
+                            print_warning(f"Process {pid} not found (may have already stopped)")
+                        except PermissionError:
+                            print_error(f"Permission denied to stop process {pid}")
+                        except Exception as e:
+                            print_error(f"Failed to stop process {pid}: {e}")
+                    
+                    if not force:
+                        print_info("Waiting 3 seconds for graceful shutdown...")
+                        import time
+                        time.sleep(3)
+                        
+                        # Check if processes are still running
+                        result = subprocess.run([
+                            'pgrep', '-f', 'python.*cli.py web'
+                        ], capture_output=True, text=True)
+                        
+                        if result.returncode == 0:
+                            remaining_pids = result.stdout.strip().split('\n')
+                            remaining_pids = [pid for pid in remaining_pids if pid]
+                            
+                            if remaining_pids:
+                                print_warning(f"Some processes are still running: {', '.join(remaining_pids)}")
+                                print_info("Use --force to kill them forcefully")
+                            else:
+                                print_success("All web server processes stopped successfully")
+                        else:
+                            print_success("All web server processes stopped successfully")
+                else:
+                    print_info("No web server processes found")
+            else:
+                print_info("No web server processes found")
+                
+        except FileNotFoundError:
+            # pgrep not available, try alternative method
+            print_info("Using alternative method to find processes...")
+            
+            try:
+                result = subprocess.run([
+                    'ps', 'aux'
+                ], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    web_processes = []
+                    
+                    for line in lines:
+                        if 'python' in line and 'cli.py web' in line and 'grep' not in line:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                pid = parts[1]
+                                web_processes.append(pid)
+                    
+                    if web_processes:
+                        print_info(f"Found {len(web_processes)} web server process(es): {', '.join(web_processes)}")
+                        
+                        for pid in web_processes:
+                            try:
+                                if force:
+                                    print_info(f"Force killing process {pid}...")
+                                    os.kill(int(pid), signal.SIGKILL)
+                                else:
+                                    print_info(f"Stopping process {pid} gracefully...")
+                                    os.kill(int(pid), signal.SIGTERM)
+                                
+                                print_success(f"Process {pid} stopped successfully")
+                                
+                            except ProcessLookupError:
+                                print_warning(f"Process {pid} not found (may have already stopped)")
+                            except PermissionError:
+                                print_error(f"Permission denied to stop process {pid}")
+                            except Exception as e:
+                                print_error(f"Failed to stop process {pid}: {e}")
+                    else:
+                        print_info("No web server processes found")
+                else:
+                    print_error("Failed to list processes")
+                    
+            except Exception as e:
+                print_error(f"Failed to find processes: {e}")
+        
+    except Exception as e:
+        print_error(f"Failed to stop web server: {e}")
+
+@cli.command('web-status')
+def web_status():
+    """Check the status of the web interface server."""
+    try:
+        import subprocess
+        
+        # Find web server processes
+        try:
+            result = subprocess.run([
+                'pgrep', '-f', 'python.*cli.py web'
+            ], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                pids = result.stdout.strip().split('\n')
+                pids = [pid for pid in pids if pid]  # Remove empty strings
+                
+                if pids:
+                    print_success(f"Web server is running with {len(pids)} process(es):")
+                    for pid in pids:
+                        print_info(f"  Process ID: {pid}")
+                    
+                    # Try to get more details about the processes
+                    try:
+                        for pid in pids:
+                            result = subprocess.run([
+                                'ps', '-p', pid, '-o', 'pid,ppid,cmd,etime'
+                            ], capture_output=True, text=True)
+                            
+                            if result.returncode == 0:
+                                lines = result.stdout.strip().split('\n')
+                                if len(lines) > 1:  # Skip header
+                                    print_info(f"  Details: {lines[1]}")
+                    except:
+                        pass  # Ignore errors getting process details
+                        
+                else:
+                    print_info("Web server is not running")
+            else:
+                print_info("Web server is not running")
+                
+        except FileNotFoundError:
+            # pgrep not available, try alternative method
+            try:
+                result = subprocess.run([
+                    'ps', 'aux'
+                ], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    web_processes = []
+                    
+                    for line in lines:
+                        if 'python' in line and 'cli.py web' in line and 'grep' not in line:
+                            web_processes.append(line.strip())
+                    
+                    if web_processes:
+                        print_success(f"Web server is running with {len(web_processes)} process(es):")
+                        for process in web_processes:
+                            print_info(f"  {process}")
+                    else:
+                        print_info("Web server is not running")
+                else:
+                    print_error("Failed to check process status")
+                    
+            except Exception as e:
+                print_error(f"Failed to check web server status: {e}")
+        
+    except Exception as e:
+        print_error(f"Failed to check web server status: {e}")
 
 @cli.command('init')
 @click.option('--force', is_flag=True, help='Force initialization even if database exists')

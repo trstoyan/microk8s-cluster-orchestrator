@@ -1,0 +1,864 @@
+{% extends "base.html" %}
+
+{% block title %}{{ cluster.name }} - Cluster Details - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}{{ cluster.name }} - Cluster Details{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{{ url_for('web.dashboard') }}">Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('web.clusters') }}">Clusters</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ cluster.name }}</li>
+            </ol>
+        </nav>
+    </div>
+    <div class="btn-group" role="group">
+        <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="bi bi-gear"></i> Actions
+        </button>
+        <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="#" onclick="setupCluster({{ cluster.id }})">
+                <i class="bi bi-gear"></i> Setup Cluster
+            </a></li>
+            <li><a class="dropdown-item" href="#" onclick="scanCluster({{ cluster.id }})">
+                <i class="bi bi-search"></i> Scan Cluster
+            </a></li>
+            <li><a class="dropdown-item" href="{{ url_for('web.cluster_hardware_report', cluster_id=cluster.id) }}">
+                <i class="bi bi-cpu"></i> Hardware Report
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item text-success" href="#" onclick="wakeCluster({{ cluster.id }}, '{{ cluster.name }}')">
+                <i class="bi bi-lightning"></i> Wake Cluster
+            </a></li>
+            <li><a class="dropdown-item text-warning" href="#" onclick="shutdownCluster({{ cluster.id }}, '{{ cluster.name }}', true)">
+                <i class="bi bi-power"></i> Graceful Shutdown
+            </a></li>
+            <li><a class="dropdown-item text-danger" href="#" onclick="shutdownCluster({{ cluster.id }}, '{{ cluster.name }}', false)">
+                <i class="bi bi-exclamation-triangle"></i> Force Shutdown
+            </a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="#" onclick="editCluster({{ cluster.id }})">
+                <i class="bi bi-pencil"></i> Edit Cluster
+            </a></li>
+            <li><a class="dropdown-item text-danger" href="#" onclick="deleteCluster({{ cluster.id }}, '{{ cluster.name }}')">
+                <i class="bi bi-trash"></i> Delete Cluster
+            </a></li>
+        </ul>
+    </div>
+</div>
+
+<!-- Cluster Overview -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-info-circle"></i> Cluster Information
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table table-borderless">
+                            <tr>
+                                <td><strong>Name:</strong></td>
+                                <td>{{ cluster.name }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td>
+                                    {% if cluster.status == 'active' %}
+                                        <span class="badge bg-success">{{ cluster.status }}</span>
+                                    {% elif cluster.status == 'degraded' %}
+                                        <span class="badge bg-warning">{{ cluster.status }}</span>
+                                    {% elif cluster.status == 'offline' %}
+                                        <span class="badge bg-danger">{{ cluster.status }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ cluster.status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Health Score:</strong></td>
+                                <td>
+                                    <div class="progress" style="width: 100px;">
+                                        <div class="progress-bar {% if cluster.health_score >= 80 %}bg-success{% elif cluster.health_score >= 60 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                             role="progressbar" style="width: {{ cluster.health_score }}%">
+                                            {{ cluster.health_score }}%
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>HA Enabled:</strong></td>
+                                <td>
+                                    {% if cluster.ha_enabled %}
+                                        <span class="badge bg-primary">Yes</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">No</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table table-borderless">
+                            <tr>
+                                <td><strong>Network CIDR:</strong></td>
+                                <td><code>{{ cluster.network_cidr }}</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Service CIDR:</strong></td>
+                                <td><code>{{ cluster.service_cidr }}</code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Created:</strong></td>
+                                <td>{{ cluster.created_at.strftime('%Y-%m-%d %H:%M') if cluster.created_at else 'Unknown' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Updated:</strong></td>
+                                <td>{{ cluster.updated_at.strftime('%Y-%m-%d %H:%M') if cluster.updated_at else 'Unknown' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                {% if cluster.description %}
+                <div class="mt-3">
+                    <strong>Description:</strong>
+                    <p class="text-muted">{{ cluster.description }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-bar-chart"></i> Statistics
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <div class="border rounded p-2">
+                            <h4 class="text-primary mb-0">{{ stats.total_nodes }}</h4>
+                            <small class="text-muted">Total Nodes</small>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="border rounded p-2">
+                            <h4 class="text-success mb-0">{{ stats.online_nodes }}</h4>
+                            <small class="text-muted">Online</small>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="border rounded p-2">
+                            <h4 class="text-danger mb-0">{{ stats.offline_nodes }}</h4>
+                            <small class="text-muted">Offline</small>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="border rounded p-2">
+                            <h4 class="text-info mb-0">{{ stats.wol_configured_nodes }}</h4>
+                            <small class="text-muted">WoL Ready</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cluster Nodes -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-server"></i> Cluster Nodes ({{ stats.total_nodes }})
+                </h5>
+                <a href="{{ url_for('web.add_node') }}?cluster_id={{ cluster.id }}" class="btn btn-sm btn-primary">
+                    <i class="bi bi-plus"></i> Add Node
+                </a>
+            </div>
+            <div class="card-body">
+                {% if nodes %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Hostname</th>
+                                <th>IP Address</th>
+                                <th>Status</th>
+                                <th>MicroK8s</th>
+                                <th>Role</th>
+                                <th>Wake-on-LAN</th>
+                                <th>Last Seen</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for node in nodes %}
+                            <tr>
+                                <td>{{ node.id }}</td>
+                                <td>
+                                    <strong>{{ node.hostname }}</strong>
+                                    {% if node.notes %}
+                                        <br><small class="text-muted">{{ node.notes[:50] }}{% if node.notes|length > 50 %}...{% endif %}</small>
+                                    {% endif %}
+                                </td>
+                                <td>{{ node.ip_address }}</td>
+                                <td>
+                                    {% if node.status == 'online' %}
+                                        <span class="badge bg-success">{{ node.status }}</span>
+                                    {% elif node.status == 'offline' %}
+                                        <span class="badge bg-danger">{{ node.status }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ node.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if node.microk8s_status == 'running' %}
+                                        <span class="badge bg-success">{{ node.microk8s_status }}</span>
+                                    {% elif node.microk8s_status == 'installed' %}
+                                        <span class="badge bg-warning">{{ node.microk8s_status }}</span>
+                                    {% elif node.microk8s_status == 'not_installed' %}
+                                        <span class="badge bg-secondary">{{ node.microk8s_status }}</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">{{ node.microk8s_status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if node.is_control_plane %}
+                                        <span class="badge bg-primary">Control Plane</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Worker</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if node.wol_configured %}
+                                        <span class="badge bg-success" title="{{ node.wol_description }}">
+                                            <i class="bi bi-lightning-fill"></i> Ready
+                                        </span>
+                                    {% elif node.wol_enabled %}
+                                        <span class="badge bg-warning" title="{{ node.wol_description }}">
+                                            <i class="bi bi-exclamation-triangle"></i> Partial
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary" title="{{ node.wol_description }}">
+                                            <i class="bi bi-x-circle"></i> Disabled
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if node.last_seen %}
+                                        {{ node.last_seen.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        <span class="text-muted">Never</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                            Actions
+                                        </button>
+                                        <ul class="dropdown-menu">
+                                            <li><a class="dropdown-item" href="#" onclick="checkNodeStatus({{ node.id }})">
+                                                <i class="bi bi-arrow-clockwise"></i> Check Status
+                                            </a></li>
+                                            <li><a class="dropdown-item" href="{{ url_for('web.node_hardware_report', node_id=node.id) }}">
+                                                <i class="bi bi-cpu"></i> Hardware Report
+                                            </a></li>
+                                            {% if node.microk8s_status == 'not_installed' %}
+                                            <li><a class="dropdown-item" href="#" onclick="installMicroK8s({{ node.id }})">
+                                                <i class="bi bi-download"></i> Install MicroK8s
+                                            </a></li>
+                                            {% endif %}
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><a class="dropdown-item text-success" href="#" onclick="wakeNode({{ node.id }}, '{{ node.hostname }}')">
+                                                <i class="bi bi-lightning"></i> Wake Node
+                                            </a></li>
+                                            <li><a class="dropdown-item" href="#" onclick="configureWoL({{ node.id }}, '{{ node.hostname }}')">
+                                                <i class="bi bi-gear"></i> Configure WoL
+                                            </a></li>
+                                            <li><a class="dropdown-item" href="#" onclick="collectMacAddress({{ node.id }}, '{{ node.hostname }}')">
+                                                <i class="bi bi-wifi"></i> Collect MAC
+                                            </a></li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><a class="dropdown-item text-danger" href="#" onclick="deleteNode({{ node.id }}, '{{ node.hostname }}')">
+                                                <i class="bi bi-trash"></i> Delete
+                                            </a></li>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-server fs-1 text-muted"></i>
+                    <h4 class="mt-3">No Nodes in Cluster</h4>
+                    <p class="text-muted">Get started by adding nodes to this cluster.</p>
+                    <a href="{{ url_for('web.add_node') }}?cluster_id={{ cluster.id }}" class="btn btn-primary">
+                        <i class="bi bi-plus"></i> Add First Node
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Operations -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-clock-history"></i> Recent Operations
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if recent_operations %}
+                <div class="list-group list-group-flush">
+                    {% for operation in recent_operations %}
+                    <div class="list-group-item d-flex justify-content-between align-items-start">
+                        <div class="ms-2 me-auto">
+                            <div class="fw-bold">{{ operation.operation_name }}</div>
+                            <small class="text-muted">{{ operation.description[:100] }}{% if operation.description|length > 100 %}...{% endif %}</small>
+                        </div>
+                        <div class="text-end">
+                            {% if operation.status == 'completed' %}
+                                <span class="badge bg-success">{{ operation.status }}</span>
+                            {% elif operation.status == 'running' %}
+                                <span class="badge bg-primary">{{ operation.status }}</span>
+                            {% elif operation.status == 'failed' %}
+                                <span class="badge bg-danger">{{ operation.status }}</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ operation.status }}</span>
+                            {% endif %}
+                            <br>
+                            <small class="text-muted">{{ operation.created_at.strftime('%m-%d %H:%M') if operation.created_at else 'Unknown' }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('web.operations') }}?cluster_id={{ cluster.id }}" class="btn btn-sm btn-outline-primary">
+                        View All Operations
+                    </a>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-clock-history fs-1 text-muted"></i>
+                    <h5 class="mt-3">No Recent Operations</h5>
+                    <p class="text-muted">Operations will appear here as they are performed on this cluster.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="bi bi-battery-charging"></i> UPS Power Rules
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if ups_rules %}
+                <div class="list-group list-group-flush">
+                    {% for rule in ups_rules %}
+                    <div class="list-group-item d-flex justify-content-between align-items-start">
+                        <div class="ms-2 me-auto">
+                            <div class="fw-bold">{{ rule.name }}</div>
+                            <small class="text-muted">{{ rule.get_event_description() }} → {{ rule.get_action_description() }}</small>
+                        </div>
+                        <div class="text-end">
+                            {% if rule.enabled %}
+                                <span class="badge bg-success">Enabled</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Disabled</span>
+                            {% endif %}
+                            <br>
+                            <small class="text-muted">Priority: {{ rule.priority }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('web.ups_rules') }}?cluster_id={{ cluster.id }}" class="btn btn-sm btn-outline-primary">
+                        Manage UPS Rules
+                    </a>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-battery-charging fs-1 text-muted"></i>
+                    <h5 class="mt-3">No UPS Rules</h5>
+                    <p class="text-muted">Create UPS power management rules to automate cluster operations.</p>
+                    <a href="{{ url_for('web.ups_rule_create') }}?cluster_id={{ cluster.id }}" class="btn btn-sm btn-primary">
+                        <i class="bi bi-plus"></i> Create Rule
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Wake-on-LAN Configuration Modal -->
+<div class="modal fade" id="wolConfigModal" tabindex="-1" aria-labelledby="wolConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="wolConfigModalLabel">Configure Wake-on-LAN</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="wolConfigForm">
+                    <input type="hidden" id="wolNodeId" name="nodeId">
+                    <div class="mb-3">
+                        <label for="wolNodeName" class="form-label">Node</label>
+                        <input type="text" class="form-control" id="wolNodeName" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="wolEnabled" name="wolEnabled">
+                            <label class="form-check-label" for="wolEnabled">
+                                Enable Wake-on-LAN
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="isVirtualNode" name="isVirtualNode">
+                            <label class="form-check-label" for="isVirtualNode">
+                                Virtual Node (Proxmox VM)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3" id="macAddressGroup">
+                        <label for="wolMacAddress" class="form-label">MAC Address</label>
+                        <input type="text" class="form-control" id="wolMacAddress" name="macAddress" 
+                               placeholder="aa:bb:cc:dd:ee:ff" pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$">
+                        <div class="form-text">Enter the MAC address of the network interface for Wake-on-LAN</div>
+                    </div>
+                    <div class="mb-3" id="proxmoxGroup" style="display: none;">
+                        <label for="proxmoxVmId" class="form-label">Proxmox VM ID</label>
+                        <input type="number" class="form-control" id="proxmoxVmId" name="proxmoxVmId" placeholder="101">
+                    </div>
+                    <div class="mb-3" id="proxmoxHostGroup" style="display: none;">
+                        <label for="proxmoxHostId" class="form-label">Proxmox Host ID</label>
+                        <input type="number" class="form-control" id="proxmoxHostId" name="proxmoxHostId" placeholder="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolMethod" class="form-label">Wake Method</label>
+                        <select class="form-select" id="wolMethod" name="wolMethod">
+                            <option value="ethernet">Ethernet</option>
+                            <option value="wifi">WiFi</option>
+                            <option value="pci">PCI</option>
+                            <option value="usb">USB</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolPort" class="form-label">UDP Port</label>
+                        <input type="number" class="form-control" id="wolPort" name="wolPort" value="9" min="1" max="65535">
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolBroadcast" class="form-label">Broadcast Address (Optional)</label>
+                        <input type="text" class="form-control" id="wolBroadcast" name="wolBroadcast" 
+                               placeholder="255.255.255.255">
+                        <div class="form-text">Leave empty for default broadcast address</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveWoLConfig()">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Include all the JavaScript functions from nodes.html
+function viewNodeDetails(nodeId) {
+    // For now, just show an alert. This can be expanded to show a modal or navigate to a details page
+    alert(`View details for node ${nodeId} - Feature coming soon!`);
+}
+
+function checkNodeStatus(nodeId) {
+    if (confirm('Check the status of this node?')) {
+        fetch(`/api/nodes/${nodeId}/check-status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error checking status: ' + data.error);
+            } else {
+                alert('Status check started. Check the operations page for progress.');
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error starting status check: ' + error);
+        });
+    }
+}
+
+function installMicroK8s(nodeId) {
+    if (confirm('Install MicroK8s on this node? This may take several minutes.')) {
+        fetch(`/api/nodes/${nodeId}/install-microk8s`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('MicroK8s installation started. Check the operations page for progress.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting installation: ' + error);
+        });
+    }
+}
+
+function deleteNode(nodeId, hostname) {
+    if (confirm(`Are you sure you want to delete node '${hostname}'? This action cannot be undone.`)) {
+        fetch(`/api/nodes/${nodeId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (response.ok) {
+                alert('Node deleted successfully.');
+                location.reload();
+            } else {
+                alert('Error deleting node.');
+            }
+        })
+        .catch(error => {
+            alert('Error deleting node: ' + error);
+        });
+    }
+}
+
+function wakeNode(nodeId, hostname) {
+    if (confirm(`Send Wake-on-LAN packet to node '${hostname}'?`)) {
+        fetch(`/api/nodes/${nodeId}/wol/wake`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                retries: 3,
+                delay: 1.0
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Successfully sent ${data.packets_sent} Wake-on-LAN packets to ${hostname}.`);
+            } else {
+                alert(`Failed to wake ${hostname}: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            alert('Error sending Wake-on-LAN packet: ' + error);
+        });
+    }
+}
+
+function configureWoL(nodeId, hostname) {
+    // Load current node data and populate modal
+    fetch(`/api/nodes/${nodeId}/wol/status`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error loading node status: ' + data.error);
+                return;
+            }
+            
+            // Populate modal with current values
+            document.getElementById('wolNodeId').value = nodeId;
+            document.getElementById('wolNodeName').value = hostname;
+            document.getElementById('wolEnabled').checked = data.wol_enabled || false;
+            document.getElementById('isVirtualNode').checked = data.is_virtual_node || false;
+            document.getElementById('wolMacAddress').value = data.mac_address || '';
+            document.getElementById('proxmoxVmId').value = data.proxmox_vm_id || '';
+            document.getElementById('proxmoxHostId').value = data.proxmox_host_id || '';
+            document.getElementById('wolMethod').value = data.method || 'ethernet';
+            document.getElementById('wolPort').value = data.port || 9;
+            document.getElementById('wolBroadcast').value = data.broadcast_address || '';
+            
+            // Toggle virtual node fields
+            toggleVirtualNodeFields();
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('wolConfigModal'));
+            modal.show();
+        })
+        .catch(error => {
+            alert('Error loading node status: ' + error);
+        });
+}
+
+function toggleVirtualNodeFields() {
+    const isVirtual = document.getElementById('isVirtualNode').checked;
+    const macAddressGroup = document.getElementById('macAddressGroup');
+    const proxmoxGroup = document.getElementById('proxmoxGroup');
+    const proxmoxHostGroup = document.getElementById('proxmoxHostGroup');
+    
+    if (isVirtual) {
+        macAddressGroup.style.display = 'none';
+        proxmoxGroup.style.display = 'block';
+        proxmoxHostGroup.style.display = 'block';
+    } else {
+        macAddressGroup.style.display = 'block';
+        proxmoxGroup.style.display = 'none';
+        proxmoxHostGroup.style.display = 'none';
+    }
+}
+
+function saveWoLConfig() {
+    const nodeId = document.getElementById('wolNodeId').value;
+    const hostname = document.getElementById('wolNodeName').value;
+    
+    const configData = {
+        wol_enabled: document.getElementById('wolEnabled').checked,
+        wol_mac_address: document.getElementById('wolMacAddress').value,
+        wol_method: document.getElementById('wolMethod').value,
+        wol_port: parseInt(document.getElementById('wolPort').value),
+        wol_broadcast_address: document.getElementById('wolBroadcast').value || null,
+        is_virtual_node: document.getElementById('isVirtualNode').checked
+    };
+    
+    // Add Proxmox fields if virtual node
+    if (configData.is_virtual_node) {
+        const proxmoxVmId = document.getElementById('proxmoxVmId').value;
+        const proxmoxHostId = document.getElementById('proxmoxHostId').value;
+        
+        if (proxmoxVmId) configData.proxmox_vm_id = parseInt(proxmoxVmId);
+        if (proxmoxHostId) configData.proxmox_host_id = parseInt(proxmoxHostId);
+    }
+    
+    fetch(`/api/nodes/${nodeId}/wol/configure`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(configData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Wake-on-LAN configuration updated for ${hostname}.`);
+            bootstrap.Modal.getInstance(document.getElementById('wolConfigModal')).hide();
+            location.reload();
+        } else {
+            alert(`Failed to configure Wake-on-LAN: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert('Error configuring Wake-on-LAN: ' + error);
+    });
+}
+
+function collectMacAddress(nodeId, hostname) {
+    if (confirm(`Collect MAC address from node '${hostname}'? This requires SSH access.`)) {
+        fetch(`/api/nodes/wol/collect-mac`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                node_ids: [nodeId]
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data[hostname] && data[hostname].success) {
+                const macAddresses = data[hostname].mac_addresses;
+                let message = `Found ${macAddresses.length} network interfaces:\n\n`;
+                macAddresses.forEach(mac => {
+                    message += `${mac.interface}: ${mac.mac_address}\n`;
+                });
+                message += '\nUse "Configure WoL" to set the MAC address for Wake-on-LAN.';
+                alert(message);
+            } else {
+                alert(`Failed to collect MAC address from ${hostname}: ${data[hostname]?.error || 'Unknown error'}`);
+            }
+        })
+        .catch(error => {
+            alert('Error collecting MAC address: ' + error);
+        });
+    }
+}
+
+// Cluster management functions
+function setupCluster(clusterId) {
+    if (confirm('Setup this cluster? This will configure MicroK8s on all nodes.')) {
+        fetch(`/api/clusters/${clusterId}/setup`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error starting cluster setup: ' + data.error);
+            } else {
+                alert('Cluster setup started. Check the operations page for progress.');
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error starting cluster setup: ' + error);
+        });
+    }
+}
+
+function scanCluster(clusterId) {
+    if (confirm('Scan this cluster? This will check the status of all nodes.')) {
+        fetch(`/api/clusters/${clusterId}/scan`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error starting cluster scan: ' + data.error);
+            } else {
+                alert('Cluster scan started. Check the operations page for progress.');
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error starting cluster scan: ' + error);
+        });
+    }
+}
+
+function wakeCluster(clusterId, clusterName) {
+    if (confirm(`Send Wake-on-LAN packets to all nodes in cluster '${clusterName}'?`)) {
+        fetch(`/api/clusters/${clusterId}/wol/wake`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                retries: 3,
+                delay: 1.0
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const successfulNodes = data.successful_nodes || 0;
+                const totalNodes = data.total_nodes || 0;
+                alert(`Successfully sent Wake-on-LAN packets to ${successfulNodes}/${totalNodes} nodes in cluster '${clusterName}'.`);
+                
+                // Show detailed results if available
+                if (data.results) {
+                    let details = 'Detailed results:\n\n';
+                    for (const [hostname, result] of Object.entries(data.results)) {
+                        if (result.success) {
+                            details += `✓ ${hostname}: ${result.packets_sent} packets sent\n`;
+                        } else {
+                            details += `✗ ${hostname}: ${result.error}\n`;
+                        }
+                    }
+                    console.log(details); // Log to console for debugging
+                }
+            } else {
+                alert(`Failed to wake cluster '${clusterName}': ${data.error}`);
+            }
+        })
+        .catch(error => {
+            alert('Error sending Wake-on-LAN packets: ' + error);
+        });
+    }
+}
+
+function shutdownCluster(clusterId, clusterName, graceful) {
+    const shutdownType = graceful ? 'graceful' : 'force';
+    const confirmMessage = graceful 
+        ? `Are you sure you want to gracefully shutdown cluster '${clusterName}'? This will safely stop all services and workloads.`
+        : `Are you sure you want to force shutdown cluster '${clusterName}'? This will immediately terminate all services and may cause data loss.`;
+    
+    if (confirm(confirmMessage)) {
+        fetch(`/api/clusters/${clusterId}/shutdown`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                graceful: graceful
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error starting cluster shutdown: ' + data.error);
+            } else {
+                alert(`${shutdownType.charAt(0).toUpperCase() + shutdownType.slice(1)} shutdown started for cluster '${clusterName}'. Check the operations page for progress.`);
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error starting cluster shutdown: ' + error);
+        });
+    }
+}
+
+function editCluster(clusterId) {
+    // For now, just show an alert. This can be expanded to show an edit modal or navigate to an edit page
+    alert(`Edit cluster ${clusterId} - Feature coming soon!`);
+}
+
+function deleteCluster(clusterId, clusterName) {
+    if (confirm(`Are you sure you want to delete cluster '${clusterName}'? This action cannot be undone.`)) {
+        fetch(`/api/clusters/${clusterId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (response.ok) {
+                alert('Cluster deleted successfully.');
+                window.location.href = '/clusters';
+            } else {
+                alert('Error deleting cluster.');
+            }
+        })
+        .catch(error => {
+            alert('Error deleting cluster: ' + error);
+        });
+    }
+}
+
+// Add event listener for virtual node checkbox
+document.addEventListener('DOMContentLoaded', function() {
+    const isVirtualCheckbox = document.getElementById('isVirtualNode');
+    if (isVirtualCheckbox) {
+        isVirtualCheckbox.addEventListener('change', toggleVirtualNodeFields);
+    }
+});
+</script>
+{% endblock %}

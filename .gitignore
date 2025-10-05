@@ -71,3 +71,5 @@ Thumbs.db
 *.bak
 *.backup
 ansible/inventory/dynamic_inventory.ini
+ssh_keys/*
+cookies.txt

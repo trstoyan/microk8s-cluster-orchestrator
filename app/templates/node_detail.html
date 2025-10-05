@@ -1,0 +1,847 @@
+{% extends "base.html" %}
+
+{% block title %}{{ node.hostname }} - Node Details - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}{{ node.hostname }} - Node Details{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <!-- Node Overview -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Node Overview</h5>
+                <div class="btn-group btn-group-sm">
+                    <a href="{{ url_for('web.nodes') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Nodes
+                    </a>
+                    <a href="{{ url_for('web.node_hardware_report', node_id=node.id) }}" class="btn btn-outline-primary">
+                        <i class="bi bi-cpu"></i> Hardware Report
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Hostname:</strong></td>
+                                <td>{{ node.hostname }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>IP Address:</strong></td>
+                                <td>{{ node.ip_address }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td>
+                                    {% if node.status == 'online' %}
+                                        <span class="badge bg-success">{{ node.status }}</span>
+                                    {% elif node.status == 'offline' %}
+                                        <span class="badge bg-danger">{{ node.status }}</span>
+                                    {% elif node.status == 'error' %}
+                                        <span class="badge bg-danger">{{ node.status }}</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">{{ node.status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>MicroK8s Status:</strong></td>
+                                <td>
+                                    {% if node.microk8s_status == 'running' %}
+                                        <span class="badge bg-success">{{ node.microk8s_status }}</span>
+                                    {% elif node.microk8s_status == 'installed' %}
+                                        <span class="badge bg-info">{{ node.microk8s_status }}</span>
+                                    {% elif node.microk8s_status == 'not_installed' %}
+                                        <span class="badge bg-secondary">not installed</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">{{ node.microk8s_status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Control Plane:</strong></td>
+                                <td>
+                                    {% if node.is_control_plane %}
+                                        <i class="bi bi-check-circle text-success"></i> Yes
+                                    {% else %}
+                                        <i class="bi bi-dash-circle text-muted"></i> No
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Cluster:</strong></td>
+                                <td>
+                                    {% if node.cluster %}
+                                        <a href="{{ url_for('web.cluster_detail', cluster_id=node.cluster.id) }}" class="text-decoration-none">{{ node.cluster.name }}</a>
+                                    {% else %}
+                                        <span class="text-muted">Not assigned</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>OS Version:</strong></td>
+                                <td>{{ node.os_version or 'Unknown' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Kernel:</strong></td>
+                                <td>{{ node.kernel_version or 'Unknown' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>CPU Cores:</strong></td>
+                                <td>{{ node.cpu_cores or 'Unknown' }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Memory:</strong></td>
+                                <td>{{ node.memory_gb or 'Unknown' }} GB</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Disk:</strong></td>
+                                <td>{{ node.disk_gb or 'Unknown' }} GB</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Last Seen:</strong></td>
+                                <td>
+                                    {% if node.last_seen %}
+                                        {{ node.last_seen.strftime('%Y-%m-%d %H:%M:%S') }}
+                                    {% else %}
+                                        <span class="text-muted">Never</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SSH Key Management -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-key"></i> SSH Key Management
+                    <span class="badge bg-{% if node.ssh_connection_ready %}success{% elif node.ssh_key_ready %}warning{% else %}secondary{% endif %} ms-2">
+                        {{ node.ssh_status_description|default('Not Generated') }}
+                    </span>
+                </h5>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-info" onclick="checkSSHKeyStatus({{ node.id }})">
+                        <i class="bi bi-search"></i> Check Keys
+                    </button>
+                    {% if node.ssh_key_generated|default(false) %}
+                    <a href="{{ url_for('web.node_ssh_setup', node_id=node.id) }}" class="btn btn-outline-primary">
+                        <i class="bi bi-gear"></i> SSH Setup
+                    </a>
+                    {% endif %}
+                    <button type="button" class="btn btn-outline-warning" onclick="regenerateSSHKey({{ node.id }}, '{{ node.hostname }}')">
+                        <i class="bi bi-arrow-clockwise"></i> Regenerate
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Key Information</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Status:</strong> 
+                                {% if node.ssh_key_generated|default(false) %}
+                                    <span class="badge bg-success">Generated</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Not Generated</span>
+                                {% endif %}
+                            </li>
+                            <li><strong>Fingerprint:</strong> 
+                                <code>{{ node.ssh_key_fingerprint|default('Not available') }}</code>
+                            </li>
+                            <li><strong>Key Type:</strong> RSA 2048-bit</li>
+                            <li><strong>Connection Tested:</strong> 
+                                {% if node.ssh_connection_tested|default(false) %}
+                                    <span class="text-success">Yes</span>
+                                {% else %}
+                                    <span class="text-warning">No</span>
+                                {% endif %}
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Connection Details</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>SSH User:</strong> {{ node.ssh_user }}</li>
+                            <li><strong>SSH Port:</strong> {{ node.ssh_port }}</li>
+                            <li><strong>Key Path:</strong> 
+                                <code>{{ node.ssh_key_path|default('Not set') }}</code>
+                            </li>
+                            <li><strong>Ready for Operations:</strong> 
+                                {% if node.ssh_connection_ready|default(false) %}
+                                    <span class="text-success"><i class="bi bi-check-circle"></i> Yes</span>
+                                {% else %}
+                                    <span class="text-warning"><i class="bi bi-exclamation-triangle"></i> No</span>
+                                {% endif %}
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                
+                {% if node.ssh_connection_test_result|default('') %}
+                <div class="mt-3">
+                    <h6>Last Connection Test Result</h6>
+                    <div class="alert alert-{% if 'success' in node.ssh_connection_test_result %}success{% else %}danger{% endif %}">
+                        <pre class="mb-0">{{ node.ssh_connection_test_result }}</pre>
+                    </div>
+                </div>
+                {% endif %}
+                
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>SSH Key Management:</strong> 
+                    {% if node.ssh_key_generated|default(false) %}
+                        SSH key has been generated. Use the SSH Setup button to view setup instructions and test the connection.
+                    {% else %}
+                        No SSH key has been generated for this node. Use the "Regenerate" button to create a new SSH key pair.
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Longhorn Prerequisites Status -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Longhorn Prerequisites</h5>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-primary" onclick="checkLonghornPrerequisites({{ node.id }})">
+                        <i class="bi bi-arrow-clockwise"></i> Check Prerequisites
+                    </button>
+                    <button type="button" class="btn btn-outline-success" onclick="installLonghornPrerequisites({{ node.id }})">
+                        <i class="bi bi-download"></i> Install Prerequisites
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Required Packages</h6>
+                        <ul class="list-unstyled">
+                            <li>
+                                <i class="bi bi-check-circle text-success"></i> lvm2
+                                <small class="text-muted">- Logical Volume Manager</small>
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle text-success"></i> liblvm2cmd2.03
+                                <small class="text-muted">- LVM2 command library</small>
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle text-success"></i> nfs-common
+                                <small class="text-muted">- NFS support files</small>
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle text-success"></i> open-iscsi
+                                <small class="text-muted">- iSCSI initiator tools</small>
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle text-success"></i> util-linux
+                                <small class="text-muted">- System utilities</small>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Required Services</h6>
+                        <ul class="list-unstyled">
+                            <li>
+                                <i class="bi bi-check-circle text-success"></i> iscsid
+                                <small class="text-muted">- iSCSI daemon</small>
+                            </li>
+                            <li>
+                                <i class="bi bi-check-circle text-success"></i> multipathd
+                                <small class="text-muted">- Multipath daemon</small>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Note:</strong> These prerequisites are required for Longhorn to function properly. 
+                    Run the prerequisite check to verify the current status on this node.
+                </div>
+            </div>
+        </div>
+
+        <!-- System Information -->
+        {% if parsed_info.hardware %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">System Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% if parsed_info.cpu %}
+                    <div class="col-md-6">
+                        <h6>CPU Information</h6>
+                        <ul class="list-unstyled">
+                            {% if parsed_info.cpu.model %}
+                            <li><strong>Model:</strong> {{ parsed_info.cpu.model }}</li>
+                            {% endif %}
+                            {% if parsed_info.cpu.architecture %}
+                            <li><strong>Architecture:</strong> {{ parsed_info.cpu.architecture }}</li>
+                            {% endif %}
+                            {% if parsed_info.cpu.cores %}
+                            <li><strong>Cores:</strong> {{ parsed_info.cpu.cores }}</li>
+                            {% endif %}
+                            {% if parsed_info.cpu.threads %}
+                            <li><strong>Threads:</strong> {{ parsed_info.cpu.threads }}</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    {% if parsed_info.memory %}
+                    <div class="col-md-6">
+                        <h6>Memory Information</h6>
+                        <ul class="list-unstyled">
+                            {% if parsed_info.memory.total %}
+                            <li><strong>Total:</strong> {{ parsed_info.memory.total }}</li>
+                            {% endif %}
+                            {% if parsed_info.memory.available %}
+                            <li><strong>Available:</strong> {{ parsed_info.memory.available }}</li>
+                            {% endif %}
+                            {% if parsed_info.memory.type %}
+                            <li><strong>Type:</strong> {{ parsed_info.memory.type }}</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Recent Operations -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Recent Operations</h5>
+            </div>
+            <div class="card-body">
+                {% if recent_operations %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Operation</th>
+                                <th>Status</th>
+                                <th>Started</th>
+                                <th>Completed</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for operation in recent_operations %}
+                            <tr>
+                                <td>
+                                    <strong>{{ operation.operation_name }}</strong>
+                                    {% if operation.description %}
+                                    <br><small class="text-muted">{{ operation.description }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if operation.status == 'completed' %}
+                                        <span class="badge bg-success">{{ operation.status }}</span>
+                                    {% elif operation.status == 'failed' %}
+                                        <span class="badge bg-danger">{{ operation.status }}</span>
+                                    {% elif operation.status == 'running' %}
+                                        <span class="badge bg-warning">{{ operation.status }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ operation.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if operation.started_at %}
+                                        {{ operation.started_at.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if operation.completed_at %}
+                                        {{ operation.completed_at.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('web.operation_detail', operation_id=operation.id) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-eye"></i> View
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No operations found for this node.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <!-- Quick Actions -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-outline-primary" onclick="checkStatus({{ node.id }})">
+                        <i class="bi bi-arrow-clockwise"></i> Check Status
+                    </button>
+                    {% if node.microk8s_status == 'not_installed' %}
+                    <button type="button" class="btn btn-outline-success" onclick="installMicroK8s({{ node.id }})">
+                        <i class="bi bi-download"></i> Install MicroK8s
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="setupNewNode({{ node.id }})">
+                        <i class="bi bi-gear"></i> Complete Setup
+                    </button>
+                    {% endif %}
+                    {% if node.wol_configured %}
+                    <button type="button" class="btn btn-outline-warning" onclick="wakeNode({{ node.id }}, '{{ node.hostname }}')">
+                        <i class="bi bi-lightning"></i> Wake Node
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-outline-secondary" onclick="configureWoL({{ node.id }}, '{{ node.hostname }}')">
+                        <i class="bi bi-gear"></i> Configure WoL
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Node Statistics -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <div class="border-end">
+                            <h4 class="text-success">{{ stats.successful_operations }}</h4>
+                            <small class="text-muted">Successful Operations</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <h4 class="text-danger">{{ stats.failed_operations }}</h4>
+                        <small class="text-muted">Failed Operations</small>
+                    </div>
+                </div>
+                <hr>
+                <div class="row text-center">
+                    <div class="col-4">
+                        <div class="mb-2">
+                            {% if stats.ssh_ready %}
+                                <i class="bi bi-check-circle text-success fs-4"></i>
+                            {% else %}
+                                <i class="bi bi-x-circle text-danger fs-4"></i>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">SSH Ready</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="mb-2">
+                            {% if stats.wol_configured %}
+                                <i class="bi bi-check-circle text-success fs-4"></i>
+                            {% else %}
+                                <i class="bi bi-x-circle text-danger fs-4"></i>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">WoL Configured</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="mb-2">
+                            {% if stats.microk8s_ready %}
+                                <i class="bi bi-check-circle text-success fs-4"></i>
+                            {% else %}
+                                <i class="bi bi-x-circle text-danger fs-4"></i>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted">MicroK8s Ready</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Node Notes -->
+        {% if node.notes %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Notes</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">{{ node.notes }}</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Wake-on-LAN Configuration Modal -->
+<div class="modal fade" id="wolConfigModal" tabindex="-1" aria-labelledby="wolConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="wolConfigModalLabel">Configure Wake-on-LAN</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="wolConfigForm">
+                    <input type="hidden" id="wolNodeId" name="nodeId">
+                    <div class="mb-3">
+                        <label for="wolNodeName" class="form-label">Node</label>
+                        <input type="text" class="form-control" id="wolNodeName" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="wolEnabled" name="wolEnabled">
+                            <label class="form-check-label" for="wolEnabled">
+                                Enable Wake-on-LAN
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="isVirtualNode" name="isVirtualNode">
+                            <label class="form-check-label" for="isVirtualNode">
+                                Virtual Node (Proxmox VM)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3" id="macAddressGroup">
+                        <label for="wolMacAddress" class="form-label">MAC Address</label>
+                        <input type="text" class="form-control" id="wolMacAddress" name="macAddress" 
+                               placeholder="aa:bb:cc:dd:ee:ff" pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$">
+                        <div class="form-text">Enter the MAC address of the network interface for Wake-on-LAN</div>
+                    </div>
+                    <div class="mb-3" id="proxmoxGroup" style="display: none;">
+                        <label for="proxmoxVmId" class="form-label">Proxmox VM ID</label>
+                        <input type="number" class="form-control" id="proxmoxVmId" name="proxmoxVmId" placeholder="101">
+                    </div>
+                    <div class="mb-3" id="proxmoxHostGroup" style="display: none;">
+                        <label for="proxmoxHostId" class="form-label">Proxmox Host ID</label>
+                        <input type="number" class="form-control" id="proxmoxHostId" name="proxmoxHostId" placeholder="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolMethod" class="form-label">Wake Method</label>
+                        <select class="form-select" id="wolMethod" name="wolMethod">
+                            <option value="ethernet">Ethernet</option>
+                            <option value="wifi">WiFi</option>
+                            <option value="pci">PCI</option>
+                            <option value="usb">USB</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolPort" class="form-label">UDP Port</label>
+                        <input type="number" class="form-control" id="wolPort" name="wolPort" value="9" min="1" max="65535">
+                    </div>
+                    <div class="mb-3">
+                        <label for="wolBroadcast" class="form-label">Broadcast Address (Optional)</label>
+                        <input type="text" class="form-control" id="wolBroadcast" name="wolBroadcast" 
+                               placeholder="255.255.255.255">
+                        <div class="form-text">Leave empty for default broadcast address</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveWoLConfig()">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function checkStatus(nodeId) {
+    if (confirm('Check the status of this node?')) {
+        fetch(`/api/nodes/${nodeId}/check-status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Status check started. Check the operations page for results.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting status check: ' + error);
+        });
+    }
+}
+
+function installMicroK8s(nodeId) {
+    if (confirm('Install MicroK8s on this node? This may take several minutes.')) {
+        fetch(`/api/nodes/${nodeId}/install-microk8s`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('MicroK8s installation started. Check the operations page for progress.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting installation: ' + error);
+        });
+    }
+}
+
+function setupNewNode(nodeId) {
+    if (confirm('Perform complete setup of this node? This will install all prerequisites, MicroK8s, and configure Longhorn support. This may take 10-15 minutes.')) {
+        fetch(`/api/nodes/${nodeId}/setup-new-node`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Complete node setup started. Check the operations page for progress.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting node setup: ' + error);
+        });
+    }
+}
+
+function checkSSHKeyStatus(nodeId) {
+    if (confirm('Check SSH key status and file existence?')) {
+        fetch(`/api/nodes/${nodeId}/check-ssh-keys`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                let message = 'SSH Key Status Check Results:\n\n';
+                message += `Key Files Exist: ${data.key_files_exist ? 'Yes' : 'No'}\n`;
+                message += `Database Status: ${data.database_status}\n`;
+                message += `Key Fingerprint: ${data.fingerprint || 'Not available'}\n`;
+                message += `Key Path: ${data.key_path || 'Not set'}\n`;
+                
+                if (data.sync_needed) {
+                    message += '\n⚠️ Database synchronization needed. The system will attempt to fix this automatically.';
+                }
+                
+                alert(message);
+                location.reload();
+            } else {
+                alert('Error checking SSH key status: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error checking SSH key status: ' + error);
+        });
+    }
+}
+
+function regenerateSSHKey(nodeId, hostname) {
+    if (confirm(`Regenerate SSH key for node '${hostname}'? This will invalidate the current key and require re-setup on the target node.`)) {
+        fetch(`/api/nodes/${nodeId}/regenerate-ssh-key`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`SSH key regenerated successfully for ${hostname}. Please follow the new setup instructions.`);
+                location.reload();
+            } else {
+                alert('Error regenerating SSH key: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error regenerating SSH key: ' + error);
+        });
+    }
+}
+
+function checkLonghornPrerequisites(nodeId) {
+    if (confirm('Check Longhorn prerequisites on this node?')) {
+        fetch(`/api/nodes/${nodeId}/check-longhorn-prerequisites`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Longhorn prerequisites check started. Check the operations page for results.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting prerequisites check: ' + error);
+        });
+    }
+}
+
+function installLonghornPrerequisites(nodeId) {
+    if (confirm('Install Longhorn prerequisites on this node?')) {
+        fetch(`/api/nodes/${nodeId}/install-longhorn-prerequisites`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Longhorn prerequisites installation started. Check the operations page for progress.');
+            location.reload();
+        })
+        .catch(error => {
+            alert('Error starting prerequisites installation: ' + error);
+        });
+    }
+}
+
+function wakeNode(nodeId, hostname) {
+    if (confirm(`Send Wake-on-LAN packet to node '${hostname}'?`)) {
+        fetch(`/api/nodes/${nodeId}/wol/wake`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                retries: 3,
+                delay: 1.0
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Successfully sent ${data.packets_sent} Wake-on-LAN packets to ${hostname}.`);
+            } else {
+                alert(`Failed to wake ${hostname}: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            alert('Error sending Wake-on-LAN packet: ' + error);
+        });
+    }
+}
+
+function configureWoL(nodeId, hostname) {
+    // Load current node data and populate modal
+    fetch(`/api/nodes/${nodeId}/wol/status`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error loading node status: ' + data.error);
+                return;
+            }
+            
+            // Populate modal with current values
+            document.getElementById('wolNodeId').value = nodeId;
+            document.getElementById('wolNodeName').value = hostname;
+            document.getElementById('wolEnabled').checked = data.wol_enabled || false;
+            document.getElementById('isVirtualNode').checked = data.is_virtual_node || false;
+            document.getElementById('wolMacAddress').value = data.mac_address || '';
+            document.getElementById('proxmoxVmId').value = data.proxmox_vm_id || '';
+            document.getElementById('proxmoxHostId').value = data.proxmox_host_id || '';
+            document.getElementById('wolMethod').value = data.method || 'ethernet';
+            document.getElementById('wolPort').value = data.port || 9;
+            document.getElementById('wolBroadcast').value = data.broadcast_address || '';
+            
+            // Toggle virtual node fields
+            toggleVirtualNodeFields();
+            
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('wolConfigModal'));
+            modal.show();
+        })
+        .catch(error => {
+            alert('Error loading node status: ' + error);
+        });
+}
+
+function toggleVirtualNodeFields() {
+    const isVirtual = document.getElementById('isVirtualNode').checked;
+    const macAddressGroup = document.getElementById('macAddressGroup');
+    const proxmoxGroup = document.getElementById('proxmoxGroup');
+    const proxmoxHostGroup = document.getElementById('proxmoxHostGroup');
+    
+    if (isVirtual) {
+        macAddressGroup.style.display = 'none';
+        proxmoxGroup.style.display = 'block';
+        proxmoxHostGroup.style.display = 'block';
+    } else {
+        macAddressGroup.style.display = 'block';
+        proxmoxGroup.style.display = 'none';
+        proxmoxHostGroup.style.display = 'none';
+    }
+}
+
+function saveWoLConfig() {
+    const nodeId = document.getElementById('wolNodeId').value;
+    const hostname = document.getElementById('wolNodeName').value;
+    
+    const configData = {
+        wol_enabled: document.getElementById('wolEnabled').checked,
+        wol_mac_address: document.getElementById('wolMacAddress').value,
+        wol_method: document.getElementById('wolMethod').value,
+        wol_port: parseInt(document.getElementById('wolPort').value),
+        wol_broadcast_address: document.getElementById('wolBroadcast').value || null,
+        is_virtual_node: document.getElementById('isVirtualNode').checked
+    };
+    
+    // Add Proxmox fields if virtual node
+    if (configData.is_virtual_node) {
+        const proxmoxVmId = document.getElementById('proxmoxVmId').value;
+        const proxmoxHostId = document.getElementById('proxmoxHostId').value;
+        
+        if (proxmoxVmId) configData.proxmox_vm_id = parseInt(proxmoxVmId);
+        if (proxmoxHostId) configData.proxmox_host_id = parseInt(proxmoxHostId);
+    }
+    
+    fetch(`/api/nodes/${nodeId}/wol/configure`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(configData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Wake-on-LAN configuration updated for ${hostname}.`);
+            bootstrap.Modal.getInstance(document.getElementById('wolConfigModal')).hide();
+            location.reload();
+        } else {
+            alert(`Failed to configure Wake-on-LAN: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert('Error configuring Wake-on-LAN: ' + error);
+    });
+}
+
+// Add event listener for virtual node checkbox
+document.addEventListener('DOMContentLoaded', function() {
+    const isVirtualCheckbox = document.getElementById('isVirtualNode');
+    if (isVirtualCheckbox) {
+        isVirtualCheckbox.addEventListener('change', toggleVirtualNodeFields);
+    }
+});
+</script>
+{% endblock %}

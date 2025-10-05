@@ -5,6 +5,11 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
 ## Features
 
 - **Node Management**: Add, remove, and monitor cluster nodes
+- **SSH Key Management**: Automatic SSH key generation and secure authentication
+  - Unique SSH key pairs for each node
+  - Step-by-step setup instructions
+  - Connection testing and validation
+  - Key regeneration capabilities
 - **Cluster Orchestration**: Automated cluster setup, configuration, and graceful shutdown
 - **Ansible Integration**: Uses Ansible playbooks for all operations
 - **SQLite Database**: Persistent storage for cluster state and history
@@ -22,6 +27,13 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
   - Thermal sensor monitoring
   - Docker and Kubernetes volume tracking
   - LVM and RAID information
+- **Wake-on-LAN (WoL) Management**: Complete Wake-on-LAN functionality for cluster nodes
+  - WoL configuration for individual nodes with MAC address management
+  - Support for virtual nodes (Proxmox VMs) with special handling
+  - Manual wake-up operations from web interface and CLI
+  - Cluster-wide wake-up functionality
+  - Integration with UPS power management for automatic node startup
+  - Network information collection for MAC address discovery
 - **UPS Power Management**: Intelligent power management for Raspberry Pi 5 deployments
   - USB UPS device detection and configuration
   - NUT (Network UPS Tools) integration
@@ -30,6 +42,7 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
   - Configurable power management rules
   - Real-time UPS status monitoring
   - Battery charge, voltage, and runtime tracking
+  - Wake-on-LAN integration for automatic node startup after power restoration
 
 ## Architecture
 
@@ -72,8 +85,9 @@ The system follows a modular architecture with clear separation of concerns:
 - **Memory**: Minimum 2GB RAM (4GB+ recommended)
 - **Storage**: Minimum 10GB available disk space (20GB+ recommended)
 - **Network**: Internet connectivity and proper network configuration
-- **Privileges**: Sudo access with passwordless authentication
+- **Privileges**: Sudo access (passwordless authentication will be configured automatically)
 - **Services**: SSH server running and accessible
+- **SSH Access**: Initial SSH access (password or existing key) for setup
 
 #### Required System Packages
 ```bash
@@ -208,12 +222,18 @@ cd microk8s-cluster-orchestrator
    python cli.py init
    ```
 
+8. **Check and apply database migrations** (if upgrading from a previous version):
+   ```bash
+   python check_migrations.py
+   ```
+
 ### Basic Usage
 
-1. **Add a node**:
+1. **Add a node** (SSH key will be automatically generated):
    ```bash
-   python cli.py node add --hostname node1 --ip 192.168.1.10 --user ubuntu --key-path ~/.ssh/id_rsa
+   python cli.py node add --hostname node1 --ip 192.168.1.10 --user ubuntu
    ```
+   Follow the setup instructions to add the generated public key to the target node.
 
 2. **Create a cluster**:
    ```bash
@@ -241,6 +261,18 @@ cd microk8s-cluster-orchestrator
    ```
    Then open http://localhost:5000 in your browser.
 
+7. **Manage the web server**:
+   ```bash
+   # Check if web server is running
+   python cli.py web-status
+   
+   # Stop the web server gracefully
+   python cli.py web-stop
+   
+   # Force stop the web server
+   python cli.py web-stop --force
+   ```
+
 ## CLI Reference
 
 ### Node Management
@@ -249,8 +281,17 @@ cd microk8s-cluster-orchestrator
 # List all nodes
 python cli.py node list
 
-# Add a node
+# Add a node (SSH key automatically generated)
 python cli.py node add --hostname node1 --ip 192.168.1.10 --user ubuntu
+
+# Test SSH connection to a node
+python cli.py node test-ssh 1
+
+# Show SSH key status for a node
+python cli.py node ssh-status 1
+
+# Regenerate SSH key for a node
+python cli.py node regenerate-ssh-key 1
 
 # Remove a node
 python cli.py node remove 1
@@ -279,6 +320,28 @@ python cli.py cluster shutdown 1 --graceful
 
 # Force shutdown a cluster (immediate termination)
 python cli.py cluster shutdown 1 --force
+```
+
+### Web Server Management
+
+```bash
+# Start the web interface
+python cli.py web
+
+# Start with custom host and port
+python cli.py web --host 127.0.0.1 --port 8080
+
+# Start in debug mode
+python cli.py web --debug
+
+# Check web server status
+python cli.py web-status
+
+# Stop web server gracefully
+python cli.py web-stop
+
+# Force stop web server
+python cli.py web-stop --force
 ```
 
 ### Web Interface Operations
@@ -318,6 +381,28 @@ python cli.py web
 # Then navigate to: http://localhost:5000/hardware-report/node/1
 ```
 
+### Database Migrations
+
+```bash
+# Check migration status
+python cli.py migrate status
+
+# Run all pending migrations
+python cli.py migrate run
+
+# Dry run (show what would be executed)
+python cli.py migrate run --dry-run
+
+# Simple migration checker (user-friendly)
+python check_migrations.py
+
+# Check status only
+python check_migrations.py --status
+
+# Dry run with simple checker
+python check_migrations.py --dry-run
+```
+
 ### System Management
 
 ```bash
@@ -333,6 +418,34 @@ python cli.py system setup-privileges
 # Check orchestrator privileges
 python cli.py system check-privileges
 ```
+
+### SSH Key Management
+
+```bash
+# Add a node with automatic SSH key generation (default)
+python cli.py node add --hostname node1 --ip 192.168.1.10 --user ubuntu
+
+# Add a node without SSH key generation
+python cli.py node add --hostname node1 --ip 192.168.1.10 --user ubuntu --no-generate-ssh-key
+
+# Test SSH connection to a node
+python cli.py node test-ssh 1
+
+# Show detailed SSH key status
+python cli.py node ssh-status 1
+
+# Regenerate SSH key for a node
+python cli.py node regenerate-ssh-key 1
+
+# Regenerate SSH key without confirmation
+python cli.py node regenerate-ssh-key 1 --force
+```
+
+**SSH Key Workflow:**
+1. Add a node - SSH key pair is automatically generated
+2. Follow the provided setup instructions to add the public key to the target node
+3. Test the SSH connection to verify setup
+4. Node is ready for cluster operations
 
 ### UPS Power Management
 
@@ -370,6 +483,31 @@ python cli.py ups services
 python cli.py ups restart
 ```
 
+### Wake-on-LAN Management
+
+```bash
+# Wake a specific node
+python cli.py wol wake-node 1
+
+# Wake all nodes in a cluster
+python cli.py wol wake-cluster 1
+
+# Check WoL status for a node
+python cli.py wol status 1
+
+# Enable WoL for a node
+python cli.py wol enable 1
+
+# Disable WoL for a node
+python cli.py wol disable 1
+
+# Configure WoL settings for a node
+python cli.py wol configure 1 --mac-address "AA:BB:CC:DD:EE:FF" --method ethernet
+
+# Collect MAC addresses from nodes
+python cli.py wol collect-mac 1 2 3
+```
+
 ## Configuration
 
 The system uses YAML configuration files in the `config/` directory. Key settings include:
@@ -388,24 +526,41 @@ microk8s-cluster-orchestrator/
 │   ├── controllers/        # Web and API controllers
 │   ├── models/            # Database models
 │   ├── services/          # Business logic
+│   │   ├── ssh_key_manager.py  # SSH key management service
+│   │   ├── wake_on_lan.py      # Wake-on-LAN service
+│   │   └── power_management.py # Power management service
 │   ├── templates/         # Web UI templates
+│   │   ├── node_ssh_setup.html    # SSH setup page template
+│   │   └── cluster_detail.html    # Cluster detail page template
 │   └── utils/             # Utilities
+│       └── migration_manager.py  # Database migration manager
 ├── ansible/               # Ansible configuration
 │   ├── playbooks/         # Ansible playbooks
 │   │   ├── collect_hardware_report.yml  # Hardware data collection
+│   │   ├── collect_network_info.yml     # Network information collection
+│   │   ├── configure_wake_on_lan.yml    # WoL configuration
 │   │   ├── shutdown_cluster.yml         # Cluster shutdown operations
 │   │   ├── check_prerequisites.yml      # System prerequisites validation
 │   │   └── install_prerequisites.yml    # Automated prerequisites installation
 │   ├── roles/             # Custom Ansible roles
 │   └── inventory/         # Dynamic inventories
 ├── config/                # Configuration files
+├── docs/                  # Documentation
+│   ├── SSH_KEY_MANAGEMENT_GUIDE.md     # SSH key management documentation
+│   ├── WAKE_ON_LAN_GUIDE.md            # Wake-on-LAN management documentation
+│   └── AUTHENTICATION.md               # Authentication system documentation
+├── migrations/            # Database migration scripts
+│   ├── migrate_wake_on_lan_fields.py   # WoL fields migration
+│   └── add_ssh_key_fields.py           # SSH key fields migration
 ├── scripts/               # Utility and migration scripts
 │   ├── migrate_disk_partitions_fields.py
 │   ├── migrate_ups_tables.py
 │   ├── init_db.py
 │   ├── backup_db.py
 │   └── setup_orchestrator_privileges.py  # Privilege setup automation
+├── ssh_keys/              # SSH key storage directory (created automatically)
 ├── calculate_disk_total.py # Hardware calculation utility
+├── check_migrations.py    # Simple migration checker script
 ├── cli.py                 # Command-line interface
 ├── requirements.txt       # Python dependencies
 ├── setup_system.sh        # Complete system setup script
@@ -420,6 +575,9 @@ The SQLite database includes:
 
 - **nodes** - Node information and status
   - Basic node information (hostname, IP, SSH details)
+  - SSH key management (key generation, status, connection testing)
+  - Wake-on-LAN configuration (MAC address, method, broadcast settings)
+  - Virtual node support (Proxmox VM configuration)
   - Hardware information (CPU, memory, disk, GPU)
   - Detailed disk partitions and storage volumes
   - Network and thermal sensor data
@@ -436,6 +594,46 @@ The SQLite database includes:
   - Defines power events and cluster actions
   - Execution history and success tracking
   - Priority-based rule execution
+
+## SSH Key Management System
+
+The orchestrator includes a comprehensive SSH key management system that automatically generates unique SSH key pairs for each node and provides step-by-step setup instructions.
+
+### Features
+
+- **Automatic Key Generation**: Unique RSA 2048-bit key pairs for each node
+- **Secure Storage**: Private keys stored with proper permissions (600)
+- **Setup Instructions**: Detailed, copy-paste instructions for each node
+- **Connection Testing**: Built-in SSH connection validation with sudo access testing
+- **Key Regeneration**: Easy key regeneration for compromised or lost keys
+- **Status Tracking**: Comprehensive status tracking from generation to deployment
+- **Ansible Integration**: Seamless integration with Ansible inventory generation
+
+### Workflow
+
+1. **Add Node**: User provides basic node information
+2. **Key Generation**: System automatically creates unique SSH key pair
+3. **Setup Instructions**: User receives clear, copy-paste instructions
+4. **Deploy Key**: User adds public key to target node (one-time setup)
+5. **Test Connection**: System validates SSH access and sudo privileges
+6. **Ready for Operations**: Node is ready for cluster management
+
+### Web Interface
+
+- **SSH Setup Page**: Dedicated page for each node with setup instructions
+- **Status Indicators**: Visual SSH key status in the nodes list
+- **Connection Testing**: One-click SSH connection testing
+- **Key Management**: Easy key regeneration and management
+
+### Security Features
+
+- **Unique Key Pairs**: Each node has its own unique SSH key
+- **Key Fingerprinting**: SHA256 fingerprints for key identification
+- **Secure Storage**: Private keys stored with proper file permissions
+- **Connection Validation**: Tests both SSH access and sudo privileges
+- **Audit Trail**: Complete history of SSH connection tests
+
+For detailed SSH key management setup and configuration, see the [SSH Key Management Guide](docs/SSH_KEY_MANAGEMENT_GUIDE.md).
 
 ## Hardware Reporting System
 
@@ -564,16 +762,66 @@ curl -X POST http://localhost:5000/api/ups/rules \
 curl -X POST http://localhost:5000/api/ups/monitor/start
 ```
 
+## Wake-on-LAN Management System
+
+The orchestrator includes a comprehensive Wake-on-LAN (WoL) management system that allows you to remotely power on cluster nodes after they have been gracefully shut down due to power events.
+
+### Features
+
+- **Individual Node Wake-up**: Wake specific nodes by MAC address
+- **Cluster-wide Wake-up**: Wake all nodes in a cluster simultaneously  
+- **Virtual Node Support**: Special handling for Proxmox VMs and other virtual machines
+- **Status Monitoring**: Track WoL configuration and readiness status
+- **MAC Address Discovery**: Automatic collection of network interface information
+- **UPS Integration**: Automatic node wake-up after power restoration
+
+### WoL Configuration
+
+Each node can be configured with WoL settings:
+
+```bash
+# Configure WoL for a node
+python cli.py wol configure 1 \
+  --mac-address "AA:BB:CC:DD:EE:FF" \
+  --method ethernet \
+  --broadcast-address "255.255.255.255" \
+  --port 9
+
+# Enable WoL after configuration
+python cli.py wol enable 1
+```
+
+### Web Interface
+
+- **Nodes Page**: Configure WoL settings and wake up individual nodes
+- **Clusters Page**: Wake up entire clusters with one click
+- **Status Indicators**: Visual WoL status (Ready, Partial, Disabled)
+- **Setup Instructions**: Step-by-step WoL configuration guidance
+
+### Integration with UPS Management
+
+When integrated with the UPS power management system:
+
+1. **Power Loss**: UPS triggers graceful cluster shutdown
+2. **Power Restoration**: UPS detects power restoration
+3. **Automatic Wake-up**: WoL automatically wakes all cluster nodes
+4. **Cluster Recovery**: Nodes start up and rejoin the cluster
+
+For detailed WoL setup and configuration, see the [Wake-on-LAN Management Guide](docs/WAKE_ON_LAN_GUIDE.md).
+
 ## API Endpoints
 
 The system provides REST API endpoints for:
 - Node management (CRUD operations)
+- SSH key management and testing
+- Wake-on-LAN operations (wake nodes, configure WoL, collect MAC addresses)
 - Cluster management
 - Operation tracking
 - System health checks
 - Hardware reporting and data collection
 - UPS power management and monitoring
 - Power management rules configuration
+- Network information collection
 
 ## Security
 

@@ -1,0 +1,162 @@
+---
+- name: Install Longhorn prerequisites for MicroK8s cluster
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    longhorn_packages:
+      - lvm2
+      - liblvm2cmd2.03
+      - nfs-common
+      - open-iscsi
+      - util-linux
+    
+    longhorn_services:
+      - iscsid
+      - multipathd
+    
+    longhorn_commands:
+      - lvm
+      - pvcreate
+      - vgcreate
+      - lvcreate
+      - iscsiadm
+      - multipath
+      - mount.nfs4
+      - umount.nfs4
+  
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+    
+    - name: Install Longhorn prerequisite packages
+      package:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ longhorn_packages }}"
+      when: ansible_os_family == "Debian"
+      register: package_install_results
+    
+    - name: Start and enable iSCSI service
+      systemd:
+        name: iscsid
+        state: started
+        enabled: yes
+      register: iscsi_service_result
+    
+    - name: Start and enable multipath service
+      systemd:
+        name: multipathd
+        state: started
+        enabled: yes
+      register: multipath_service_result
+    
+    - name: Configure iSCSI initiator name
+      lineinfile:
+        path: /etc/iscsi/initiatorname.iscsi
+        line: "InitiatorName=iqn.1993-08.org.debian:01:{{ ansible_hostname }}"
+        create: yes
+        mode: '0644'
+      notify: restart iscsid
+    
+    - name: Configure multipath
+      copy:
+        content: |
+          defaults {
+              user_friendly_names yes
+              find_multipaths yes
+          }
+          blacklist {
+              devnode "^(ram|raw|loop|fd|md|dm-|sr|scd|st)[0-9]*"
+              devnode "^hd[a-z]"
+          }
+        dest: /etc/multipath.conf
+        mode: '0644'
+      notify: restart multipathd
+    
+    - name: Verify Longhorn prerequisite commands
+      command: which {{ item }}
+      register: command_check
+      loop: "{{ longhorn_commands }}"
+      failed_when: false
+      changed_when: false
+    
+    - name: Check for missing commands
+      debug:
+        msg: "Missing command: {{ item.item }}"
+      loop: "{{ command_check.results }}"
+      when: item.rc != 0
+    
+    - name: Test LVM functionality
+      command: lvm version
+      register: lvm_test
+      changed_when: false
+    
+    - name: Test iSCSI functionality
+      command: iscsiadm --version
+      register: iscsi_test
+      changed_when: false
+    
+    - name: Test multipath functionality
+      command: multipath -v0
+      register: multipath_test
+      changed_when: false
+    
+    - name: Check available block devices
+      command: lsblk -f
+      register: block_devices
+      changed_when: false
+    
+    - name: Check filesystem types
+      command: df -T
+      register: filesystem_types
+      changed_when: false
+    
+    - name: Compile Longhorn prerequisites report
+      set_fact:
+        longhorn_prerequisites_report:
+          hostname: "{{ ansible_hostname }}"
+          packages_installed: "{{ package_install_results.results | selectattr('changed', 'equalto', true) | map(attribute='item') | list }}"
+          services_running:
+            iscsid: "{{ iscsi_service_result.status.ActiveState == 'active' }}"
+            multipathd: "{{ multipath_service_result.status.ActiveState == 'active' }}"
+          commands_available: "{{ command_check.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list }}"
+          commands_missing: "{{ command_check.results | selectattr('rc', '!=', 0) | map(attribute='item') | list }}"
+          lvm_version: "{{ lvm_test.stdout_lines[0] if lvm_test.rc == 0 else 'Not available' }}"
+          iscsi_version: "{{ iscsi_test.stdout_lines[0] if iscsi_test.rc == 0 else 'Not available' }}"
+          multipath_status: "{{ 'Available' if multipath_test.rc == 0 else 'Not available' }}"
+          block_devices_count: "{{ block_devices.stdout_lines | length - 1 }}"
+          filesystem_types: "{{ filesystem_types.stdout_lines[1:] | map('regex_replace', '\\s+', ' ') | map('split', ' ') | map('first') | list }}"
+          prerequisites_met: "{{ (command_check.results | selectattr('rc', '!=', 0) | list | length == 0) and (iscsi_service_result.status.ActiveState == 'active') and (multipath_service_result.status.ActiveState == 'active') }}"
+    
+    - name: Display Longhorn prerequisites report
+      debug:
+        var: longhorn_prerequisites_report
+    
+    - name: Write Longhorn prerequisites report to file
+      copy:
+        content: "{{ longhorn_prerequisites_report | to_nice_json }}"
+        dest: "/tmp/longhorn_prerequisites_report_{{ ansible_hostname }}.json"
+        mode: '0644'
+    
+    - name: Final status message
+      debug:
+        msg: |
+          Longhorn prerequisites installation completed for {{ ansible_hostname }}
+          Status: {{ 'PASSED' if longhorn_prerequisites_report.prerequisites_met else 'FAILED' }}
+          {{ 'All Longhorn prerequisites are met. Node is ready for Longhorn deployment.' if longhorn_prerequisites_report.prerequisites_met else 'Please address the failed prerequisites before deploying Longhorn.' }}
+  
+  handlers:
+    - name: restart iscsid
+      systemd:
+        name: iscsid
+        state: restarted
+    
+    - name: restart multipathd
+      systemd:
+        name: multipathd
+        state: restarted

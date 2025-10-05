@@ -8,218 +8,184 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **UPS Power Management System**: Comprehensive power management for Raspberry Pi 5 deployments
-  - USB UPS device detection and automatic configuration
-  - NUT (Network UPS Tools) integration and service management
-  - Power event monitoring (power loss, low battery, power restored)
-  - Automated cluster shutdown/startup based on power events
-  - Configurable power management rules with priority-based execution
-  - Real-time UPS status monitoring (battery, voltage, load, temperature)
-  - Web interface for UPS management and rule configuration
-  - CLI commands for all UPS operations
-  - REST API endpoints for UPS management
-- Comprehensive hardware reporting system
-- Detailed disk partition and filesystem information collection
-- Docker and Kubernetes volume tracking
-- LVM and RAID information detection
-- Thermal sensor monitoring
-- GPU detection and information
-- Physical disk enumeration with accurate size calculation
-- Mounted filesystem tracking
-- Block device details and symbolic links
-- MicroK8s and Kubernetes PVC/PV detection
-- **Cluster Graceful Shutdown**: Safe cluster shutdown functionality with graceful and force modes
-- **Comprehensive Prerequisites Management**: Automated system prerequisites checking and installation
-- **Privilege Management System**: Automated setup of required sudo privileges for system operations
-  - Passwordless sudo configuration for orchestrator user
-  - Comprehensive privilege validation and testing
-  - Automated sudoers file creation with proper security
-  - System service configuration for production deployment
-- **Automated Setup Scripts**: Complete system setup automation
-  - `setup_system.sh`: Full system setup with all dependencies and configurations
-  - `quick_setup.sh`: Minimal setup for experienced users
-  - Automated dependency installation, privilege setup, and service configuration
-  - Built-in testing and validation of the complete installation
-- Storage class information
-- Hardware report web interface with tabular data display
+- **SSH Key Management System**: Comprehensive SSH key management with automatic generation
+  - Automatic generation of unique RSA 2048-bit SSH key pairs for each node
+  - Secure storage of private keys with proper file permissions (600)
+  - Step-by-step setup instructions for adding public keys to target nodes
+  - SSH connection testing with sudo access validation
+  - Key regeneration capabilities for compromised or lost keys
+  - Visual SSH key status indicators in the web interface
+  - Integration with Ansible inventory generation
+  - CLI commands for SSH key management (`test-ssh`, `ssh-status`, `regenerate-ssh-key`)
 
-### Changed
-- **BREAKING**: Database schema updated with new hardware fields and UPS tables
-- Hardware data collection now uses SCP for large JSON transfers
-- Disk total calculation now sums all physical disks instead of just root filesystem
-- Improved data parsing with line-based extraction instead of regex patterns
-- Enhanced error handling for hardware collection failures
-- Navigation menu updated to include UPS Management section
+### Enhanced
+- **Node Addition Workflow**: Streamlined node addition with automatic SSH key generation
+  - Removed manual SSH key path requirement
+  - Automatic redirect to SSH setup page after node creation
+  - Clear setup instructions provided to users
+  - Integration with existing node management workflow
 
-### Fixed
-- SCP connection issues with incorrect SSH user authentication
-- JSON truncation problems with large hardware reports
-- Disk total calculation showing incorrect values (441GB → 5296GB)
-- Data extraction failures with regex pattern matching
-- Template rendering issues with missing hardware data
-- ORM caching problems preventing new database fields from being accessed
+- **Web Interface**: Enhanced with SSH key management features
+  - New SSH setup page for each node with detailed instructions
+  - SSH key status column in the nodes list
+  - Copy-to-clipboard functionality for public keys
+  - Connection testing with real-time feedback
+  - Key regeneration with confirmation dialogs
 
-### Technical Improvements
-- Added `calculate_disk_total.py` script for accurate disk space calculation
-- Implemented proper SSH user handling in orchestrator service
-- Enhanced Ansible playbook with comprehensive hardware collection tasks
-- Improved database migration scripts for schema updates
-- Added debug utilities for troubleshooting hardware collection issues
-- **UPS System Architecture**:
-  - Created `UPS` and `UPSClusterRule` database models
-  - Implemented `UPSScanner` for USB device detection
-  - Built `NUTConfigurator` for automatic UPS configuration
-  - Developed `PowerManagementService` for event monitoring and cluster actions
-  - Added `UPSController` as high-level interface for all UPS operations
-  - Created comprehensive web templates for UPS management
-  - Added database migration script `migrate_ups_tables.py`
+- **CLI Interface**: Extended with SSH key management commands
+  - `node test-ssh <node_id>` - Test SSH connection to a node
+  - `node ssh-status <node_id>` - Show detailed SSH key status
+  - `node regenerate-ssh-key <node_id>` - Regenerate SSH key for a node
+  - Enhanced `node add` command with automatic SSH key generation
+
+- **Database Schema**: Added SSH key management fields to nodes table
+  - `ssh_key_generated` - Boolean indicating if SSH key pair has been generated
+  - `ssh_public_key` - Text field containing the public key content
+  - `ssh_key_fingerprint` - String field for key fingerprint identification
+  - `ssh_key_status` - String field for key status tracking
+  - `ssh_connection_tested` - Boolean indicating if SSH connection has been tested
+  - `ssh_connection_test_result` - Text field for last SSH connection test result
+  - `ssh_setup_instructions` - Text field for setup instructions
+
+- **Ansible Integration**: Enhanced inventory generation with SSH key validation
+  - SSH connection validation before running playbooks
+  - Enhanced error reporting for SSH connection issues
+  - Key fingerprint tracking in inventory files
+  - Automatic exclusion of nodes with SSH connection issues
+
+### Security
+- **Enhanced SSH Security**: Improved SSH authentication security
+  - Unique SSH key pairs per node prevent key sharing
+  - Secure key storage with proper file permissions
+  - Key fingerprinting for identification and verification
+  - Connection validation with sudo access testing
+  - Audit trail of SSH connection tests
+
+### Documentation
+- **Comprehensive Documentation**: Added detailed SSH key management documentation
+  - Complete SSH key management guide (`docs/SSH_KEY_MANAGEMENT.md`)
+  - Updated README with SSH key management features
+  - Migration guide for existing installations
+  - Troubleshooting section with common issues and solutions
+  - API reference for developers
+  - Best practices for security and operations
+
+### Migration
+- **Database Migration**: Added migration script for existing installations
+  - `migrations/add_ssh_key_fields.py` - Adds SSH key fields to existing databases
+  - Rollback capability for safe migration management
+  - Backward compatibility with existing installations
 
 ## [Previous Versions]
 
-### v1.0.0 - Initial Release
-- Basic node and cluster management
-- Ansible integration
-- Web interface
-- CLI tool
-- SQLite database
-- Operation tracking
-- Health monitoring
-- Troubleshooting tools
+### [1.0.0] - 2024-01-XX
+
+#### Added
+- **Core System**: Initial release of MicroK8s Cluster Orchestrator
+- **Node Management**: Add, remove, and monitor cluster nodes
+- **Cluster Orchestration**: Automated cluster setup, configuration, and graceful shutdown
+- **Ansible Integration**: Uses Ansible playbooks for all operations
+- **SQLite Database**: Persistent storage for cluster state and history
+- **Web Interface**: Modern web UI for cluster management
+- **CLI Tool**: Command-line interface for automation and scripting
+- **Operation Tracking**: Complete audit trail of all operations
+- **Health Monitoring**: Automated health checks and status monitoring
+- **Troubleshooting**: Built-in diagnostics and troubleshooting tools
+
+#### Hardware Reporting System
+- **Automatic Detection**: Discovers all hardware components automatically
+- **Detailed Information**: Collects comprehensive data about CPUs, memory, storage, network, and more
+- **Real-time Updates**: Hardware information is collected on-demand or scheduled
+- **Web Interface**: Beautiful, responsive web interface for viewing hardware reports
+- **API Access**: REST API endpoints for programmatic access to hardware data
+
+#### UPS Power Management System
+- **USB UPS Detection**: Automatically detects and configures USB-connected UPS devices
+- **NUT Integration**: Uses Network UPS Tools (NUT) for UPS communication and control
+- **Power Event Monitoring**: Monitors power loss, low battery, and power restoration events
+- **Automated Cluster Management**: Executes configurable actions on clusters based on power events
+- **Real-time Status Monitoring**: Tracks battery charge, voltage, load, and temperature
+- **Rule-based Configuration**: Flexible power management rules with priority-based execution
+- **Web Interface**: Complete web-based management interface for UPS devices and rules
+- **CLI and API Support**: Full command-line and REST API access to all UPS functions
+
+#### Features
+- **Wake-on-LAN Support**: Configure and manage Wake-on-LAN for cluster nodes
+- **Hardware Information Collection**: Comprehensive hardware reporting system
+- **Network Topology Visualization**: Visual representation of network connections
+- **Router/Switch Management**: Integration with network infrastructure
+- **Power Management**: UPS integration for Raspberry Pi deployments
+- **Privilege Management**: Automated setup of required system privileges
+- **Configuration Management**: Flexible YAML-based configuration system
+
+#### Security
+- **SQLite Database**: Excluded from version control for security
+- **SSH Key Management**: Secure storage of SSH keys with proper permissions
+- **Configuration Security**: Environment-specific settings support
+- **Data Encryption**: Support for encrypting sensitive data in the database
+
+#### Development
+- **Modular Architecture**: Clear separation of concerns with modular design
+- **Turing Complete**: Fully programmable and extensible system
+- **Infrastructure Agnostic**: Works with any infrastructure that supports SSH
+- **Persistent State**: All state and history stored in SQLite database
 
 ---
 
-## Hardware Reporting Features
+## Version History
 
-### Data Collection
-The hardware reporting system collects comprehensive information about:
+### Version 1.1.0 (Unreleased)
+- **Major Feature**: SSH Key Management System
+- **Enhancement**: Streamlined node addition workflow
+- **Security**: Enhanced SSH authentication security
+- **Documentation**: Comprehensive SSH key management documentation
 
-#### System Information
-- Hostname, IP address, OS version
-- Kernel version and architecture
-- Uptime and load averages
-
-#### CPU Information
-- CPU model and specifications
-- Core count and usage statistics
-- Temperature monitoring (when available)
-
-#### Memory Information
-- Total memory and swap space
-- Memory usage statistics
-- Detailed memory layout information
-
-#### Storage Information
-- **Physical Disks**: All physical storage devices with size, model, serial number
-- **Partitions**: All disk partitions with filesystem types and mount points
-- **Mounted Filesystems**: Complete list of mounted filesystems with options
-- **LVM Information**: Logical Volume Manager details (VGs, LVs, PVs)
-- **RAID Information**: RAID array status and configuration
-- **Block Devices**: Symbolic links and device mappings
-
-#### Container Storage
-- **Docker Volumes**: All Docker-managed volumes
-- **Podman Volumes**: Podman container volumes (when available)
-- **Kubernetes PVCs**: Persistent Volume Claims across all namespaces
-- **Kubernetes PVs**: Persistent Volumes and their status
-- **Storage Classes**: Available storage classes and their configurations
-- **MicroK8s Storage**: MicroK8s-specific storage components
-
-#### Network Information
-- Network interfaces and their configurations
-- IP addresses and routing information
-- Network performance metrics
-
-#### GPU Information
-- GPU detection and model information
-- GPU usage statistics (when available)
-- Driver information
-
-#### Thermal Information
-- Temperature sensors and readings
-- Fan speeds and thermal management
-- Hardware thermal status
-
-### Web Interface
-The hardware report is displayed in a comprehensive web interface with:
-- Tabular display of all collected information
-- Organized sections for different hardware categories
-- Real-time data updates
-- Responsive design for different screen sizes
-- Detailed view for individual nodes
-
-### Data Storage
-Hardware information is stored in the SQLite database with:
-- JSON-formatted detailed information
-- Efficient querying and retrieval
-- Historical data tracking
-- Backup and restore capabilities
-
-### API Integration
-Hardware reports can be accessed via:
-- Web interface at `/hardware-report/node/{id}`
-- REST API endpoints for programmatic access
-- CLI commands for automation
-- Ansible integration for batch operations
+### Version 1.0.0 (Initial Release)
+- **Core System**: Complete MicroK8s cluster orchestration system
+- **Hardware Reporting**: Comprehensive hardware information collection
+- **UPS Management**: Power management for Raspberry Pi deployments
+- **Web Interface**: Modern web UI for cluster management
+- **CLI Tools**: Command-line interface for automation
 
 ---
 
-## Migration Notes
+## Migration Guide
 
-### Database Migration
-When upgrading from previous versions, run the migration scripts:
+### From Version 1.0.0 to 1.1.0
+
+#### Database Migration
+Run the migration script to add SSH key management fields:
 
 ```bash
-# Add hardware reporting fields
-python scripts/migrate_disk_partitions_fields.py
-
-# Add authentication fields (if upgrading from very old versions)
-python scripts/migrate_auth.py
+python migrations/add_ssh_key_fields.py
 ```
 
-### Configuration Updates
-No configuration changes are required for hardware reporting. The system automatically detects and collects available hardware information.
+#### Configuration Updates
+No configuration changes required. The system will automatically use the new SSH key management features.
 
-### Breaking Changes
-- Database schema changes require migration scripts to be run
-- Some CLI commands may have new options for hardware reporting
-- Web interface has new hardware report pages
+#### Breaking Changes
+- **Node Addition**: The `--key-path` parameter is no longer required for `node add` command
+- **SSH Key Storage**: SSH keys are now stored in the `ssh_keys/` directory instead of user-specified locations
 
----
-
-## Known Issues
-
-### Hardware Collection
-- Some hardware information may not be available on all systems
-- Thermal sensors require specific drivers and may not be detected
-- GPU information depends on proper driver installation
-- LVM information is only available on systems with LVM configuration
-
-### Performance
-- Hardware collection can take 30-60 seconds on complex systems
-- Large JSON files are transferred via SCP which may be slower than direct parsing
-- Database queries may be slower with large amounts of hardware data
-
-### Compatibility
-- Tested on Ubuntu 20.04+ and similar Linux distributions
-- Requires Python 3.8+ on target systems for hardware collection
-- Ansible 2.15+ required for playbook execution
-- SSH access required for all hardware collection operations
+#### New Features
+- **Automatic SSH Key Generation**: SSH keys are now generated automatically when adding nodes
+- **SSH Setup Instructions**: Users receive detailed setup instructions for each node
+- **Connection Testing**: Built-in SSH connection testing and validation
+- **Key Regeneration**: Easy key regeneration for compromised keys
 
 ---
 
-## Future Enhancements
+## Support
 
-### Planned Features
-- Hardware trend analysis and historical tracking
-- Hardware alerting and threshold monitoring
-- Hardware-based capacity planning
-- Integration with monitoring systems (Prometheus, Grafana)
-- Hardware inventory management
-- Automated hardware health checks
+For support with the SSH Key Management System:
 
-### Technical Improvements
-- Performance optimization for large-scale deployments
-- Enhanced error handling and retry mechanisms
-- Improved data compression for storage efficiency
-- Real-time hardware monitoring capabilities
-- Hardware change detection and notifications
+1. **Check Documentation**: Review `docs/SSH_KEY_MANAGEMENT.md` for detailed information
+2. **Run Migration**: Ensure database migration has been completed
+3. **Check Logs**: Review operation logs for detailed error information
+4. **Test Connections**: Use the built-in connection testing tools
+5. **Regenerate Keys**: If issues persist, regenerate SSH keys for affected nodes
+
+For general support:
+- Check operation logs for detailed error information
+- Review the troubleshooting playbooks
+- Create issues in the repository for bugs or feature requests

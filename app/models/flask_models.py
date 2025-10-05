@@ -94,6 +94,43 @@ class Node(db.Model):
     memory_gb = db.Column(db.Integer)
     disk_gb = db.Column(db.Integer)
     
+    # Detailed hardware information (JSON strings)
+    hardware_info = db.Column(db.Text)  # Comprehensive hardware details
+    cpu_info = db.Column(db.Text)       # CPU model, architecture, features
+    memory_info = db.Column(db.Text)    # Memory details, speed, type
+    disk_info = db.Column(db.Text)      # Disk details, types, speeds
+    disk_partitions_info = db.Column(db.Text)  # Detailed disk partitions, LVM, RAID info
+    storage_volumes_info = db.Column(db.Text)  # PVCs, PVs, Docker volumes info
+    network_info = db.Column(db.Text)   # Network interfaces
+    gpu_info = db.Column(db.Text)       # GPU information if available
+    thermal_info = db.Column(db.Text)   # Temperature sensors
+    
+    # Resource usage (updated regularly)
+    cpu_usage_percent = db.Column(db.Integer)
+    memory_usage_percent = db.Column(db.Integer)
+    disk_usage_percent = db.Column(db.Integer)
+    load_average = db.Column(db.String(50))
+    uptime_seconds = db.Column(db.Integer)
+    
+    # SSH Key Management
+    ssh_key_generated = db.Column(db.Boolean, default=False)  # Whether SSH key pair has been generated
+    ssh_public_key = db.Column(db.Text)  # Public key content
+    ssh_key_fingerprint = db.Column(db.String(100))  # Key fingerprint for identification
+    ssh_key_status = db.Column(db.String(50), default='not_generated')  # not_generated, generated, deployed, tested, failed
+    ssh_connection_tested = db.Column(db.Boolean, default=False)  # Whether SSH connection has been tested
+    ssh_connection_test_result = db.Column(db.Text)  # Last SSH connection test result (JSON)
+    ssh_setup_instructions = db.Column(db.Text)  # Setup instructions for the user
+    
+    # Wake-on-LAN (WoL) Configuration
+    wol_enabled = db.Column(db.Boolean, default=False)  # Whether WoL is enabled on this node
+    wol_mac_address = db.Column(db.String(17))  # MAC address for WoL (format: XX:XX:XX:XX:XX:XX)
+    wol_method = db.Column(db.String(20), default='ethernet')  # ethernet, wifi, pci, usb
+    wol_broadcast_address = db.Column(db.String(45))  # Broadcast address for WoL packet (optional)
+    wol_port = db.Column(db.Integer, default=9)  # UDP port for WoL packet (default: 9)
+    is_virtual_node = db.Column(db.Boolean, default=False)  # True for Proxmox VMs, requires different handling
+    proxmox_vm_id = db.Column(db.Integer)  # Proxmox VM ID if this is a virtual node
+    proxmox_host_id = db.Column(db.Integer)  # ID of the Proxmox host running this VM
+    
     # Metadata
     tags = db.Column(db.Text)
     notes = db.Column(db.Text)
@@ -102,9 +139,138 @@ class Node(db.Model):
     
     # Relationships
     cluster_id = db.Column(db.Integer, db.ForeignKey('clusters.id'))
+    lease_info = db.relationship("NetworkLease", back_populates="node")
     
     def __repr__(self):
         return f'<Node {self.hostname} ({self.ip_address})>'
+    
+    def get_ssh_key_status(self):
+        """
+        Get comprehensive SSH key status information.
+        
+        Returns:
+            Dict with SSH key status details
+        """
+        try:
+            # Use getattr with defaults to handle missing attributes gracefully
+            ssh_key_generated = getattr(self, 'ssh_key_generated', False)
+            ssh_key_status = getattr(self, 'ssh_key_status', 'not_generated')
+            ssh_public_key = getattr(self, 'ssh_public_key', None)
+            ssh_key_fingerprint = getattr(self, 'ssh_key_fingerprint', None)
+            ssh_key_path = getattr(self, 'ssh_key_path', None)
+            ssh_connection_tested = getattr(self, 'ssh_connection_tested', False)
+            ssh_connection_test_result = getattr(self, 'ssh_connection_test_result', None)
+            ssh_setup_instructions = getattr(self, 'ssh_setup_instructions', None)
+            
+            # Check if key files exist
+            key_files_exist = False
+            if ssh_key_path:
+                from pathlib import Path
+                key_path = Path(ssh_key_path)
+                public_key_path = key_path.with_suffix('.pub')
+                key_files_exist = key_path.exists() and public_key_path.exists()
+            
+            # Determine overall status
+            if ssh_key_generated and ssh_public_key and key_files_exist:
+                if ssh_connection_tested and ssh_connection_test_result and 'success' in str(ssh_connection_test_result).lower():
+                    overall_status = 'ready'
+                    status_description = 'SSH connection ready'
+                elif ssh_key_status in ['generated', 'deployed']:
+                    overall_status = 'setup_required'
+                    status_description = 'SSH key generated - setup required'
+                else:
+                    overall_status = 'generated'
+                    status_description = 'SSH key generated'
+            elif key_files_exist and not ssh_key_generated:
+                overall_status = 'sync_needed'
+                status_description = 'Key files exist but database not synchronized'
+            else:
+                overall_status = 'not_generated'
+                status_description = 'SSH key not generated'
+            
+            return {
+                'overall_status': overall_status,
+                'status_description': status_description,
+                'ssh_key_generated': ssh_key_generated,
+                'ssh_key_status': ssh_key_status,
+                'ssh_public_key': ssh_public_key,
+                'ssh_key_fingerprint': ssh_key_fingerprint,
+                'ssh_key_path': ssh_key_path,
+                'ssh_connection_tested': ssh_connection_tested,
+                'ssh_connection_test_result': ssh_connection_test_result,
+                'ssh_setup_instructions': ssh_setup_instructions,
+                'key_files_exist': key_files_exist,
+                'sync_needed': key_files_exist and not ssh_key_generated
+            }
+            
+        except Exception as e:
+            return {
+                'overall_status': 'error',
+                'status_description': f'Error getting SSH key status: {str(e)}',
+                'ssh_key_generated': False,
+                'ssh_key_status': 'error',
+                'ssh_public_key': None,
+                'ssh_key_fingerprint': None,
+                'ssh_key_path': None,
+                'ssh_connection_tested': False,
+                'ssh_connection_test_result': None,
+                'ssh_setup_instructions': None,
+                'key_files_exist': False,
+                'sync_needed': False
+            }
+    
+    @property
+    def ssh_key_ready(self):
+        """Check if SSH key is ready for use."""
+        status = self.get_ssh_key_status()
+        return status['overall_status'] in ['generated', 'setup_required', 'ready']
+    
+    @property
+    def ssh_connection_ready(self):
+        """Check if SSH connection is ready."""
+        status = self.get_ssh_key_status()
+        return status['overall_status'] == 'ready'
+    
+    def get_ssh_status_description(self):
+        """Get human-readable SSH key status description."""
+        status = self.get_ssh_key_status()
+        return status['status_description']
+    
+    @property
+    def wol_configured(self):
+        """Check if Wake-on-LAN is properly configured for this node."""
+        return (getattr(self, 'wol_enabled', False) and 
+                getattr(self, 'wol_mac_address', None) and 
+                getattr(self, 'wol_mac_address', '') != '')
+    
+    @classmethod
+    def sync_with_database(cls):
+        """
+        Synchronize model attributes with database schema.
+        This ensures that all database columns are accessible as model attributes.
+        """
+        try:
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            db_columns = {col['name'] for col in inspector.get_columns('nodes')}
+            
+            # Add missing attributes dynamically
+            for col_name in db_columns:
+                if not hasattr(cls, col_name):
+                    # Create a property that accesses the column
+                    def make_property(column_name):
+                        def getter(self):
+                            return getattr(self, f'_{column_name}', None)
+                        def setter(self, value):
+                            setattr(self, f'_{column_name}', value)
+                        return property(getter, setter)
+                    
+                    setattr(cls, col_name, make_property(col_name))
+            
+            return True
+            
+        except Exception as e:
+            return False
     
     def to_dict(self):
         """Convert node to dictionary representation."""
@@ -156,6 +322,7 @@ class Cluster(db.Model):
     
     # Relationships
     nodes = db.relationship("Node", backref="cluster")
+    ups_rules = db.relationship("UPSClusterRule", back_populates="cluster")
     
     def __repr__(self):
         return f'<Cluster {self.name}>'
@@ -356,6 +523,8 @@ class RouterSwitch(db.Model):
     
     # Relationships
     cluster_id = db.Column(db.Integer, db.ForeignKey('clusters.id'), nullable=True)
+    leases = db.relationship("NetworkLease", back_populates="router_switch")
+    interfaces = db.relationship("NetworkInterface", back_populates="router_switch")
     
     # Metadata
     tags = db.Column(db.Text)
@@ -466,224 +635,3 @@ class RouterSwitch(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
-class NetworkLease(db.Model):
-    """Flask-SQLAlchemy NetworkLease model."""
-    
-    __tablename__ = 'network_leases'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    
-    # Lease identification
-    mac_address = db.Column(db.String(17), nullable=False)
-    ip_address = db.Column(db.String(45), nullable=False)
-    hostname = db.Column(db.String(255))
-    
-    # Lease details
-    lease_start = db.Column(db.DateTime, nullable=False)
-    lease_end = db.Column(db.DateTime, nullable=False)
-    lease_duration_seconds = db.Column(db.Integer, default=86400)
-    is_active = db.Column(db.Boolean, default=True)
-    is_static = db.Column(db.Boolean, default=False)
-    
-    # Network information
-    vlan_id = db.Column(db.Integer)
-    subnet = db.Column(db.String(50))
-    gateway = db.Column(db.String(45))
-    dns_servers = db.Column(db.Text)
-    
-    # Client information
-    vendor_class = db.Column(db.String(255))
-    client_id = db.Column(db.String(255))
-    user_class = db.Column(db.String(255))
-    
-    # Connection tracking
-    first_seen = db.Column(db.DateTime, default=datetime.utcnow)
-    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
-    connection_count = db.Column(db.Integer, default=1)
-    
-    # Device fingerprinting
-    device_type = db.Column(db.String(100))
-    os_version = db.Column(db.String(100))
-    device_model = db.Column(db.String(100))
-    
-    # Status and monitoring
-    status = db.Column(db.String(50), default='active')
-    last_activity = db.Column(db.DateTime, default=datetime.utcnow)
-    bytes_sent = db.Column(db.Integer, default=0)
-    bytes_received = db.Column(db.Integer, default=0)
-    
-    # Relationships
-    router_switch_id = db.Column(db.Integer, db.ForeignKey('router_switches.id'), nullable=False)
-    node_id = db.Column(db.Integer, db.ForeignKey('nodes.id'), nullable=True)
-    
-    # Metadata
-    discovered_by = db.Column(db.String(100), default='dhcp_scan')
-    tags = db.Column(db.Text)
-    notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    def __repr__(self):
-        return f'<NetworkLease {self.mac_address} -> {self.ip_address} ({self.hostname})>'
-    
-    @property
-    def is_expired(self):
-        """Check if the lease has expired."""
-        return datetime.utcnow() > self.lease_end
-    
-    @property
-    def time_remaining(self):
-        """Get remaining lease time in seconds."""
-        if self.is_expired:
-            return 0
-        return int((self.lease_end - datetime.utcnow()).total_seconds())
-    
-    @property
-    def uptime_hours(self):
-        """Calculate uptime since first seen."""
-        if self.first_seen:
-            return int((datetime.utcnow() - self.first_seen).total_seconds() / 3600)
-        return 0
-    
-    @property
-    def is_cluster_node(self):
-        """Check if this lease belongs to a cluster node."""
-        return self.node_id is not None
-    
-    def to_dict(self):
-        """Convert network lease to dictionary representation."""
-        return {
-            'id': self.id,
-            'mac_address': self.mac_address,
-            'ip_address': self.ip_address,
-            'hostname': self.hostname,
-            'lease_start': self.lease_start.isoformat() if self.lease_start else None,
-            'lease_end': self.lease_end.isoformat() if self.lease_end else None,
-            'lease_duration_seconds': self.lease_duration_seconds,
-            'time_remaining': self.time_remaining,
-            'is_active': self.is_active,
-            'is_static': self.is_static,
-            'is_expired': self.is_expired,
-            'vlan_id': self.vlan_id,
-            'subnet': self.subnet,
-            'gateway': self.gateway,
-            'dns_servers': self.dns_servers,
-            'vendor_class': self.vendor_class,
-            'client_id': self.client_id,
-            'user_class': self.user_class,
-            'first_seen': self.first_seen.isoformat() if self.first_seen else None,
-            'last_seen': self.last_seen.isoformat() if self.last_seen else None,
-            'last_activity': self.last_activity.isoformat() if self.last_activity else None,
-            'connection_count': self.connection_count,
-            'uptime_hours': self.uptime_hours,
-            'device_type': self.device_type,
-            'os_version': self.os_version,
-            'device_model': self.device_model,
-            'status': self.status,
-            'bytes_sent': self.bytes_sent,
-            'bytes_received': self.bytes_received,
-            'router_switch_id': self.router_switch_id,
-            'node_id': self.node_id,
-            'is_cluster_node': self.is_cluster_node,
-            'discovered_by': self.discovered_by,
-            'tags': self.tags,
-            'notes': self.notes,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
-class NetworkInterface(db.Model):
-    """Flask-SQLAlchemy NetworkInterface model."""
-    
-    __tablename__ = 'network_interfaces'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    
-    # Interface identification
-    name = db.Column(db.String(100), nullable=False)
-    interface_type = db.Column(db.String(50), nullable=False)
-    mac_address = db.Column(db.String(17))
-    
-    # Interface configuration
-    enabled = db.Column(db.Boolean, default=True)
-    mtu = db.Column(db.Integer, default=1500)
-    speed_mbps = db.Column(db.Integer)
-    duplex = db.Column(db.String(20))
-    
-    # IP configuration
-    ip_addresses = db.Column(db.Text)
-    dhcp_server_enabled = db.Column(db.Boolean, default=False)
-    dhcp_pool_start = db.Column(db.String(45))
-    dhcp_pool_end = db.Column(db.String(45))
-    dhcp_lease_time = db.Column(db.Integer, default=86400)
-    
-    # VLAN configuration
-    vlan_id = db.Column(db.Integer)
-    vlan_mode = db.Column(db.String(20))
-    allowed_vlans = db.Column(db.Text)
-    
-    # Status and statistics
-    status = db.Column(db.String(50), default='unknown')
-    rx_bytes = db.Column(db.Integer, default=0)
-    tx_bytes = db.Column(db.Integer, default=0)
-    rx_packets = db.Column(db.Integer, default=0)
-    tx_packets = db.Column(db.Integer, default=0)
-    rx_errors = db.Column(db.Integer, default=0)
-    tx_errors = db.Column(db.Integer, default=0)
-    
-    # Relationships
-    router_switch_id = db.Column(db.Integer, db.ForeignKey('router_switches.id'), nullable=False)
-    
-    # Metadata
-    description = db.Column(db.Text)
-    tags = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    def __repr__(self):
-        return f'<NetworkInterface {self.name}>'
-    
-    @property
-    def utilization_percent(self):
-        """Calculate interface utilization percentage."""
-        if not self.speed_mbps:
-            return 0
-        
-        max_bps = self.speed_mbps * 1000000
-        current_bps = max(self.rx_bytes, self.tx_bytes)
-        
-        return min(100, (current_bps / max_bps) * 100) if max_bps > 0 else 0
-    
-    def to_dict(self):
-        """Convert network interface to dictionary representation."""
-        return {
-            'id': self.id,
-            'name': self.name,
-            'interface_type': self.interface_type,
-            'mac_address': self.mac_address,
-            'enabled': self.enabled,
-            'mtu': self.mtu,
-            'speed_mbps': self.speed_mbps,
-            'duplex': self.duplex,
-            'ip_addresses': self.ip_addresses,
-            'dhcp_server_enabled': self.dhcp_server_enabled,
-            'dhcp_pool_start': self.dhcp_pool_start,
-            'dhcp_pool_end': self.dhcp_pool_end,
-            'dhcp_lease_time': self.dhcp_lease_time,
-            'vlan_id': self.vlan_id,
-            'vlan_mode': self.vlan_mode,
-            'allowed_vlans': self.allowed_vlans,
-            'status': self.status,
-            'rx_bytes': self.rx_bytes,
-            'tx_bytes': self.tx_bytes,
-            'rx_packets': self.rx_packets,
-            'tx_packets': self.tx_packets,
-            'rx_errors': self.rx_errors,
-            'tx_errors': self.tx_errors,
-            'utilization_percent': self.utilization_percent,
-            'router_switch_id': self.router_switch_id,
-            'description': self.description,
-            'tags': self.tags,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }

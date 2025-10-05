@@ -20,6 +20,12 @@
       - ca-certificates
       - gnupg
       - lsb-release
+      # Longhorn prerequisites
+      - lvm2
+      - liblvm2cmd2.03
+      - nfs-common
+      - open-iscsi
+      - util-linux
     
     required_commands:
       - python3
@@ -39,6 +45,15 @@
       - iptables
       - netstat
       - ss
+      # Longhorn commands
+      - lvm
+      - pvcreate
+      - vgcreate
+      - lvcreate
+      - iscsiadm
+      - multipath
+      - mount.nfs4
+      - umount.nfs4
     
     min_python_version: "3.8"
     min_memory_gb: 2

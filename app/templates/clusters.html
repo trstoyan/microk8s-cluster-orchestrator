@@ -40,7 +40,7 @@
                         <tr>
                             <td>{{ cluster.id }}</td>
                             <td>
-                                <strong><a href="#" onclick="viewClusterDetails({{ cluster.id }})" class="text-decoration-none">{{ cluster.name }}</a></strong>
+                                <strong><a href="{{ url_for('web.cluster_detail', cluster_id=cluster.id) }}" class="text-decoration-none">{{ cluster.name }}</a></strong>
                                 {% if cluster.description %}
                                     <br><small class="text-muted">{{ cluster.description[:50] }}{% if cluster.description|length > 50 %}...{% endif %}</small>
                                 {% endif %}
@@ -108,9 +108,12 @@
                                         <li><a class="dropdown-item text-danger" href="#" onclick="shutdownCluster({{ cluster.id }}, '{{ cluster.name }}', false)">
                                             <i class="bi bi-exclamation-triangle"></i> Force Shutdown
                                         </a></li>
+                                        <li><a class="dropdown-item text-success" href="#" onclick="wakeCluster({{ cluster.id }}, '{{ cluster.name }}')">
+                                            <i class="bi bi-lightning"></i> Wake Cluster
+                                        </a></li>
                                         <li><hr class="dropdown-divider"></li>
                                         {% endif %}
-                                        <li><a class="dropdown-item" href="#" onclick="viewClusterDetails({{ cluster.id }})">
+                                        <li><a class="dropdown-item" href="{{ url_for('web.cluster_detail', cluster_id=cluster.id) }}">
                                             <i class="bi bi-eye"></i> View Details
                                         </a></li>
                                         <li><a class="dropdown-item" href="#" onclick="editCluster({{ cluster.id }})">
@@ -188,10 +191,6 @@ function scanCluster(clusterId) {
     }
 }
 
-function viewClusterDetails(clusterId) {
-    // For now, just show an alert. This can be expanded to show a modal or navigate to a details page
-    alert(`View details for cluster ${clusterId} - Feature coming soon!`);
-}
 
 function editCluster(clusterId) {
     // For now, just show an alert. This can be expanded to show an edit modal or navigate to an edit page
@@ -244,6 +243,47 @@ function deleteCluster(clusterId, clusterName) {
         })
         .catch(error => {
             alert('Error deleting cluster: ' + error);
+        });
+    }
+}
+
+function wakeCluster(clusterId, clusterName) {
+    if (confirm(`Send Wake-on-LAN packets to all nodes in cluster '${clusterName}'?`)) {
+        fetch(`/api/clusters/${clusterId}/wol/wake`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                retries: 3,
+                delay: 1.0
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const successfulNodes = data.successful_nodes || 0;
+                const totalNodes = data.total_nodes || 0;
+                alert(`Successfully sent Wake-on-LAN packets to ${successfulNodes}/${totalNodes} nodes in cluster '${clusterName}'.`);
+                
+                // Show detailed results if available
+                if (data.results) {
+                    let details = 'Detailed results:\n\n';
+                    for (const [hostname, result] of Object.entries(data.results)) {
+                        if (result.success) {
+                            details += `✓ ${hostname}: ${result.packets_sent} packets sent\n`;
+                        } else {
+                            details += `✗ ${hostname}: ${result.error}\n`;
+                        }
+                    }
+                    console.log(details); // Log to console for debugging
+                }
+            } else {
+                alert(`Failed to wake cluster '${clusterName}': ${data.error}`);
+            }
+        })
+        .catch(error => {
+            alert('Error sending Wake-on-LAN packets: ' + error);
         });
     }
 }

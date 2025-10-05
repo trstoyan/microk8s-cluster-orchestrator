@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}SSH Setup - {{ node.hostname }} - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block header %}SSH Key Setup for {{ node.hostname }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <!-- SSH Key Status Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-key"></i> SSH Key Status
+                    <span class="badge bg-{% if node.ssh_connection_ready %}success{% elif node.ssh_key_ready %}warning{% else %}secondary{% endif %} ms-2">
+                        {{ node.ssh_status_description }}
+                    </span>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Key Information</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Fingerprint:</strong> <code>{{ node.ssh_key_fingerprint|default('Not available') }}</code></li>
+                            <li><strong>Key Type:</strong> RSA 2048-bit</li>
+                            <li><strong>Status:</strong> {{ node.ssh_key_status|default('not_generated')|title }}</li>
+                            <li><strong>Connection Tested:</strong> 
+                                {% if node.ssh_connection_tested|default(false) %}
+                                    <span class="text-success">Yes</span>
+                                {% else %}
+                                    <span class="text-warning">No</span>
+                                {% endif %}
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Connection Details</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Hostname:</strong> {{ node.hostname }}</li>
+                            <li><strong>IP Address:</strong> {{ node.ip_address }}</li>
+                            <li><strong>SSH User:</strong> {{ node.ssh_user }}</li>
+                            <li><strong>SSH Port:</strong> {{ node.ssh_port }}</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                {% if node.ssh_connection_test_result|default('') %}
+                <div class="mt-3">
+                    <h6>Last Connection Test Result</h6>
+                    <div class="alert alert-{% if 'success' in node.ssh_connection_test_result %}success{% else %}danger{% endif %}">
+                        <pre class="mb-0">{{ node.ssh_connection_test_result }}</pre>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Setup Instructions Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-list-check"></i> Setup Instructions
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if node.ssh_setup_instructions|default('') %}
+                    <div class="alert alert-info">
+                        <h6><i class="bi bi-info-circle"></i> Follow these steps to complete the SSH key setup:</h6>
+                    </div>
+                    <div class="setup-instructions">
+                        {{ node.ssh_setup_instructions|replace('\n', '<br>')|replace('# ', '<h6>')|replace('```bash', '<pre class="bg-dark text-light p-3 rounded"><code>')|replace('```', '</code></pre>')|safe }}
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i> Setup instructions not available.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Public Key Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-key-fill"></i> Public Key
+                </h5>
+            </div>
+            <div class="card-body">
+                {% if node.ssh_public_key|default('') %}
+                    <div class="mb-3">
+                        <label for="public-key" class="form-label">Copy this public key to the target node:</label>
+                        <textarea class="form-control" id="public-key" rows="3" readonly>{{ node.ssh_public_key }}</textarea>
+                        <button class="btn btn-sm btn-outline-primary mt-2" onclick="copyToClipboard('public-key')">
+                            <i class="bi bi-clipboard"></i> Copy to Clipboard
+                        </button>
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i> Public key not available.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Actions Card -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-tools"></i> Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Connection Testing</h6>
+                        <p class="text-muted">Test the SSH connection after completing the setup instructions.</p>
+                        {% if node.ssh_key_ready %}
+                            <form method="POST" action="{{ url_for('web.test_ssh_connection', node_id=node.id) }}" class="d-inline">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-wifi"></i> Test SSH Connection
+                                </button>
+                            </form>
+                        {% else %}
+                            <button class="btn btn-primary" disabled>
+                                <i class="bi bi-wifi"></i> Test SSH Connection
+                            </button>
+                            <small class="text-muted d-block">Complete setup instructions first</small>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Key Management</h6>
+                        <p class="text-muted">Regenerate SSH key if needed.</p>
+                        <form method="POST" action="{{ url_for('web.regenerate_ssh_key', node_id=node.id) }}" class="d-inline">
+                            <button type="submit" class="btn btn-warning" onclick="return confirm('Are you sure you want to regenerate the SSH key? This will invalidate the current key.')">
+                                <i class="bi bi-arrow-clockwise"></i> Regenerate Key
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="d-flex justify-content-between">
+                    <a href="{{ url_for('web.nodes') }}" class="btn btn-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Nodes
+                    </a>
+                    
+                    {% if node.ssh_connection_ready %}
+                        <div class="text-success">
+                            <i class="bi bi-check-circle"></i> Node is ready for cluster operations!
+                        </div>
+                    {% else %}
+                        <div class="text-warning">
+                            <i class="bi bi-exclamation-triangle"></i> Complete SSH setup to enable cluster operations
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyToClipboard(elementId) {
+    const element = document.getElementById(elementId);
+    element.select();
+    element.setSelectionRange(0, 99999); // For mobile devices
+    
+    try {
+        document.execCommand('copy');
+        
+        // Show success feedback
+        const button = element.nextElementSibling;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="bi bi-check"></i> Copied!';
+        button.classList.remove('btn-outline-primary');
+        button.classList.add('btn-success');
+        
+        setTimeout(() => {
+            button.innerHTML = originalText;
+            button.classList.remove('btn-success');
+            button.classList.add('btn-outline-primary');
+        }, 2000);
+    } catch (err) {
+        console.error('Failed to copy text: ', err);
+    }
+}
+
+// Auto-refresh connection status every 30 seconds if not ready
+{% if not node.ssh_connection_ready %}
+setTimeout(() => {
+    window.location.reload();
+}, 30000);
+{% endif %}
+</script>
+{% endblock %}

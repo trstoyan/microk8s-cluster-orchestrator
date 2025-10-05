@@ -99,21 +99,86 @@ class OrchestrationService:
             }
         }
         
+        # Validate nodes and collect SSH connection issues
+        ssh_issues = []
+        
         for node in nodes:
+            # Check if node has SSH key ready
+            if not node.ssh_connection_ready:
+                ssh_issues.append(f"Node '{node.hostname}' SSH connection not ready: {node.get_ssh_status_description()}")
+                continue
+            
+            # Verify SSH key file exists
+            if not node.ssh_key_path or not os.path.exists(node.ssh_key_path):
+                ssh_issues.append(f"Node '{node.hostname}' SSH private key file not found: {node.ssh_key_path}")
+                continue
+            
+            # Add node to inventory
             inventory['all']['children']['microk8s_nodes']['hosts'][node.hostname] = {
                 'ansible_host': node.ip_address,
                 'ansible_user': node.ssh_user,
                 'ansible_port': node.ssh_port,
                 'ansible_ssh_private_key_file': node.ssh_key_path,
-                'node_id': node.id
+                'node_id': node.id,
+                'is_control_plane': node.is_control_plane,
+                'ssh_key_fingerprint': node.ssh_key_fingerprint
             }
+        
+        # Add common variables
+        inventory['all']['children']['microk8s_nodes']['vars'] = {
+            'ansible_python_interpreter': '/usr/bin/python3',
+            'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+        }
         
         # Write inventory to temporary file
         inventory_file = os.path.join(self.inventory_dir, f'temp_inventory_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
         with open(inventory_file, 'w') as f:
             json.dump(inventory, f, indent=2)
         
+        # Log SSH issues if any
+        if ssh_issues:
+            logger.warning("SSH connection issues found:")
+            for issue in ssh_issues:
+                logger.warning(f"  - {issue}")
+        
         return inventory_file
+    
+    def _validate_ssh_connections(self, nodes: list[Node]) -> tuple[bool, list[str]]:
+        """
+        Validate SSH connections for all nodes.
+        
+        Returns:
+            Tuple of (all_ready, list_of_issues)
+        """
+        issues = []
+        
+        for node in nodes:
+            if not node.ssh_connection_ready:
+                issues.append(f"Node '{node.hostname}': {node.get_ssh_status_description()}")
+                continue
+            
+            # Test SSH connection
+            try:
+                from .ssh_key_manager import SSHKeyManager
+                ssh_manager = SSHKeyManager()
+                
+                test_result = ssh_manager.validate_ssh_connection(
+                    node.hostname,
+                    node.ip_address,
+                    node.ssh_user,
+                    node.ssh_port,
+                    node.ssh_key_path
+                )
+                
+                if not test_result['success']:
+                    issues.append(f"Node '{node.hostname}': SSH connection test failed - {test_result.get('message', 'Unknown error')}")
+                elif not test_result.get('sudo_access', False):
+                    issues.append(f"Node '{node.hostname}': SSH connection OK but sudo access failed")
+                    
+            except Exception as e:
+                issues.append(f"Node '{node.hostname}': SSH connection test error - {str(e)}")
+        
+        return len(issues) == 0, issues
     
     def _run_ansible_playbook(self, playbook_path: str, inventory_file: str, 
                             extra_vars: Dict[str, Any] = None) -> tuple[bool, str]:

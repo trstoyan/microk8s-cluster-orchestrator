@@ -4,7 +4,8 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
+from ..models.network_lease import NetworkLease, NetworkInterface
 from ..services.orchestrator import OrchestrationService
 from ..services.wake_on_lan import WakeOnLANService
 
@@ -240,6 +241,96 @@ def check_node_status(node_id):
         node = Node.query.get_or_404(node_id)
         operation = orchestrator.check_node_status(node)
         return jsonify(operation.to_dict()), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/<int:node_id>/check-longhorn-prerequisites', methods=['POST'])
+@login_required
+def check_longhorn_prerequisites(node_id):
+    """Check Longhorn prerequisites on a node."""
+    try:
+        node = Node.query.get_or_404(node_id)
+        
+        # Create operation record
+        operation = Operation(
+            operation_type='check_longhorn_prerequisites',
+            operation_name='Check Longhorn Prerequisites',
+            description=f'Check Longhorn prerequisites on node {node.hostname}',
+            playbook_path='ansible/playbooks/check_longhorn_prerequisites.yml',
+            node_id=node_id,
+            user_id=current_user.id
+        )
+        db.session.add(operation)
+        db.session.commit()
+        
+        # Run the operation
+        result = orchestrator.run_operation(operation.id)
+        
+        return jsonify({
+            'success': True,
+            'operation_id': operation.id,
+            'message': 'Longhorn prerequisites check started'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/<int:node_id>/install-longhorn-prerequisites', methods=['POST'])
+@login_required
+def install_longhorn_prerequisites(node_id):
+    """Install Longhorn prerequisites on a node."""
+    try:
+        node = Node.query.get_or_404(node_id)
+        
+        # Create operation record
+        operation = Operation(
+            operation_type='install_longhorn_prerequisites',
+            operation_name='Install Longhorn Prerequisites',
+            description=f'Install Longhorn prerequisites on node {node.hostname}',
+            playbook_path='ansible/playbooks/install_longhorn_prerequisites.yml',
+            node_id=node_id,
+            user_id=current_user.id
+        )
+        db.session.add(operation)
+        db.session.commit()
+        
+        # Run the operation
+        result = orchestrator.run_operation(operation.id)
+        
+        return jsonify({
+            'success': True,
+            'operation_id': operation.id,
+            'message': 'Longhorn prerequisites installation started'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/<int:node_id>/setup-new-node', methods=['POST'])
+@login_required
+def setup_new_node(node_id):
+    """Setup a new node with all prerequisites and MicroK8s."""
+    try:
+        node = Node.query.get_or_404(node_id)
+        
+        # Create operation record
+        operation = Operation(
+            operation_type='setup_new_node',
+            operation_name='Setup New Node',
+            description=f'Complete setup of new node {node.hostname} with MicroK8s and Longhorn prerequisites',
+            playbook_path='ansible/playbooks/setup_new_node.yml',
+            node_id=node_id,
+            user_id=current_user.id
+        )
+        db.session.add(operation)
+        db.session.commit()
+        
+        # Run the operation
+        result = orchestrator.run_operation(operation.id)
+        
+        return jsonify({
+            'success': True,
+            'operation_id': operation.id,
+            'message': 'New node setup started'
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
