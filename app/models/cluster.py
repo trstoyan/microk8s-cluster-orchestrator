@@ -3,9 +3,9 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
-from .database import Base, db
+from .database import db
 
-class Cluster(Base):
+class Cluster(db.Model):
     """Represents a MicroK8s cluster."""
     
     __tablename__ = 'clusters'

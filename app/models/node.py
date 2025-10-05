@@ -3,7 +3,7 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, inspect
 from sqlalchemy.orm import relationship
-from .database import Base, db
+from .database import db
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ try:
 except:
     use_flask = False
 
-class Node(Base):
+class Node(db.Model):
     """Represents a single node in the cluster."""
     
     __tablename__ = 'nodes'

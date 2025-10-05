@@ -3,7 +3,7 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Float
 from sqlalchemy.orm import relationship
-from .database import Base, db
+from .database import db
 
 class NetworkLease(db.Model):
     """Represents a DHCP lease from router/switch devices."""

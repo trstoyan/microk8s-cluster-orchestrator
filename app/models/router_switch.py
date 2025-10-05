@@ -3,9 +3,9 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Float
 from sqlalchemy.orm import relationship
-from .database import Base, db
+from .database import db
 
-class RouterSwitch(Base):
+class RouterSwitch(db.Model):
     """Represents a router or switch device (e.g., MikroTik RouterBoard)."""
     
     __tablename__ = 'router_switches'

@@ -3,9 +3,9 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
-from .database import Base, db
+from .database import db
 
-class Operation(Base):
+class Operation(db.Model):
     """Represents an operation performed on nodes or clusters."""
     
     __tablename__ = 'operations'

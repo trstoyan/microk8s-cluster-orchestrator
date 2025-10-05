@@ -2,9 +2,9 @@
 
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
-from .database import Base, db
+from .database import db
 
-class Configuration(Base):
+class Configuration(db.Model):
     """Represents configuration settings for the orchestrator and clusters."""
     
     __tablename__ = 'configurations'
