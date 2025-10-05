@@ -1,0 +1,445 @@
+{% extends "base.html" %}
+
+{% block title %}System Management - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="bi bi-gear-fill"></i> System Management</h1>
+                <button class="btn btn-outline-primary" onclick="refreshStatus()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Update Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-arrow-up-circle"></i> System Updates
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="update-status">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Checking for updates...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Information Section -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-info-circle"></i> System Information
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="system-info">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-activity"></i> System Actions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-warning" onclick="restartSystem()">
+                            <i class="bi bi-arrow-clockwise"></i> Restart System
+                        </button>
+                        <button class="btn btn-info" onclick="checkPrerequisites()">
+                            <i class="bi bi-check-circle"></i> Check Prerequisites
+                        </button>
+                        <button class="btn btn-secondary" onclick="viewLogs()">
+                            <i class="bi bi-file-text"></i> View Logs
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Update Modal -->
+<div class="modal fade" id="updateModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-arrow-up-circle"></i> System Update
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="update-content">
+                    <!-- Update content will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirm-update" onclick="performUpdate()">
+                    <i class="bi bi-arrow-up"></i> Update System
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Update Progress Modal -->
+<div class="modal fade" id="updateProgressModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-arrow-up-circle"></i> Updating System
+                </h5>
+            </div>
+            <div class="modal-body">
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%" id="update-progress"></div>
+                </div>
+                <div id="update-log" class="bg-dark text-light p-3 rounded" style="height: 300px; overflow-y: auto;">
+                    <!-- Update log will appear here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentUpdateStrategy = 'stash';
+
+// Load initial status
+document.addEventListener('DOMContentLoaded', function() {
+    refreshStatus();
+});
+
+function refreshStatus() {
+    fetch('/api/system/update/status')
+        .then(response => response.json())
+        .then(data => {
+            displayUpdateStatus(data);
+            displaySystemInfo(data);
+        })
+        .catch(error => {
+            console.error('Error fetching update status:', error);
+            document.getElementById('update-status').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Error loading update status: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function displayUpdateStatus(data) {
+    const statusDiv = document.getElementById('update-status');
+    
+    let statusHtml = '';
+    
+    // Current version info
+    statusHtml += `
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <h6>Current Version</h6>
+                <p class="text-muted mb-1">
+                    <strong>Branch:</strong> ${data.current_branch || 'Unknown'}<br>
+                    <strong>Commit:</strong> ${data.current_commit ? data.current_commit.substring(0, 8) : 'Unknown'}
+                </p>
+            </div>
+            <div class="col-md-6">
+                <h6>Latest Version</h6>
+                ${data.latest_commit ? `
+                    <p class="text-muted mb-1">
+                        <strong>Commit:</strong> ${data.latest_commit.hash.substring(0, 8)}<br>
+                        <strong>Message:</strong> ${data.latest_commit.message}<br>
+                        <strong>Author:</strong> ${data.latest_commit.author}<br>
+                        <strong>Date:</strong> ${new Date(data.latest_commit.date).toLocaleString()}
+                    </p>
+                ` : '<p class="text-muted">Unable to fetch latest version</p>'}
+            </div>
+        </div>
+    `;
+    
+    // Local changes warning
+    if (data.has_local_changes) {
+        statusHtml += `
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>Local Changes Detected:</strong>
+                <ul class="mb-0 mt-2">
+                    ${data.local_changes.map(change => `<li><code>${change}</code></li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    // Updates available
+    if (data.updates_available > 0) {
+        statusHtml += `
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                <strong>${data.updates_available} update(s) available!</strong>
+                <div class="mt-2">
+                    <button class="btn btn-primary" onclick="showUpdateOptions()">
+                        <i class="bi bi-arrow-up"></i> Update Now
+                    </button>
+                </div>
+            </div>
+        `;
+    } else {
+        statusHtml += `
+            <div class="alert alert-success">
+                <i class="bi bi-check-circle"></i>
+                <strong>System is up to date!</strong>
+            </div>
+        `;
+    }
+    
+    statusDiv.innerHTML = statusHtml;
+}
+
+function displaySystemInfo(data) {
+    const infoDiv = document.getElementById('system-info');
+    
+    infoDiv.innerHTML = `
+        <div class="row">
+            <div class="col-12">
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Current Branch:</strong></td>
+                        <td>${data.current_branch || 'Unknown'}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Current Commit:</strong></td>
+                        <td><code>${data.current_commit ? data.current_commit.substring(0, 12) : 'Unknown'}</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Local Changes:</strong></td>
+                        <td>
+                            <span class="badge ${data.has_local_changes ? 'bg-warning' : 'bg-success'}">
+                                ${data.has_local_changes ? 'Yes' : 'No'}
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>Updates Available:</strong></td>
+                        <td>
+                            <span class="badge ${data.updates_available > 0 ? 'bg-info' : 'bg-success'}">
+                                ${data.updates_available}
+                            </span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function showUpdateOptions() {
+    fetch('/api/system/update/status')
+        .then(response => response.json())
+        .then(data => {
+            let content = `
+                <div class="mb-3">
+                    <h6>Update Strategy</h6>
+                    <p class="text-muted">Choose how to handle local changes during the update:</p>
+                </div>
+            `;
+            
+            if (data.has_local_changes) {
+                content += `
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="updateStrategy" 
+                                   id="strategy-stash" value="stash" checked>
+                            <label class="form-check-label" for="strategy-stash">
+                                <strong>Stash Changes (Recommended)</strong><br>
+                                <small class="text-muted">Temporarily save local changes and reapply after update</small>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="updateStrategy" 
+                                   id="strategy-commit" value="commit">
+                            <label class="form-check-label" for="strategy-commit">
+                                <strong>Commit Changes</strong><br>
+                                <small class="text-muted">Save local changes as a commit before updating</small>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="updateStrategy" 
+                                   id="strategy-discard" value="discard">
+                            <label class="form-check-label" for="strategy-discard">
+                                <strong>Discard Changes</strong><br>
+                                <small class="text-muted text-danger">Permanently delete local changes (DANGEROUS)</small>
+                            </label>
+                        </div>
+                    </div>
+                `;
+            } else {
+                content += `
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i>
+                        No local changes detected. Update will proceed safely.
+                    </div>
+                `;
+            }
+            
+            content += `
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>What will be updated:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Application code and scripts</li>
+                        <li>Configuration templates</li>
+                        <li>Documentation</li>
+                    </ul>
+                    <strong>What will NOT be affected:</strong>
+                    <ul class="mb-0 mt-2">
+                        <li>Your cluster database and node configurations</li>
+                        <li>SSH keys and certificates</li>
+                        <li>Log files and backups</li>
+                    </ul>
+                </div>
+            `;
+            
+            document.getElementById('update-content').innerHTML = content;
+            
+            // Set up strategy selection
+            const radios = document.querySelectorAll('input[name="updateStrategy"]');
+            radios.forEach(radio => {
+                radio.addEventListener('change', function() {
+                    currentUpdateStrategy = this.value;
+                });
+            });
+            
+            const modal = new bootstrap.Modal(document.getElementById('updateModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error loading update options:', error);
+        });
+}
+
+function performUpdate() {
+    // Close the options modal
+    const optionsModal = bootstrap.Modal.getInstance(document.getElementById('updateModal'));
+    optionsModal.hide();
+    
+    // Show progress modal
+    const progressModal = new bootstrap.Modal(document.getElementById('updateProgressModal'));
+    progressModal.show();
+    
+    // Reset progress
+    document.getElementById('update-progress').style.width = '0%';
+    document.getElementById('update-log').innerHTML = '<div class="text-info">Starting update...</div>';
+    
+    // Perform update
+    fetch('/api/system/update', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            strategy: currentUpdateStrategy
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        let logContent = '<div class="text-info">Update completed!</div><br>';
+        
+        data.results.forEach((result, index) => {
+            const progress = ((index + 1) / data.results.length) * 100;
+            document.getElementById('update-progress').style.width = progress + '%';
+            
+            logContent += `<div class="text-light"><strong>Command:</strong> ${result.command}</div>`;
+            if (result.stdout) {
+                logContent += `<div class="text-success">${result.stdout}</div>`;
+            }
+            if (result.stderr) {
+                logContent += `<div class="text-warning">${result.stderr}</div>`;
+            }
+            logContent += '<br>';
+        });
+        
+        if (data.success) {
+            logContent += '<div class="text-success"><strong>✅ Update successful!</strong></div>';
+            logContent += '<div class="text-info mt-2">The system will restart automatically in a few seconds...</div>';
+            
+            // Auto-refresh after successful update
+            setTimeout(() => {
+                window.location.reload();
+            }, 3000);
+        } else {
+            logContent += '<div class="text-danger"><strong>❌ Update completed with issues</strong></div>';
+        }
+        
+        document.getElementById('update-log').innerHTML = logContent;
+    })
+    .catch(error => {
+        console.error('Update error:', error);
+        document.getElementById('update-log').innerHTML = `
+            <div class="text-danger">
+                <strong>❌ Update failed:</strong> ${error.message}
+            </div>
+        `;
+    });
+}
+
+function restartSystem() {
+    if (confirm('Are you sure you want to restart the system? This will temporarily interrupt the web interface.')) {
+        fetch('/api/system/restart', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('System restart initiated. The page will reload in a few seconds.');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
+            } else {
+                alert('Failed to restart system: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error restarting system: ' + error.message);
+        });
+    }
+}
+
+function checkPrerequisites() {
+    // This would integrate with your existing prerequisite checking
+    alert('Prerequisites check feature coming soon!');
+}
+
+function viewLogs() {
+    // This would show system logs
+    alert('Log viewer feature coming soon!');
+}
+</script>
+{% endblock %}

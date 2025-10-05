@@ -1,6 +1,8 @@
 """API endpoints for the MicroK8s Cluster Orchestrator."""
 
 import os
+import subprocess
+import json
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
@@ -1384,4 +1386,147 @@ def configure_node_wol(node_id):
         
     except Exception as e:
         db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+# System Update endpoints
+@bp.route('/system/update/status', methods=['GET'])
+@login_required
+def get_update_status():
+    """Get current git status and available updates."""
+    try:
+        # Get current commit
+        result = subprocess.run(['git', 'rev-parse', 'HEAD'], 
+                              capture_output=True, text=True, cwd=os.getcwd())
+        current_commit = result.stdout.strip() if result.returncode == 0 else None
+        
+        # Get current branch
+        result = subprocess.run(['git', 'branch', '--show-current'], 
+                              capture_output=True, text=True, cwd=os.getcwd())
+        current_branch = result.stdout.strip() if result.returncode == 0 else None
+        
+        # Check for local changes
+        result = subprocess.run(['git', 'status', '--porcelain'], 
+                              capture_output=True, text=True, cwd=os.getcwd())
+        has_local_changes = bool(result.stdout.strip())
+        local_changes = result.stdout.strip().split('\n') if result.stdout.strip() else []
+        
+        # Fetch latest from remote
+        subprocess.run(['git', 'fetch', 'origin'], 
+                      capture_output=True, text=True, cwd=os.getcwd())
+        
+        # Check if there are updates available
+        result = subprocess.run(['git', 'rev-list', 'HEAD..origin/main', '--count'], 
+                              capture_output=True, text=True, cwd=os.getcwd())
+        updates_available = int(result.stdout.strip()) if result.returncode == 0 else 0
+        
+        # Get latest commit info
+        result = subprocess.run(['git', 'log', 'origin/main', '-1', '--format=%H|%s|%an|%ad', '--date=iso'], 
+                              capture_output=True, text=True, cwd=os.getcwd())
+        latest_commit_info = None
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split('|')
+            if len(parts) >= 4:
+                latest_commit_info = {
+                    'hash': parts[0],
+                    'message': parts[1],
+                    'author': parts[2],
+                    'date': parts[3]
+                }
+        
+        return jsonify({
+            'current_commit': current_commit,
+            'current_branch': current_branch,
+            'has_local_changes': has_local_changes,
+            'local_changes': local_changes,
+            'updates_available': updates_available,
+            'latest_commit': latest_commit_info
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/system/update', methods=['POST'])
+@login_required
+def perform_update():
+    """Perform system update."""
+    try:
+        data = request.get_json() or {}
+        strategy = data.get('strategy', 'stash')  # stash, commit, discard
+        
+        # Run the update script with the specified strategy
+        script_path = os.path.join(os.getcwd(), 'scripts', 'update_pi.sh')
+        
+        # Create a non-interactive version of the update
+        if strategy == 'stash':
+            commands = [
+                'git stash push -m "Web UI update"',
+                'git pull origin main',
+                'git stash pop || true'  # Don't fail if stash pop has conflicts
+            ]
+        elif strategy == 'commit':
+            commands = [
+                'git add .',
+                'git commit -m "Local changes before web UI update" || true',
+                'git pull origin main'
+            ]
+        elif strategy == 'discard':
+            commands = [
+                'git reset --hard HEAD',
+                'git pull origin main'
+            ]
+        else:
+            return jsonify({'error': 'Invalid update strategy'}), 400
+        
+        results = []
+        for cmd in commands:
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=os.getcwd())
+            results.append({
+                'command': cmd,
+                'returncode': result.returncode,
+                'stdout': result.stdout,
+                'stderr': result.stderr
+            })
+            if result.returncode != 0 and '|| true' not in cmd:
+                break
+        
+        # Check if update was successful
+        success = all(r['returncode'] == 0 for r in results)
+        
+        return jsonify({
+            'success': success,
+            'strategy': strategy,
+            'results': results,
+            'message': 'Update completed successfully' if success else 'Update completed with some issues'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/system/restart', methods=['POST'])
+@login_required
+def restart_system():
+    """Restart the orchestrator system."""
+    try:
+        # This will restart the web service
+        # In production, you might want to use systemctl or other service managers
+        import sys
+        import signal
+        
+        # Schedule restart after response is sent
+        def delayed_restart():
+            import time
+            time.sleep(2)  # Give time for response to be sent
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        
+        import threading
+        restart_thread = threading.Thread(target=delayed_restart)
+        restart_thread.daemon = True
+        restart_thread.start()
+        
+        return jsonify({
+            'success': True,
+            'message': 'System restart initiated'
+        })
+        
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

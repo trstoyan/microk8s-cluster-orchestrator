@@ -1265,3 +1265,9 @@ def ups_services_restart():
         flash(f'Error restarting services: {e}', 'error')
     
     return redirect(url_for('web.ups_monitor'))
+
+@bp.route('/system')
+@login_required
+def system_management():
+    """System management page."""
+    return render_template('system_management.html')
