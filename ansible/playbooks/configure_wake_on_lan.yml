@@ -1,0 +1,134 @@
+---
+- name: Configure Wake-on-LAN on MicroK8s nodes
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    wol_enabled: true
+    wol_interface: "auto"  # auto, eth0, eno1, etc.
+    wol_method: "g"  # g = magic packet, p = pattern, u = unicast
+  
+  tasks:
+    - name: Check if ethtool is installed
+      package:
+        name: ethtool
+        state: present
+      register: ethtool_install
+    
+    - name: Get network interfaces
+      command: ip link show
+      register: network_interfaces
+      changed_when: false
+    
+    - name: Parse primary network interface
+      set_fact:
+        primary_interface: "{{ ansible_default_ipv4.interface }}"
+      when: ansible_default_ipv4 is defined
+    
+    - name: Get MAC address of primary interface
+      command: cat /sys/class/net/{{ primary_interface }}/address
+      register: mac_address
+      changed_when: false
+      when: primary_interface is defined
+    
+    - name: Check current Wake-on-LAN status
+      command: ethtool {{ primary_interface }}
+      register: wol_status
+      changed_when: false
+      when: primary_interface is defined
+    
+    - name: Enable Wake-on-LAN
+      command: ethtool -s {{ primary_interface }} wol {{ wol_method }}
+      when: 
+        - primary_interface is defined
+        - wol_enabled | bool
+    
+    - name: Disable Wake-on-LAN
+      command: ethtool -s {{ primary_interface }} wol d
+      when: 
+        - primary_interface is defined
+        - not (wol_enabled | bool)
+    
+    - name: Verify Wake-on-LAN configuration
+      command: ethtool {{ primary_interface }}
+      register: wol_final_status
+      changed_when: false
+      when: primary_interface is defined
+    
+    - name: Create Wake-on-LAN service script
+      copy:
+        content: |
+          #!/bin/bash
+          # Wake-on-LAN configuration script
+          
+          INTERFACE="{{ primary_interface }}"
+          WOL_METHOD="{{ wol_method }}"
+          
+          case "$1" in
+            start)
+              echo "Enabling Wake-on-LAN on $INTERFACE"
+              ethtool -s $INTERFACE wol $WOL_METHOD
+              ;;
+            stop)
+              echo "Disabling Wake-on-LAN on $INTERFACE"
+              ethtool -s $INTERFACE wol d
+              ;;
+            restart)
+              $0 stop
+              sleep 1
+              $0 start
+              ;;
+            status)
+              ethtool $INTERFACE | grep -i wake
+              ;;
+            *)
+              echo "Usage: $0 {start|stop|restart|status}"
+              exit 1
+              ;;
+          esac
+        dest: /usr/local/bin/wol-control
+        mode: '0755'
+      when: primary_interface is defined
+    
+    - name: Create systemd service for Wake-on-LAN
+      copy:
+        content: |
+          [Unit]
+          Description=Wake-on-LAN Configuration
+          After=network.target
+          
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/wol-control start
+          ExecStop=/usr/local/bin/wol-control stop
+          RemainAfterExit=yes
+          
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/wol-config.service
+      when: primary_interface is defined
+    
+    - name: Enable and start Wake-on-LAN service
+      systemd:
+        name: wol-config
+        enabled: yes
+        state: started
+      when: primary_interface is defined
+    
+    - name: Compile Wake-on-LAN report
+      set_fact:
+        wol_report:
+          hostname: "{{ inventory_hostname }}"
+          interface: "{{ primary_interface }}"
+          mac_address: "{{ mac_address.stdout if mac_address is defined else 'Unknown' }}"
+          wol_enabled: "{{ wol_enabled }}"
+          wol_method: "{{ wol_method }}"
+          initial_status: "{{ wol_status.stdout_lines if wol_status is defined else [] }}"
+          final_status: "{{ wol_final_status.stdout_lines if wol_final_status is defined else [] }}"
+          ethtool_installed: "{{ ethtool_install.changed | default(false) }}"
+    
+    - name: Display Wake-on-LAN configuration
+      debug:
+        var: wol_report
+

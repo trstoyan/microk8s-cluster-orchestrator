@@ -18,6 +18,7 @@ from app.models.cluster import Cluster
 from app.models.ups_cluster_rule import UPSClusterRule, PowerEventType, ClusterActionType
 from app.services.ups_scanner import UPSScanner
 from app.services.orchestrator import OrchestrationService
+from app.services.wake_on_lan import WakeOnLANService
 
 
 class PowerManagementService:
@@ -27,6 +28,7 @@ class PowerManagementService:
         self.app = app
         self.scanner = UPSScanner()
         self.orchestrator = OrchestrationService()
+        self.wol_service = WakeOnLANService(app)
         self.logger = logging.getLogger(__name__)
         self.monitoring_active = False
         self.monitoring_interval = 30  # seconds
@@ -172,6 +174,9 @@ class PowerManagementService:
             
             elif rule.cluster_action == ClusterActionType.RESUME:
                 return await self._resume_cluster(cluster)
+            
+            elif rule.cluster_action == ClusterActionType.WAKE_ON_LAN:
+                return await self._wake_cluster_nodes(cluster)
             
             else:
                 self.logger.warning(f"Unknown cluster action: {rule.cluster_action}")
@@ -399,15 +404,60 @@ class PowerManagementService:
             return False
     
     async def _startup_node(self, node) -> bool:
-        """Startup a node (requires IPMI or similar)."""
+        """Startup a node using Wake-on-LAN or IPMI."""
         try:
+            self.logger.info(f"Starting up node: {node.hostname}")
+            
+            # Try Wake-on-LAN first if configured
+            if node.wol_configured:
+                wol_result = self.wol_service.wake_node(node)
+                if wol_result.get('success', False):
+                    self.logger.info(f"Successfully sent Wake-on-LAN packet to {node.hostname}")
+                    return True
+                else:
+                    self.logger.warning(f"Wake-on-LAN failed for {node.hostname}: {wol_result.get('error', 'Unknown error')}")
+            
+            # Fallback to IPMI or other methods
             # This would require IPMI or similar remote management
             # For now, we'll just log the action
-            self.logger.info(f"Starting up node: {node.name}")
-            return True
+            self.logger.info(f"Wake-on-LAN not configured for {node.hostname}, would use IPMI or manual startup")
+            return False  # Return False since we can't actually start the node
             
         except Exception as e:
-            self.logger.error(f"Error starting up node {node.name}: {e}")
+            self.logger.error(f"Error starting up node {node.hostname}: {e}")
+            return False
+    
+    async def _wake_cluster_nodes(self, cluster: Cluster) -> bool:
+        """Wake up all nodes in a cluster using Wake-on-LAN."""
+        try:
+            self.logger.info(f"Waking up cluster nodes: {cluster.name}")
+            
+            # Create wake operation
+            operation = self.orchestrator.create_operation(
+                operation_type="cluster_wake",
+                description=f"Wake cluster triggered by power management",
+                cluster_id=cluster.id
+            )
+            
+            # Use WoL service to wake the entire cluster
+            wol_result = self.wol_service.wake_cluster(cluster.id)
+            
+            if wol_result.get('success', False):
+                successful_nodes = wol_result.get('successful_nodes', 0)
+                total_nodes = wol_result.get('total_nodes', 0)
+                self.logger.info(f"Successfully woke {successful_nodes}/{total_nodes} nodes in cluster {cluster.name}")
+                
+                # Update cluster status
+                cluster.status = "active"
+                db.session.commit()
+                
+                return True
+            else:
+                self.logger.error(f"Failed to wake cluster {cluster.name}: {wol_result.get('error', 'Unknown error')}")
+                return False
+            
+        except Exception as e:
+            self.logger.error(f"Error waking cluster nodes: {e}")
             return False
     
     def create_power_rule(self, ups_id: int, cluster_id: int, power_event: PowerEventType, 

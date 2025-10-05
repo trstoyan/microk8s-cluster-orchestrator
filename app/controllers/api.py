@@ -6,9 +6,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
 from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, NetworkLease, NetworkInterface
 from ..services.orchestrator import OrchestrationService
+from ..services.wake_on_lan import WakeOnLANService
 
 bp = Blueprint('api', __name__)
 orchestrator = OrchestrationService()
+wol_service = WakeOnLANService()
 
 @bp.route('/health', methods=['GET'])
 def health_check():
@@ -1046,4 +1048,173 @@ def get_cluster_actions():
         actions = controller.get_cluster_actions()
         return jsonify(actions)
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Wake-on-LAN endpoints
+@bp.route('/nodes/<int:node_id>/wol/wake', methods=['POST'])
+@login_required
+def wake_node(node_id):
+    """Send Wake-on-LAN packet to a node."""
+    try:
+        node = db.session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        retries = request.json.get('retries', 3) if request.json else 3
+        delay = request.json.get('delay', 1.0) if request.json else 1.0
+        
+        result = wol_service.wake_node(node, retries, delay)
+        
+        if result.get('success', False):
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/clusters/<int:cluster_id>/wol/wake', methods=['POST'])
+@login_required
+def wake_cluster(cluster_id):
+    """Send Wake-on-LAN packets to all nodes in a cluster."""
+    try:
+        cluster = db.session.query(Cluster).filter(Cluster.id == cluster_id).first()
+        if not cluster:
+            return jsonify({'error': 'Cluster not found'}), 404
+        
+        retries = request.json.get('retries', 3) if request.json else 3
+        delay = request.json.get('delay', 1.0) if request.json else 1.0
+        
+        result = wol_service.wake_cluster(cluster_id, retries, delay)
+        
+        if result.get('success', False):
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/<int:node_id>/wol/status', methods=['GET'])
+@login_required
+def get_node_wol_status(node_id):
+    """Get Wake-on-LAN status for a node."""
+    try:
+        node = db.session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        status = wol_service.get_wol_status(node)
+        return jsonify(status)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/<int:node_id>/wol/enable', methods=['POST'])
+@login_required
+def enable_node_wol(node_id):
+    """Enable Wake-on-LAN on a node."""
+    try:
+        node = db.session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        result = wol_service.enable_wol_on_node(node)
+        
+        if result.get('success', False):
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/<int:node_id>/wol/disable', methods=['POST'])
+@login_required
+def disable_node_wol(node_id):
+    """Disable Wake-on-LAN on a node."""
+    try:
+        node = db.session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        result = wol_service.disable_wol_on_node(node)
+        
+        if result.get('success', False):
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/wol/collect-mac', methods=['POST'])
+@login_required
+def collect_mac_addresses():
+    """Collect MAC addresses from specified nodes."""
+    try:
+        data = request.json
+        if not data or 'node_ids' not in data:
+            return jsonify({'error': 'node_ids required'}), 400
+        
+        node_ids = data['node_ids']
+        nodes = db.session.query(Node).filter(Node.id.in_(node_ids)).all()
+        
+        if not nodes:
+            return jsonify({'error': 'No nodes found'}), 404
+        
+        result = wol_service.collect_mac_addresses(nodes)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/<int:node_id>/wol/configure', methods=['PUT'])
+@login_required
+def configure_node_wol(node_id):
+    """Configure Wake-on-LAN settings for a node."""
+    try:
+        node = db.session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        data = request.json
+        if not data:
+            return jsonify({'error': 'Configuration data required'}), 400
+        
+        # Update allowed WoL fields
+        if 'wol_enabled' in data:
+            node.wol_enabled = bool(data['wol_enabled'])
+        
+        if 'wol_mac_address' in data:
+            node.wol_mac_address = data['wol_mac_address']
+        
+        if 'wol_method' in data:
+            node.wol_method = data['wol_method']
+        
+        if 'wol_broadcast_address' in data:
+            node.wol_broadcast_address = data['wol_broadcast_address']
+        
+        if 'wol_port' in data:
+            node.wol_port = int(data['wol_port'])
+        
+        if 'is_virtual_node' in data:
+            node.is_virtual_node = bool(data['is_virtual_node'])
+        
+        if 'proxmox_vm_id' in data:
+            node.proxmox_vm_id = data['proxmox_vm_id']
+        
+        if 'proxmox_host_id' in data:
+            node.proxmox_host_id = data['proxmox_host_id']
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Wake-on-LAN configuration updated for {node.hostname}',
+            'node': node.to_dict()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500

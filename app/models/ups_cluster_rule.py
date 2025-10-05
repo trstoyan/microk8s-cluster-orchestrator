@@ -29,6 +29,7 @@ class ClusterActionType(enum.Enum):
     SCALE_UP = "scale_up"  # Scale up cluster resources
     PAUSE = "pause"  # Pause cluster operations
     RESUME = "resume"  # Resume cluster operations
+    WAKE_ON_LAN = "wake_on_lan"  # Wake cluster nodes using Wake-on-LAN
 
 
 class UPSClusterRule(Base):
@@ -170,7 +171,8 @@ class UPSClusterRule(Base):
             ClusterActionType.SCALE_DOWN: "Scale down cluster resources",
             ClusterActionType.SCALE_UP: "Scale up cluster resources",
             ClusterActionType.PAUSE: "Pause cluster operations",
-            ClusterActionType.RESUME: "Resume cluster operations"
+            ClusterActionType.RESUME: "Resume cluster operations",
+            ClusterActionType.WAKE_ON_LAN: "Wake cluster nodes using Wake-on-LAN"
         }
         return action_descriptions.get(self.cluster_action, str(self.cluster_action.value))
     

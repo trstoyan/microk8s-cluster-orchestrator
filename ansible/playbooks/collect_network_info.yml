@@ -1,0 +1,138 @@
+---
+- name: Collect network information including MAC addresses
+  hosts: microk8s_nodes
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Get network interfaces with MAC addresses
+      command: ip link show
+      register: ip_link_output
+      changed_when: false
+    
+    - name: Get detailed network interface information
+      command: ip addr show
+      register: ip_addr_output
+      changed_when: false
+    
+    - name: Get network interface statistics
+      command: ip -s link show
+      register: ip_stats_output
+      changed_when: false
+    
+    - name: Get routing table
+      command: ip route show
+      register: ip_route_output
+      changed_when: false
+    
+    - name: Get ARP table
+      command: ip neigh show
+      register: ip_arp_output
+      changed_when: false
+    
+    - name: Check if ethtool is available
+      command: which ethtool
+      register: ethtool_check
+      changed_when: false
+      failed_when: false
+    
+    - name: Get Wake-on-LAN status for all interfaces
+      command: ethtool {{ item }}
+      register: wol_status
+      changed_when: false
+      failed_when: false
+      loop: "{{ ansible_interfaces }}"
+      when: ethtool_check.rc == 0
+    
+    - name: Parse network interfaces and MAC addresses
+      set_fact:
+        network_interfaces: "{{ network_interfaces | default([]) + [{'interface': item, 'mac': hostvars[inventory_hostname]['ansible_' + item]['macaddress'] | default('Unknown'), 'type': hostvars[inventory_hostname]['ansible_' + item]['type'] | default('Unknown')}] }}"
+      loop: "{{ ansible_interfaces }}"
+      when: hostvars[inventory_hostname]['ansible_' + item] is defined
+    
+    - name: Get primary network interface
+      set_fact:
+        primary_interface: "{{ ansible_default_ipv4.interface }}"
+      when: ansible_default_ipv4 is defined
+    
+    - name: Get primary MAC address
+      set_fact:
+        primary_mac: "{{ ansible_default_ipv4.macaddress }}"
+      when: ansible_default_ipv4 is defined
+    
+    - name: Check for Wake-on-LAN support
+      command: ethtool {{ primary_interface }}
+      register: primary_wol_status
+      changed_when: false
+      failed_when: false
+      when: primary_interface is defined and ethtool_check.rc == 0
+    
+    - name: Extract Wake-on-LAN settings
+      set_fact:
+        wol_settings: "{{ primary_wol_status.stdout_lines | select('match', '.*Wake-on.*') | list }}"
+      when: primary_wol_status is defined
+    
+    - name: Get network interface driver information
+      command: ethtool -i {{ primary_interface }}
+      register: driver_info
+      changed_when: false
+      failed_when: false
+      when: primary_interface is defined and ethtool_check.rc == 0
+    
+    - name: Get network interface features
+      command: ethtool -k {{ primary_interface }}
+      register: interface_features
+      changed_when: false
+      failed_when: false
+      when: primary_interface is defined and ethtool_check.rc == 0
+    
+    - name: Compile network information report
+      set_fact:
+        network_report:
+          hostname: "{{ inventory_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          primary_interface: "{{ primary_interface }}"
+          primary_mac: "{{ primary_mac }}"
+          all_interfaces: "{{ network_interfaces }}"
+          wol_support: "{{ wol_settings | default([]) }}"
+          driver_info: "{{ driver_info.stdout_lines if driver_info is defined else [] }}"
+          interface_features: "{{ interface_features.stdout_lines if interface_features is defined else [] }}"
+          routing_table: "{{ ip_route_output.stdout_lines }}"
+          arp_table: "{{ ip_arp_output.stdout_lines }}"
+          interface_stats: "{{ ip_stats_output.stdout_lines }}"
+    
+    - name: Display network information
+      debug:
+        var: network_report
+    
+    - name: Save network information to file
+      copy:
+        content: |
+          Network Information Report for {{ inventory_hostname }}
+          Generated: {{ ansible_date_time.iso8601 }}
+          
+          Primary Interface: {{ primary_interface }}
+          Primary MAC Address: {{ primary_mac }}
+          IP Address: {{ ansible_default_ipv4.address }}
+          
+          All Interfaces:
+          {% for iface in network_interfaces %}
+          - {{ iface.interface }}: {{ iface.mac }} ({{ iface.type }})
+          {% endfor %}
+          
+          Wake-on-LAN Support:
+          {% for setting in wol_settings %}
+          {{ setting }}
+          {% endfor %}
+          
+          Driver Information:
+          {% for line in driver_info.stdout_lines if driver_info is defined %}
+          {{ line }}
+          {% endfor %}
+          
+          Interface Features:
+          {% for line in interface_features.stdout_lines if interface_features is defined %}
+          {{ line }}
+          {% endfor %}
+        dest: "/tmp/network_info_{{ inventory_hostname }}.txt"
+

@@ -2308,5 +2308,339 @@ def restart():
     except Exception as e:
         print_error(f"Failed to restart NUT services: {e}")
 
+# Wake-on-LAN commands
+@cli.group()
+def wol():
+    """Wake-on-LAN operations for cluster nodes."""
+    pass
+
+@wol.command('wake-node')
+@click.argument('node_id', type=int)
+@click.option('--retries', default=3, help='Number of retry attempts')
+@click.option('--delay', default=1.0, help='Delay between retries in seconds')
+def wake_node(node_id, retries, delay):
+    """Send Wake-on-LAN packet to a specific node."""
+    try:
+        from app.services.wake_on_lan import WakeOnLANService
+        from app.models.database import db
+        from app.models.node import Node
+        
+        init_database()
+        session = db.session
+        
+        node = session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found")
+            return
+        
+        print_info(f"Waking node: {node.hostname} ({node.ip_address})")
+        
+        wol_service = WakeOnLANService()
+        result = wol_service.wake_node(node, retries, delay)
+        
+        if result.get('success', False):
+            packets_sent = result.get('packets_sent', 0)
+            print_success(f"Successfully sent {packets_sent} Wake-on-LAN packets to {node.hostname}")
+        else:
+            print_error(f"Failed to wake {node.hostname}: {result.get('error', 'Unknown error')}")
+        
+        session.close()
+        
+    except Exception as e:
+        print_error(f"Failed to wake node: {e}")
+
+@wol.command('wake-cluster')
+@click.argument('cluster_id', type=int)
+@click.option('--retries', default=3, help='Number of retry attempts per node')
+@click.option('--delay', default=1.0, help='Delay between retries in seconds')
+def wake_cluster(cluster_id, retries, delay):
+    """Send Wake-on-LAN packets to all nodes in a cluster."""
+    try:
+        from app.services.wake_on_lan import WakeOnLANService
+        from app.models.database import db
+        from app.models.cluster import Cluster
+        
+        init_database()
+        session = db.session
+        
+        cluster = session.query(Cluster).filter(Cluster.id == cluster_id).first()
+        if not cluster:
+            print_error(f"Cluster with ID {cluster_id} not found")
+            return
+        
+        print_info(f"Waking cluster: {cluster.name}")
+        
+        wol_service = WakeOnLANService()
+        result = wol_service.wake_cluster(cluster_id, retries, delay)
+        
+        if result.get('success', False):
+            successful_nodes = result.get('successful_nodes', 0)
+            total_nodes = result.get('total_nodes', 0)
+            print_success(f"Successfully woke {successful_nodes}/{total_nodes} nodes in cluster {cluster.name}")
+            
+            # Show detailed results
+            results = result.get('results', {})
+            for hostname, node_result in results.items():
+                if node_result.get('success', False):
+                    packets_sent = node_result.get('packets_sent', 0)
+                    print_info(f"  {hostname}: {packets_sent} packets sent")
+                else:
+                    error = node_result.get('error', 'Unknown error')
+                    print_warning(f"  {hostname}: Failed - {error}")
+        else:
+            print_error(f"Failed to wake cluster {cluster.name}: {result.get('error', 'Unknown error')}")
+        
+        session.close()
+        
+    except Exception as e:
+        print_error(f"Failed to wake cluster: {e}")
+
+@wol.command('status')
+@click.argument('node_id', type=int)
+def wol_status(node_id):
+    """Get Wake-on-LAN status for a node."""
+    try:
+        from app.services.wake_on_lan import WakeOnLANService
+        from app.models.database import db
+        from app.models.node import Node
+        
+        init_database()
+        session = db.session
+        
+        node = session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found")
+            return
+        
+        print_info(f"Wake-on-LAN status for {node.hostname}:")
+        
+        wol_service = WakeOnLANService()
+        status = wol_service.get_wol_status(node)
+        
+        if 'error' in status:
+            print_error(f"Error getting status: {status['error']}")
+            return
+        
+        # Display status information
+        print_info(f"  Hostname: {status['hostname']}")
+        print_info(f"  WoL Enabled: {'Yes' if status['wol_enabled'] else 'No'}")
+        print_info(f"  WoL Configured: {'Yes' if status['wol_configured'] else 'No'}")
+        print_info(f"  Description: {status['wol_description']}")
+        
+        if status['mac_address']:
+            print_info(f"  MAC Address: {status['mac_address']}")
+        
+        if status['method']:
+            print_info(f"  Method: {status['method']}")
+        
+        if status['port']:
+            print_info(f"  Port: {status['port']}")
+        
+        if status['broadcast_address']:
+            print_info(f"  Broadcast Address: {status['broadcast_address']}")
+        
+        if status['is_virtual_node']:
+            print_warning("  Virtual Node: Yes (Proxmox VM)")
+            if status.get('proxmox_vm_id'):
+                print_info(f"  Proxmox VM ID: {status['proxmox_vm_id']}")
+            if status.get('proxmox_host_id'):
+                print_info(f"  Proxmox Host ID: {status['proxmox_host_id']}")
+        
+        session.close()
+        
+    except Exception as e:
+        print_error(f"Failed to get WoL status: {e}")
+
+@wol.command('enable')
+@click.argument('node_id', type=int)
+def enable_wol(node_id):
+    """Enable Wake-on-LAN on a node."""
+    try:
+        from app.services.wake_on_lan import WakeOnLANService
+        from app.models.database import db
+        from app.models.node import Node
+        
+        init_database()
+        session = db.session
+        
+        node = session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found")
+            return
+        
+        print_info(f"Enabling Wake-on-LAN on {node.hostname}...")
+        
+        wol_service = WakeOnLANService()
+        result = wol_service.enable_wol_on_node(node)
+        
+        if result.get('success', False):
+            print_success(result['message'])
+        else:
+            print_error(f"Failed to enable WoL: {result.get('error', 'Unknown error')}")
+        
+        session.close()
+        
+    except Exception as e:
+        print_error(f"Failed to enable WoL: {e}")
+
+@wol.command('disable')
+@click.argument('node_id', type=int)
+def disable_wol(node_id):
+    """Disable Wake-on-LAN on a node."""
+    try:
+        from app.services.wake_on_lan import WakeOnLANService
+        from app.models.database import db
+        from app.models.node import Node
+        
+        init_database()
+        session = db.session
+        
+        node = session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found")
+            return
+        
+        print_info(f"Disabling Wake-on-LAN on {node.hostname}...")
+        
+        wol_service = WakeOnLANService()
+        result = wol_service.disable_wol_on_node(node)
+        
+        if result.get('success', False):
+            print_success(result['message'])
+        else:
+            print_error(f"Failed to disable WoL: {result.get('error', 'Unknown error')}")
+        
+        session.close()
+        
+    except Exception as e:
+        print_error(f"Failed to disable WoL: {e}")
+
+@wol.command('collect-mac')
+@click.option('--node-ids', help='Comma-separated list of node IDs (default: all nodes)')
+def collect_mac_addresses(node_ids):
+    """Collect MAC addresses from nodes."""
+    try:
+        from app.services.wake_on_lan import WakeOnLANService
+        from app.models.database import db
+        from app.models.node import Node
+        
+        init_database()
+        session = db.session
+        
+        # Parse node IDs
+        if node_ids:
+            try:
+                node_id_list = [int(id.strip()) for id in node_ids.split(',')]
+                nodes = session.query(Node).filter(Node.id.in_(node_id_list)).all()
+            except ValueError:
+                print_error("Invalid node IDs format. Use comma-separated integers.")
+                return
+        else:
+            nodes = session.query(Node).all()
+        
+        if not nodes:
+            print_warning("No nodes found")
+            return
+        
+        print_info(f"Collecting MAC addresses from {len(nodes)} nodes...")
+        
+        wol_service = WakeOnLANService()
+        result = wol_service.collect_mac_addresses(nodes)
+        
+        # Display results
+        for hostname, node_result in result.items():
+            if node_result.get('success', False):
+                mac_addresses = node_result.get('mac_addresses', [])
+                print_success(f"{hostname}: Found {len(mac_addresses)} interfaces")
+                
+                for mac_info in mac_addresses:
+                    interface = mac_info.get('interface', 'Unknown')
+                    mac = mac_info.get('mac_address', 'Unknown')
+                    print_info(f"  {interface}: {mac}")
+            else:
+                error = node_result.get('error', 'Unknown error')
+                print_error(f"{hostname}: Failed - {error}")
+        
+        session.close()
+        
+    except Exception as e:
+        print_error(f"Failed to collect MAC addresses: {e}")
+
+@wol.command('configure')
+@click.argument('node_id', type=int)
+@click.option('--mac-address', help='MAC address for Wake-on-LAN')
+@click.option('--method', default='ethernet', help='Wake method (ethernet, wifi, pci, usb)')
+@click.option('--port', default=9, help='UDP port for Wake-on-LAN packets')
+@click.option('--broadcast', help='Broadcast address (default: 255.255.255.255)')
+@click.option('--enable/--disable', default=None, help='Enable or disable Wake-on-LAN')
+@click.option('--virtual/--physical', default=None, help='Mark as virtual or physical node')
+@click.option('--proxmox-vm-id', help='Proxmox VM ID (for virtual nodes)')
+@click.option('--proxmox-host-id', help='Proxmox host ID (for virtual nodes)')
+def configure_wol(node_id, mac_address, method, port, broadcast, enable, virtual, proxmox_vm_id, proxmox_host_id):
+    """Configure Wake-on-LAN settings for a node."""
+    try:
+        from app.models.database import db
+        from app.models.node import Node
+        
+        init_database()
+        session = db.session
+        
+        node = session.query(Node).filter(Node.id == node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found")
+            return
+        
+        print_info(f"Configuring Wake-on-LAN for {node.hostname}...")
+        
+        # Update configuration
+        if mac_address is not None:
+            node.wol_mac_address = mac_address
+            print_info(f"  Set MAC address: {mac_address}")
+        
+        if method is not None:
+            node.wol_method = method
+            print_info(f"  Set method: {method}")
+        
+        if port is not None:
+            node.wol_port = port
+            print_info(f"  Set port: {port}")
+        
+        if broadcast is not None:
+            node.wol_broadcast_address = broadcast
+            print_info(f"  Set broadcast address: {broadcast}")
+        
+        if enable is not None:
+            node.wol_enabled = enable
+            print_info(f"  {'Enabled' if enable else 'Disabled'} Wake-on-LAN")
+        
+        if virtual is not None:
+            node.is_virtual_node = virtual
+            print_info(f"  Marked as {'virtual' if virtual else 'physical'} node")
+        
+        if proxmox_vm_id is not None:
+            node.proxmox_vm_id = proxmox_vm_id
+            print_info(f"  Set Proxmox VM ID: {proxmox_vm_id}")
+        
+        if proxmox_host_id is not None:
+            node.proxmox_host_id = proxmox_host_id
+            print_info(f"  Set Proxmox host ID: {proxmox_host_id}")
+        
+        # Commit changes
+        session.commit()
+        
+        print_success(f"Wake-on-LAN configuration updated for {node.hostname}")
+        
+        # Show current configuration
+        print_info("Current configuration:")
+        print_info(f"  WoL Enabled: {node.wol_enabled}")
+        print_info(f"  WoL Configured: {node.wol_configured}")
+        print_info(f"  Description: {node.wol_description}")
+        
+        session.close()
+        
+    except Exception as e:
+        print_error(f"Failed to configure WoL: {e}")
+        session.rollback()
+
 if __name__ == '__main__':
     cli()
