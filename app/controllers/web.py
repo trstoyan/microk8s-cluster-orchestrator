@@ -332,6 +332,31 @@ def api_regenerate_ssh_key(node_id):
             'error': str(e)
         })
 
+@bp.route('/api/system/health', methods=['GET'])
+@login_required
+def api_system_health():
+    """API endpoint to check system health."""
+    from flask import jsonify
+    
+    try:
+        from ..utils.migration_manager import MigrationManager
+        
+        migration_manager = MigrationManager()
+        health_check = migration_manager.run_comprehensive_check()
+        
+        return jsonify({
+            'overall_healthy': health_check['overall_healthy'],
+            'migration_status': health_check['migration_status'],
+            'model_validation': health_check['model_validation'],
+            'recommendations': health_check['recommendations']
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'overall_healthy': False,
+            'error': str(e)
+        })
+
 @bp.route('/nodes/<int:node_id>')
 @login_required
 def node_detail(node_id):

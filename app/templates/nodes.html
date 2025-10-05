@@ -141,6 +141,12 @@
                                             <i class="bi bi-key"></i> SSH Setup
                                         </a></li>
                                         {% endif %}
+                                        <li><a class="dropdown-item" href="#" onclick="checkSSHKeyStatus({{ node.id }})">
+                                            <i class="bi bi-search"></i> Check SSH Keys
+                                        </a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="regenerateSSHKey({{ node.id }}, '{{ node.hostname }}')">
+                                            <i class="bi bi-arrow-clockwise"></i> Regenerate SSH Key
+                                        </a></li>
                                         {% if node.microk8s_status == 'not_installed' %}
                                         <li><a class="dropdown-item" href="#" onclick="installMicroK8s({{ node.id }})">
                                             <i class="bi bi-download"></i> Install MicroK8s
@@ -438,6 +444,62 @@ function saveWoLConfig() {
     .catch(error => {
         alert('Error configuring Wake-on-LAN: ' + error);
     });
+}
+
+function checkSSHKeyStatus(nodeId) {
+    if (confirm('Check SSH key status and file existence?')) {
+        fetch(`/api/nodes/${nodeId}/check-ssh-keys`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                let message = 'SSH Key Status Check Results:\n\n';
+                message += `Key Files Exist: ${data.key_files_exist ? 'Yes' : 'No'}\n`;
+                message += `Database Status: ${data.database_status}\n`;
+                message += `Key Fingerprint: ${data.fingerprint || 'Not available'}\n`;
+                message += `Key Path: ${data.key_path || 'Not set'}\n`;
+                
+                if (data.sync_needed) {
+                    message += '\n⚠️ Database synchronization needed. The system will attempt to fix this automatically.';
+                }
+                
+                alert(message);
+                location.reload();
+            } else {
+                alert('Error checking SSH key status: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error checking SSH key status: ' + error);
+        });
+    }
+}
+
+function regenerateSSHKey(nodeId, hostname) {
+    if (confirm(`Regenerate SSH key for node '${hostname}'? This will invalidate the current key and require re-setup on the target node.`)) {
+        fetch(`/api/nodes/${nodeId}/regenerate-ssh-key`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`SSH key regenerated successfully for ${hostname}. Please follow the new setup instructions.`);
+                location.reload();
+            } else {
+                alert('Error regenerating SSH key: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error regenerating SSH key: ' + error);
+        });
+    }
 }
 
 function collectMacAddress(nodeId, hostname) {

@@ -56,6 +56,29 @@
     </div>
     
     <div class="col-md-3 mb-3">
+        <div class="card card-stats" style="border-left-color: #6f42c1;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title text-muted">System Health</h5>
+                        <h2 class="mb-0">
+                            <span id="system-health-status" class="badge bg-secondary">Checking...</span>
+                        </h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-heart-pulse fs-1 text-purple"></i>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="checkSystemHealth()">
+                        <i class="bi bi-arrow-clockwise"></i> Check Health
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-3">
         <div class="card card-stats" style="border-left-color: #ffc107;">
             <div class="card-body">
                 <div class="d-flex justify-content-between">
@@ -393,5 +416,38 @@
     setTimeout(function() {
         location.reload();
     }, 30000);
+    
+    // Check system health on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        checkSystemHealth();
+    });
+    
+    function checkSystemHealth() {
+        const statusElement = document.getElementById('system-health-status');
+        statusElement.textContent = 'Checking...';
+        statusElement.className = 'badge bg-secondary';
+        
+        fetch('/api/system/health', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.overall_healthy) {
+                statusElement.textContent = 'Healthy';
+                statusElement.className = 'badge bg-success';
+            } else {
+                statusElement.textContent = 'Issues';
+                statusElement.className = 'badge bg-warning';
+            }
+        })
+        .catch(error => {
+            statusElement.textContent = 'Error';
+            statusElement.className = 'badge bg-danger';
+            console.error('System health check failed:', error);
+        });
+    }
 </script>
 {% endblock %}
