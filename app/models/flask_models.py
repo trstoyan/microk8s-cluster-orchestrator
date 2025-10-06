@@ -636,3 +636,271 @@ class RouterSwitch(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
+class PlaybookTemplate(db.Model):
+    """Flask-SQLAlchemy PlaybookTemplate model for predefined playbook templates."""
+    
+    __tablename__ = 'playbook_templates'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    category = db.Column(db.String(100), nullable=False)  # microk8s, system, monitoring, etc.
+    
+    # Template content
+    yaml_content = db.Column(db.Text, nullable=False)
+    variables_schema = db.Column(db.Text)  # JSON schema for template variables
+    
+    # Template metadata
+    version = db.Column(db.String(50), default='1.0.0')
+    tags = db.Column(db.Text)  # Comma-separated tags
+    is_public = db.Column(db.Boolean, default=True)
+    is_system = db.Column(db.Boolean, default=False)  # System templates cannot be deleted
+    
+    # Usage statistics
+    usage_count = db.Column(db.Integer, default=0)
+    last_used = db.Column(db.DateTime)
+    
+    # Relationships
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    creator = db.relationship("User", backref="playbook_templates")
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<PlaybookTemplate {self.name} ({self.category})>'
+    
+    def to_dict(self):
+        """Convert playbook template to dictionary representation."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'category': self.category,
+            'yaml_content': self.yaml_content,
+            'variables_schema': self.variables_schema,
+            'version': self.version,
+            'tags': self.tags,
+            'is_public': self.is_public,
+            'is_system': self.is_system,
+            'usage_count': self.usage_count,
+            'last_used': self.last_used.isoformat() if self.last_used else None,
+            'created_by': self.created_by,
+            'created_by_user': self.creator.full_name if self.creator else 'System',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class CustomPlaybook(db.Model):
+    """Flask-SQLAlchemy CustomPlaybook model for user-created playbooks."""
+    
+    __tablename__ = 'custom_playbooks'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    
+    # Playbook content
+    yaml_content = db.Column(db.Text, nullable=False)
+    visual_config = db.Column(db.Text)  # JSON representation of visual editor state
+    
+    # Playbook metadata
+    category = db.Column(db.String(100), default='custom')
+    tags = db.Column(db.Text)
+    is_public = db.Column(db.Boolean, default=False)
+    
+    # Usage statistics
+    execution_count = db.Column(db.Integer, default=0)
+    last_executed = db.Column(db.DateTime)
+    success_rate = db.Column(db.Float, default=0.0)  # Percentage of successful executions
+    
+    # Relationships
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    creator = db.relationship("User", backref="custom_playbooks")
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<CustomPlaybook {self.name}>'
+    
+    def to_dict(self):
+        """Convert custom playbook to dictionary representation."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'yaml_content': self.yaml_content,
+            'visual_config': self.visual_config,
+            'category': self.category,
+            'tags': self.tags,
+            'is_public': self.is_public,
+            'execution_count': self.execution_count,
+            'last_executed': self.last_executed.isoformat() if self.last_executed else None,
+            'success_rate': self.success_rate,
+            'created_by': self.created_by,
+            'created_by_user': self.creator.full_name if self.creator else 'Unknown',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+class PlaybookExecution(db.Model):
+    """Flask-SQLAlchemy PlaybookExecution model for tracking playbook runs."""
+    
+    __tablename__ = 'playbook_executions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Execution identification
+    execution_name = db.Column(db.String(255), nullable=False)
+    execution_type = db.Column(db.String(50), nullable=False)  # 'template' or 'custom'
+    
+    # Playbook references
+    template_id = db.Column(db.Integer, db.ForeignKey('playbook_templates.id'), nullable=True)
+    custom_playbook_id = db.Column(db.Integer, db.ForeignKey('custom_playbooks.id'), nullable=True)
+    
+    # Target configuration
+    targets = db.Column(db.Text, nullable=False)  # JSON array of target specifications
+    inventory_content = db.Column(db.Text)  # Generated Ansible inventory
+    
+    # Execution details
+    yaml_content = db.Column(db.Text, nullable=False)  # Final YAML that was executed
+    extra_vars = db.Column(db.Text)  # Additional variables passed to Ansible
+    
+    # Execution status
+    status = db.Column(db.String(50), default='pending')  # pending, running, completed, failed, cancelled
+    progress_percent = db.Column(db.Integer, default=0)
+    
+    # Timing
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    estimated_duration = db.Column(db.Integer)  # Estimated duration in seconds
+    
+    # Results
+    success = db.Column(db.Boolean, default=False)
+    output = db.Column(db.Text)  # Full Ansible output
+    error_message = db.Column(db.Text)
+    summary = db.Column(db.Text)  # JSON summary of results
+    
+    # Relationships
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    creator = db.relationship("User", backref="playbook_executions")
+    template = db.relationship("PlaybookTemplate", backref="executions")
+    custom_playbook = db.relationship("CustomPlaybook", backref="executions")
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<PlaybookExecution {self.execution_name} ({self.status})>'
+    
+    @property
+    def duration(self):
+        """Calculate execution duration."""
+        if self.started_at and self.completed_at:
+            return (self.completed_at - self.started_at).total_seconds()
+        return None
+    
+    @property
+    def is_running(self):
+        """Check if execution is currently running."""
+        return self.status == 'running'
+    
+    @property
+    def is_completed(self):
+        """Check if execution is completed (success or failure)."""
+        return self.status in ['completed', 'failed', 'cancelled']
+    
+    def to_dict(self):
+        """Convert playbook execution to dictionary representation."""
+        return {
+            'id': self.id,
+            'execution_name': self.execution_name,
+            'execution_type': self.execution_type,
+            'template_id': self.template_id,
+            'custom_playbook_id': self.custom_playbook_id,
+            'targets': self.targets,
+            'inventory_content': self.inventory_content,
+            'yaml_content': self.yaml_content,
+            'extra_vars': self.extra_vars,
+            'status': self.status,
+            'progress_percent': self.progress_percent,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'duration': self.duration,
+            'estimated_duration': self.estimated_duration,
+            'success': self.success,
+            'output': self.output,
+            'error_message': self.error_message,
+            'summary': self.summary,
+            'created_by': self.created_by,
+            'created_by_user': self.creator.full_name if self.creator else 'System',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'is_running': self.is_running,
+            'is_completed': self.is_completed
+        }
+
+class NodeGroup(db.Model):
+    """Flask-SQLAlchemy NodeGroup model for custom node groupings."""
+    
+    __tablename__ = 'node_groups'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    
+    # Group configuration
+    group_type = db.Column(db.String(50), nullable=False)  # 'static', 'dynamic', 'cluster', 'tag'
+    criteria = db.Column(db.Text)  # JSON criteria for dynamic groups
+    
+    # Group metadata
+    tags = db.Column(db.Text)
+    is_system = db.Column(db.Boolean, default=False)  # System groups cannot be deleted
+    
+    # Relationships
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    creator = db.relationship("User", backref="node_groups")
+    
+    # Many-to-many relationship with nodes
+    nodes = db.relationship("Node", secondary="node_group_memberships", backref="groups")
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<NodeGroup {self.name} ({self.group_type})>'
+    
+    @property
+    def node_count(self):
+        """Get the number of nodes in this group."""
+        return len(self.nodes)
+    
+    def to_dict(self):
+        """Convert node group to dictionary representation."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'group_type': self.group_type,
+            'criteria': self.criteria,
+            'tags': self.tags,
+            'is_system': self.is_system,
+            'node_count': self.node_count,
+            'created_by': self.created_by,
+            'created_by_user': self.creator.full_name if self.creator else 'System',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+# Association table for many-to-many relationship between NodeGroup and Node
+node_group_memberships = db.Table('node_group_memberships',
+    db.Column('group_id', db.Integer, db.ForeignKey('node_groups.id'), primary_key=True),
+    db.Column('node_id', db.Integer, db.ForeignKey('nodes.id'), primary_key=True),
+    db.Column('created_at', db.DateTime, default=datetime.utcnow)
+)
+

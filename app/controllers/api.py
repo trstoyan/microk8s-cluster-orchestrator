@@ -7,14 +7,16 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User, PlaybookTemplate, CustomPlaybook, PlaybookExecution, NodeGroup
 from ..models.network_lease import NetworkLease, NetworkInterface
 from ..services.orchestrator import OrchestrationService
 from ..services.wake_on_lan import WakeOnLANService
+from ..services.playbook_service import PlaybookService
 
 bp = Blueprint('api', __name__)
 orchestrator = OrchestrationService()
 wol_service = WakeOnLANService()
+playbook_service = PlaybookService()
 
 @bp.route('/health', methods=['GET'])
 def health_check():
@@ -70,15 +72,60 @@ def update_node(node_id):
         node = Node.query.get_or_404(node_id)
         data = request.get_json()
         
-        for key, value in data.items():
-            if hasattr(node, key):
-                setattr(node, key, value)
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Track changes for response
+        changes = {}
+        
+        # Update allowed fields
+        allowed_fields = ['hostname', 'ip_address', 'ssh_user', 'ssh_port', 'cluster_id', 'tags', 'notes']
+        
+        for field in allowed_fields:
+            if field in data:
+                old_value = getattr(node, field)
+                new_value = data[field]
+                
+                # Handle special cases
+                if field == 'cluster_id':
+                    if new_value == 0 or new_value is None:
+                        new_value = None
+                    else:
+                        # Verify cluster exists
+                        cluster = Cluster.query.get(new_value)
+                        if not cluster:
+                            return jsonify({'error': f'Cluster with ID {new_value} not found'}), 400
+                
+                if field == 'ssh_port' and new_value is not None:
+                    try:
+                        new_value = int(new_value)
+                        if not (1 <= new_value <= 65535):
+                            return jsonify({'error': 'SSH port must be between 1 and 65535'}), 400
+                    except (ValueError, TypeError):
+                        return jsonify({'error': 'SSH port must be a valid integer'}), 400
+                
+                setattr(node, field, new_value)
+                changes[field] = {'old': old_value, 'new': new_value}
+        
+        # Update timestamp
+        from datetime import datetime
+        node.updated_at = datetime.utcnow()
         
         db.session.commit()
-        return jsonify(node.to_dict())
+        
+        return jsonify({
+            'success': True,
+            'message': f'Node "{node.hostname}" updated successfully',
+            'node': node.to_dict(),
+            'changes': changes
+        })
+        
     except SQLAlchemyError as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Database error: {str(e)}'}), 500
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Update failed: {str(e)}'}), 500
 
 @bp.route('/nodes/<int:node_id>', methods=['DELETE'])
 @login_required
@@ -394,6 +441,39 @@ def configure_hosts_file(cluster_id):
             'message': f'Hosts file configuration started for cluster {cluster.name}',
             'nodes_count': len(cluster.nodes),
             'nodes': [{'hostname': node.hostname, 'ip_address': node.ip_address} for node in cluster.nodes]
+        }), 202
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/nodes/configure-hosts', methods=['POST'])
+@login_required
+def configure_all_nodes_hosts():
+    """Configure /etc/hosts file on all nodes for proper hostname resolution."""
+    try:
+        nodes = Node.query.all()
+        
+        if not nodes:
+            return jsonify({'error': 'No nodes found to configure'}), 400
+        
+        # Create a temporary cluster-like object for the operation
+        class TempCluster:
+            def __init__(self, nodes):
+                self.name = "All Nodes"
+                self.nodes = nodes
+        
+        temp_cluster = TempCluster(nodes)
+        operation = orchestrator.configure_hosts_file(temp_cluster)
+        
+        # Set the user who initiated the operation
+        operation.user_id = current_user.id
+        operation.created_by = current_user.full_name
+        db.session.commit()
+        
+        return jsonify({
+            'operation': operation.to_dict(),
+            'message': f'Hosts file configuration started for all {len(nodes)} nodes',
+            'nodes_count': len(nodes),
+            'nodes': [{'hostname': node.hostname, 'ip_address': node.ip_address, 'cluster': node.cluster.name if node.cluster else 'No cluster'} for node in nodes]
         }), 202
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1942,3 +2022,327 @@ def clear_system_logs(log_type):
             'success': False,
             'error': f'Log clearing failed: {str(e)}'
         }), 500
+
+# Playbook Template endpoints
+@bp.route('/playbook-templates', methods=['GET'])
+@login_required
+def list_playbook_templates():
+    """List all playbook templates."""
+    try:
+        category = request.args.get('category')
+        is_public = request.args.get('is_public')
+        if is_public is not None:
+            is_public = is_public.lower() == 'true'
+        
+        templates = playbook_service.get_templates(category=category, is_public=is_public)
+        return jsonify([template.to_dict() for template in templates])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbook-templates', methods=['POST'])
+@login_required
+def create_playbook_template():
+    """Create a new playbook template."""
+    try:
+        data = request.get_json()
+        template = playbook_service.create_template(
+            name=data['name'],
+            description=data.get('description', ''),
+            category=data['category'],
+            yaml_content=data['yaml_content'],
+            variables_schema=data.get('variables_schema'),
+            tags=data.get('tags'),
+            is_public=data.get('is_public', True),
+            created_by=current_user.id
+        )
+        return jsonify(template.to_dict()), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbook-templates/<int:template_id>', methods=['GET'])
+@login_required
+def get_playbook_template(template_id):
+    """Get a specific playbook template."""
+    try:
+        template = playbook_service.get_template(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        return jsonify(template.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbook-templates/<int:template_id>', methods=['PUT'])
+@login_required
+def update_playbook_template(template_id):
+    """Update a playbook template."""
+    try:
+        data = request.get_json()
+        template = playbook_service.update_template(template_id, **data)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        return jsonify(template.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbook-templates/<int:template_id>', methods=['DELETE'])
+@login_required
+def delete_playbook_template(template_id):
+    """Delete a playbook template."""
+    try:
+        success = playbook_service.delete_template(template_id)
+        if not success:
+            return jsonify({'error': 'Template not found or cannot be deleted'}), 404
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Custom Playbook endpoints
+@bp.route('/custom-playbooks', methods=['GET'])
+@login_required
+def list_custom_playbooks():
+    """List custom playbooks."""
+    try:
+        is_public = request.args.get('is_public')
+        if is_public is not None:
+            is_public = is_public.lower() == 'true'
+        
+        playbooks = playbook_service.get_custom_playbooks(
+            created_by=current_user.id if not is_public else None,
+            is_public=is_public
+        )
+        return jsonify([playbook.to_dict() for playbook in playbooks])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/custom-playbooks', methods=['POST'])
+@login_required
+def create_custom_playbook():
+    """Create a new custom playbook."""
+    try:
+        data = request.get_json()
+        playbook = playbook_service.create_custom_playbook(
+            name=data['name'],
+            description=data.get('description', ''),
+            yaml_content=data['yaml_content'],
+            visual_config=data.get('visual_config'),
+            category=data.get('category', 'custom'),
+            tags=data.get('tags'),
+            is_public=data.get('is_public', False),
+            created_by=current_user.id
+        )
+        return jsonify(playbook.to_dict()), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/custom-playbooks/<int:playbook_id>', methods=['GET'])
+@login_required
+def get_custom_playbook(playbook_id):
+    """Get a specific custom playbook."""
+    try:
+        playbook = playbook_service.get_custom_playbook(playbook_id)
+        if not playbook:
+            return jsonify({'error': 'Playbook not found'}), 404
+        return jsonify(playbook.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/custom-playbooks/<int:playbook_id>', methods=['PUT'])
+@login_required
+def update_custom_playbook(playbook_id):
+    """Update a custom playbook."""
+    try:
+        data = request.get_json()
+        playbook = playbook_service.update_custom_playbook(playbook_id, **data)
+        if not playbook:
+            return jsonify({'error': 'Playbook not found'}), 404
+        return jsonify(playbook.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/custom-playbooks/<int:playbook_id>', methods=['DELETE'])
+@login_required
+def delete_custom_playbook(playbook_id):
+    """Delete a custom playbook."""
+    try:
+        success = playbook_service.delete_custom_playbook(playbook_id)
+        if not success:
+            return jsonify({'error': 'Playbook not found'}), 404
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Node Group endpoints
+@bp.route('/node-groups', methods=['GET'])
+@login_required
+def list_node_groups():
+    """List node groups."""
+    try:
+        groups = playbook_service.get_node_groups(created_by=current_user.id)
+        return jsonify([group.to_dict() for group in groups])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/node-groups', methods=['POST'])
+@login_required
+def create_node_group():
+    """Create a new node group."""
+    try:
+        data = request.get_json()
+        group = playbook_service.create_node_group(
+            name=data['name'],
+            description=data.get('description', ''),
+            group_type=data['group_type'],
+            criteria=data.get('criteria'),
+            tags=data.get('tags'),
+            created_by=current_user.id
+        )
+        return jsonify(group.to_dict()), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/node-groups/<int:group_id>', methods=['GET'])
+@login_required
+def get_node_group(group_id):
+    """Get a specific node group."""
+    try:
+        group = playbook_service.get_node_group(group_id)
+        if not group:
+            return jsonify({'error': 'Node group not found'}), 404
+        return jsonify(group.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/node-groups/<int:group_id>', methods=['PUT'])
+@login_required
+def update_node_group(group_id):
+    """Update a node group."""
+    try:
+        data = request.get_json()
+        group = playbook_service.update_node_group(group_id, **data)
+        if not group:
+            return jsonify({'error': 'Node group not found'}), 404
+        return jsonify(group.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/node-groups/<int:group_id>', methods=['DELETE'])
+@login_required
+def delete_node_group(group_id):
+    """Delete a node group."""
+    try:
+        success = playbook_service.delete_node_group(group_id)
+        if not success:
+            return jsonify({'error': 'Node group not found'}), 404
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Playbook Execution endpoints
+@bp.route('/playbook-executions', methods=['GET'])
+@login_required
+def list_playbook_executions():
+    """List playbook executions."""
+    try:
+        status = request.args.get('status')
+        executions = playbook_service.get_executions(
+            created_by=current_user.id,
+            status=status
+        )
+        return jsonify([execution.to_dict() for execution in executions])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbook-executions', methods=['POST'])
+@login_required
+def execute_playbook():
+    """Execute a playbook."""
+    try:
+        data = request.get_json()
+        execution = playbook_service.execute_playbook(
+            execution_name=data['execution_name'],
+            yaml_content=data['yaml_content'],
+            targets=data['targets'],
+            extra_vars=data.get('extra_vars'),
+            created_by=current_user.id
+        )
+        return jsonify(execution.to_dict()), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbook-executions/<int:execution_id>', methods=['GET'])
+@login_required
+def get_playbook_execution(execution_id):
+    """Get a specific playbook execution."""
+    try:
+        execution = playbook_service.get_execution(execution_id)
+        if not execution:
+            return jsonify({'error': 'Execution not found'}), 404
+        return jsonify(execution.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbook-executions/<int:execution_id>/cancel', methods=['POST'])
+@login_required
+def cancel_playbook_execution(execution_id):
+    """Cancel a running playbook execution."""
+    try:
+        success = playbook_service.cancel_execution(execution_id)
+        if not success:
+            return jsonify({'error': 'Execution not found or cannot be cancelled'}), 404
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Playbook utility endpoints
+@bp.route('/playbooks/validate-yaml', methods=['POST'])
+@login_required
+def validate_yaml():
+    """Validate YAML content."""
+    try:
+        data = request.get_json()
+        yaml_content = data.get('yaml_content', '')
+        is_valid, message = playbook_service.validate_yaml(yaml_content)
+        return jsonify({
+            'valid': is_valid,
+            'message': message
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbooks/resolve-targets', methods=['POST'])
+@login_required
+def resolve_targets():
+    """Resolve target specifications to actual nodes."""
+    try:
+        data = request.get_json()
+        targets = data.get('targets', [])
+        nodes = playbook_service.resolve_targets(targets)
+        return jsonify([node.to_dict() for node in nodes])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbooks/generate-inventory', methods=['POST'])
+@login_required
+def generate_inventory():
+    """Generate Ansible inventory from nodes."""
+    try:
+        data = request.get_json()
+        node_ids = data.get('node_ids', [])
+        nodes = Node.query.filter(Node.id.in_(node_ids)).all()
+        inventory = playbook_service.generate_inventory(nodes)
+        return jsonify({'inventory': inventory})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/playbooks/system-templates/init', methods=['POST'])
+@login_required
+def init_system_templates():
+    """Initialize system templates."""
+    try:
+        if not current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        playbook_service.create_system_templates()
+        return jsonify({'success': True, 'message': 'System templates initialized'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

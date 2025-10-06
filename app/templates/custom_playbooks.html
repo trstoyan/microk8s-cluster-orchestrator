@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}My Playbooks{% endblock %}
+
+{% block extra_css %}
+<style>
+    .playbook-card {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        transition: all 0.3s ease;
+        background: white;
+    }
+    
+    .playbook-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    
+    .playbook-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    
+    .playbook-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #495057;
+        margin: 0;
+    }
+    
+    .playbook-category {
+        display: inline-block;
+        padding: 4px 8px;
+        background: #e9ecef;
+        color: #495057;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    
+    .playbook-description {
+        color: #6c757d;
+        margin-bottom: 15px;
+    }
+    
+    .playbook-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+    
+    .playbook-actions {
+        display: flex;
+        gap: 10px;
+    }
+    
+    .success-rate {
+        color: #28a745;
+        font-weight: 600;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #6c757d;
+    }
+    
+    .empty-state i {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        opacity: 0.5;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="fas fa-folder"></i> My Playbooks</h1>
+                <div class="btn-group">
+                    <a href="{{ url_for('web.playbook_editor') }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Create New Playbook
+                    </a>
+                    <a href="{{ url_for('web.playbooks') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-arrow-left"></i> Back to Playbooks
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% if playbooks %}
+    <div class="row">
+        {% for playbook in playbooks %}
+        <div class="col-md-6 col-lg-4">
+            <div class="playbook-card">
+                <div class="playbook-header">
+                    <h4 class="playbook-title">{{ playbook.name }}</h4>
+                    <span class="playbook-category">{{ playbook.category }}</span>
+                </div>
+                <div class="playbook-description">
+                    {{ playbook.description or 'No description available' }}
+                </div>
+                <div class="playbook-meta">
+                    <div>
+                        <i class="fas fa-play"></i> {{ playbook.execution_count }} runs
+                        {% if playbook.success_rate > 0 %}
+                        | <span class="success-rate">{{ "%.1f"|format(playbook.success_rate) }}% success</span>
+                        {% endif %}
+                    </div>
+                    <div class="playbook-actions">
+                        <a href="{{ url_for('web.custom_playbook_detail', playbook_id=playbook.id) }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-eye"></i> View
+                        </a>
+                        <button class="btn btn-sm btn-success" onclick="executePlaybook({{ playbook.id }})">
+                            <i class="fas fa-play"></i> Run
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deletePlaybook({{ playbook.id }})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                {% if playbook.tags %}
+                <div class="mt-2">
+                    {% for tag in playbook.tags.split(',') %}
+                    <span class="badge bg-light text-dark">{{ tag.strip() }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <div class="mt-2 text-muted small">
+                    Created: {{ playbook.created_at|datetimeformat }}
+                    {% if playbook.last_executed %}
+                    | Last run: {{ playbook.last_executed|datetimeformat }}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <i class="fas fa-folder-open"></i>
+        <h3>No Custom Playbooks</h3>
+        <p>You haven't created any custom playbooks yet.</p>
+        <a href="{{ url_for('web.playbook_editor') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Create Your First Playbook
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Quick Execute Modal -->
+<div class="modal fade" id="quickExecuteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Execute Playbook</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="quickExecuteContent">
+                    <!-- Content will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function executePlaybook(playbookId) {
+    // Show execution modal
+    const modal = new bootstrap.Modal(document.getElementById('quickExecuteModal'));
+    const content = document.getElementById('quickExecuteContent');
+    
+    content.innerHTML = `
+        <div class="mb-3">
+            <label for="executionName" class="form-label">Execution Name</label>
+            <input type="text" class="form-control" id="executionName" placeholder="Playbook Execution">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Target Selection</label>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="targetAll" checked>
+                <label class="form-check-label" for="targetAll">All Nodes</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="targetClusters">
+                <label class="form-check-label" for="targetClusters">All Clusters</label>
+            </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-success" onclick="confirmExecutePlaybook(${playbookId})">
+                <i class="fas fa-play"></i> Execute
+            </button>
+        </div>
+    `;
+    
+    modal.show();
+}
+
+function confirmExecutePlaybook(playbookId) {
+    const executionName = document.getElementById('executionName').value || 'Playbook Execution';
+    const targetAll = document.getElementById('targetAll').checked;
+    const targetClusters = document.getElementById('targetClusters').checked;
+    
+    // Build targets array
+    const targets = [];
+    if (targetAll) {
+        targets.push({ type: 'all_nodes' });
+    }
+    if (targetClusters) {
+        targets.push({ type: 'clusters' });
+    }
+    
+    // First get the playbook details
+    fetch(`/api/custom-playbooks/${playbookId}`)
+    .then(response => response.json())
+    .then(playbook => {
+        if (playbook.error) {
+            alert('Error loading playbook: ' + playbook.error);
+            return;
+        }
+        
+        // Execute the playbook
+        return fetch('/api/playbook-executions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                execution_name: executionName,
+                yaml_content: playbook.yaml_content,
+                targets: targets
+            })
+        });
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error executing playbook: ' + data.error);
+        } else {
+            alert('Playbook execution started!');
+            bootstrap.Modal.getInstance(document.getElementById('quickExecuteModal')).hide();
+            // Redirect to executions page
+            window.location.href = '/playbooks/executions';
+        }
+    })
+    .catch(error => {
+        alert('Error executing playbook: ' + error);
+    });
+}
+
+function deletePlaybook(playbookId) {
+    if (confirm('Are you sure you want to delete this playbook? This action cannot be undone.')) {
+        fetch(`/api/custom-playbooks/${playbookId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error deleting playbook: ' + data.error);
+            } else {
+                alert('Playbook deleted successfully!');
+                window.location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error deleting playbook: ' + error);
+        });
+    }
+}
+</script>
+{% endblock %}

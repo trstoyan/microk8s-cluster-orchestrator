@@ -157,6 +157,7 @@
 
 <script>
 let chatHistory = [];
+let currentLoadingModal = null;
 
 // Initialize the assistant
 document.addEventListener('DOMContentLoaded', function() {
@@ -178,11 +179,44 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('healthInsightsBtn').addEventListener('click', getHealthInsights);
     document.getElementById('statisticsBtn').addEventListener('click', getStatistics);
     document.getElementById('clearChatBtn').addEventListener('click', clearChat);
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (currentLoadingModal) {
+            hideLoadingModal(currentLoadingModal);
+        }
+    });
 });
 
 function askQuestion(question) {
     document.getElementById('messageInput').value = question;
     sendMessage();
+}
+
+function hideLoadingModal(modalInstance) {
+    try {
+        if (modalInstance && typeof modalInstance.hide === 'function') {
+            modalInstance.hide();
+        }
+        // Clear the global reference
+        if (modalInstance === currentLoadingModal) {
+            currentLoadingModal = null;
+        }
+    } catch (e) {
+        console.warn('Error hiding loading modal:', e);
+        // Fallback: force hide the modal
+        const modalBackdrop = document.querySelector('.modal-backdrop');
+        if (modalBackdrop) {
+            modalBackdrop.remove();
+        }
+        const loadingModalElement = document.getElementById('loadingModal');
+        if (loadingModalElement) {
+            loadingModalElement.classList.remove('show');
+        }
+        document.body.classList.remove('modal-open');
+        // Clear the global reference
+        currentLoadingModal = null;
+    }
 }
 
 function sendMessage() {
@@ -197,9 +231,16 @@ function sendMessage() {
     // Add user message to chat
     addMessageToChat('user', message);
     
-    // Show loading
-    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
-    loadingModal.show();
+    // Show loading modal
+    const loadingModalElement = document.getElementById('loadingModal');
+    
+    // Hide any existing modal first
+    if (currentLoadingModal) {
+        hideLoadingModal(currentLoadingModal);
+    }
+    
+    currentLoadingModal = new bootstrap.Modal(loadingModalElement);
+    currentLoadingModal.show();
     
     // Send to backend
     fetch('/api/assistant/chat', {
@@ -211,7 +252,9 @@ function sendMessage() {
     })
     .then(response => response.json())
     .then(data => {
-        loadingModal.hide();
+        // Hide loading modal
+        hideLoadingModal(currentLoadingModal);
+        currentLoadingModal = null;
         
         if (data.error) {
             addMessageToChat('assistant', `Error: ${data.error}`, 'error');
@@ -242,7 +285,9 @@ function sendMessage() {
         }
     })
     .catch(error => {
-        loadingModal.hide();
+        // Hide loading modal
+        hideLoadingModal(currentLoadingModal);
+        currentLoadingModal = null;
         addMessageToChat('assistant', `Network error: ${error.message}`, 'error');
     });
 }
@@ -290,8 +335,13 @@ function analyzeAnsibleOutput() {
         return;
     }
     
-    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
-    loadingModal.show();
+    // Hide any existing modal first
+    if (currentLoadingModal) {
+        hideLoadingModal(currentLoadingModal);
+    }
+    
+    currentLoadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    currentLoadingModal.show();
     
     fetch('/api/assistant/analyze-ansible', {
         method: 'POST',
@@ -306,7 +356,7 @@ function analyzeAnsibleOutput() {
     })
     .then(response => response.json())
     .then(data => {
-        loadingModal.hide();
+        hideLoadingModal(loadingModal);
         
         if (data.error) {
             addMessageToChat('assistant', `Analysis Error: ${data.error}`, 'error');
@@ -338,19 +388,24 @@ function analyzeAnsibleOutput() {
         }
     })
     .catch(error => {
-        loadingModal.hide();
+        hideLoadingModal(loadingModal);
         addMessageToChat('assistant', `Analysis Error: ${error.message}`, 'error');
     });
 }
 
 function getHealthInsights() {
-    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
-    loadingModal.show();
+    // Hide any existing modal first
+    if (currentLoadingModal) {
+        hideLoadingModal(currentLoadingModal);
+    }
+    
+    currentLoadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    currentLoadingModal.show();
     
     fetch('/api/assistant/health-insights')
     .then(response => response.json())
     .then(data => {
-        loadingModal.hide();
+        hideLoadingModal(loadingModal);
         
         if (data.error) {
             addMessageToChat('assistant', `Health Insights Error: ${data.error}`, 'error');
@@ -382,19 +437,24 @@ function getHealthInsights() {
         }
     })
     .catch(error => {
-        loadingModal.hide();
+        hideLoadingModal(loadingModal);
         addMessageToChat('assistant', `Health Insights Error: ${error.message}`, 'error');
     });
 }
 
 function getStatistics() {
-    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
-    loadingModal.show();
+    // Hide any existing modal first
+    if (currentLoadingModal) {
+        hideLoadingModal(currentLoadingModal);
+    }
+    
+    currentLoadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    currentLoadingModal.show();
     
     fetch('/api/assistant/statistics')
     .then(response => response.json())
     .then(data => {
-        loadingModal.hide();
+        hideLoadingModal(loadingModal);
         
         if (data.error) {
             addMessageToChat('assistant', `Statistics Error: ${data.error}`, 'error');
@@ -432,7 +492,7 @@ function getStatistics() {
         }
     })
     .catch(error => {
-        loadingModal.hide();
+        hideLoadingModal(loadingModal);
         addMessageToChat('assistant', `Statistics Error: ${error.message}`, 'error');
     });
 }

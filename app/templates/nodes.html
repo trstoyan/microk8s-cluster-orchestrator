@@ -9,9 +9,17 @@
     <div>
         <p class="text-muted">Manage your cluster nodes</p>
     </div>
-    <a href="{{ url_for('web.add_node') }}" class="btn btn-primary">
-        <i class="bi bi-plus"></i> Add Node
-    </a>
+    <div class="btn-group">
+        <form method="POST" action="{{ url_for('web.configure_all_nodes_hosts') }}" style="display: inline;">
+            <button type="submit" class="btn btn-warning" 
+                    onclick="return confirm('Configure /etc/hosts file for all nodes? This will add hostname-to-IP mappings for all nodes to ensure proper cluster communication.')">
+                <i class="bi bi-file-text"></i> Configure Hosts
+            </button>
+        </form>
+        <a href="{{ url_for('web.add_node') }}" class="btn btn-primary">
+            <i class="bi bi-plus"></i> Add Node
+        </a>
+    </div>
 </div>
 
 {% if nodes %}
@@ -129,6 +137,10 @@
                                         Actions
                                     </button>
                                     <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="{{ url_for('web.edit_node', node_id=node.id) }}">
+                                            <i class="bi bi-pencil-square"></i> Edit Node
+                                        </a></li>
+                                        <li><hr class="dropdown-divider"></li>
                                         <li><a class="dropdown-item" href="#" onclick="checkStatus({{ node.id }})">
                                             <i class="bi bi-arrow-clockwise"></i> Check Status
                                         </a></li>
@@ -467,6 +479,24 @@ function checkSSHKeyStatus(nodeId) {
                     message += '\n⚠️ Database synchronization needed. The system will attempt to fix this automatically.';
                 }
                 
+                // Show available keys if any
+                if (data.available_keys && data.available_keys.length > 0) {
+                    message += '\n\nAvailable SSH Keys:';
+                    data.available_keys.forEach(key => {
+                        const location = key.location === 'user' ? '[USER .ssh/]' : '[PROJECT ssh_keys/]';
+                        message += `\n- ${key.name} (${key.fingerprint}) ${location} ${key.is_current ? '[CURRENT]' : ''}`;
+                    });
+                    
+                    // Ask if user wants to select a different key
+                    if (data.available_keys.length > 1) {
+                        message += '\n\nWould you like to select a different SSH key?';
+                        if (confirm(message)) {
+                            showSSHKeySelector(nodeId, data.available_keys);
+                            return;
+                        }
+                    }
+                }
+                
                 alert(message);
                 location.reload();
             } else {
@@ -540,5 +570,48 @@ document.addEventListener('DOMContentLoaded', function() {
         isVirtualCheckbox.addEventListener('change', toggleVirtualNodeFields);
     }
 });
+
+function showSSHKeySelector(nodeId, availableKeys) {
+    let keyList = 'Select an SSH key to use:\n\n';
+    availableKeys.forEach((key, index) => {
+        const location = key.location === 'user' ? '[USER .ssh/]' : '[PROJECT ssh_keys/]';
+        keyList += `${index + 1}. ${key.name} (${key.fingerprint}) ${location} ${key.is_current ? '[CURRENT]' : ''}\n`;
+    });
+    
+    let choice = prompt(keyList + '\nEnter the number of the key you want to use:');
+    if (choice && !isNaN(choice)) {
+        let selectedIndex = parseInt(choice) - 1;
+        if (selectedIndex >= 0 && selectedIndex < availableKeys.length) {
+            let selectedKey = availableKeys[selectedIndex];
+            selectSSHKey(nodeId, selectedKey.path);
+        } else {
+            alert('Invalid selection');
+        }
+    }
+}
+
+function selectSSHKey(nodeId, keyPath) {
+    fetch(`/api/nodes/${nodeId}/select-ssh-key`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            key_path: keyPath
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`SSH key updated successfully!\n\nKey: ${data.key_info.name}\nFingerprint: ${data.key_info.fingerprint}`);
+            location.reload();
+        } else {
+            alert(`Failed to update SSH key: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert('Error updating SSH key: ' + error);
+    });
+}
 </script>
 {% endblock %}

@@ -11,11 +11,15 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
 ## Features
 
 - **Node Management**: Add, remove, and monitor cluster nodes
-- **SSH Key Management**: Automatic SSH key generation and secure authentication
+- **SSH Key Management**: Advanced SSH key management and secure authentication
+  - Automatic SSH key generation for new nodes
+  - Manual SSH key selection from existing keys
+  - SSH key scanning and detection
   - Unique SSH key pairs for each node
   - Step-by-step setup instructions
   - Connection testing and validation
   - Key regeneration capabilities
+  - Support for existing SSH key infrastructure
 - **Cluster Orchestration**: Automated cluster setup, configuration, and graceful shutdown
 - **Hosts File Configuration**: Automatic `/etc/hosts` configuration for MicroK8s HA clusters
   - Ensures proper hostname resolution across all cluster nodes
@@ -54,6 +58,28 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
   - Real-time UPS status monitoring
   - Battery charge, voltage, and runtime tracking
   - Wake-on-LAN integration for automatic node startup after power restoration
+- **Playbook Editor**: Visual playbook creation and management system
+  - **Visual Drag-and-Drop Interface**: Build Ansible playbooks without YAML knowledge
+  - **Template Library**: Pre-built templates for common MicroK8s operations
+  - **Target Selection System**: Flexible node targeting (all nodes, clusters, groups, individual)
+  - **Real-time YAML Preview**: Live generation of Ansible YAML from visual components
+  - **Execution Engine**: Background Ansible execution with real-time monitoring
+  - **Template Management**: System and user templates with versioning and usage tracking
+  - **Custom Playbooks**: User-created playbooks with visual configuration support
+  - **Node Groups**: Custom node groupings for flexible targeting
+  - **Execution History**: Complete audit trail with status tracking and output capture
+  - **CLI Integration**: Full command-line interface for playbook management
+- **AI Assistant with Local RAG System**: Intelligent troubleshooting and analysis
+  - **Local-Only Operation**: Runs entirely on local resources, no external dependencies
+  - **Retrieval-Augmented Generation (RAG)**: Learns from Ansible outputs and operation logs
+  - **Searchable Content**: Index and search through playbooks, documentation, and operation logs
+  - **Multiple Chat Sessions**: Separate conversations for different topics and issues
+  - **Operation Log Analysis**: Intelligent analysis of failed operations with recommendations
+  - **Ansible Output Analysis**: Parse and explain complex Ansible execution results
+  - **Health Insights**: AI-powered system health monitoring and recommendations
+  - **Knowledge Base**: Automatically builds knowledge from successful and failed operations
+  - **Privacy-First**: All data processed locally, configurable data retention and anonymization
+  - **Raspberry Pi 5 Optimized**: Designed for resource-constrained environments
 
 ## Architecture
 
@@ -63,6 +89,7 @@ The system follows a modular architecture with clear separation of concerns:
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Web UI        │    │   CLI Tool      │    │   API           │
 │   (Flask)       │    │   (Click)       │    │   (REST)        │
+│   + AI Chat     │    │                 │    │   + AI Endpoints│
 └─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
           │                      │                      │
           └──────────────────────┼──────────────────────┘
@@ -70,6 +97,7 @@ The system follows a modular architecture with clear separation of concerns:
           ┌─────────────────────────────────────────────┐
           │         Orchestration Service               │
           │         (Python Application)                │
+          │         + AI Assistant (Local RAG)         │
           └─────────────────┬───────────────────────────┘
                             │
           ┌─────────────────┼───────────────────────────┐
@@ -77,6 +105,7 @@ The system follows a modular architecture with clear separation of concerns:
     ┌─────▼─────┐    ┌──────▼──────┐         ┌─────────▼─────────┐
     │  SQLite   │    │   Ansible   │         │   MicroK8s Nodes │
     │ Database  │    │ Playbooks   │         │   (Target Hosts)  │
+    │ + RAG KB  │    │ + Docs      │         │                   │
     └───────────┘    └─────────────┘         └───────────────────┘
 ```
 
@@ -778,6 +807,118 @@ curl -X POST http://localhost:5000/api/ups/rules \
 curl -X POST http://localhost:5000/api/ups/monitor/start
 ```
 
+## Playbook Editor
+
+The orchestrator includes a comprehensive visual playbook editor that allows you to create, manage, and execute Ansible playbooks without requiring deep YAML knowledge. This system provides a user-friendly interface for automating MicroK8s cluster operations.
+
+### Features
+
+- **Visual Drag-and-Drop Interface**: Build playbooks by dragging tasks from a library
+- **Template Library**: Pre-built templates for common MicroK8s operations
+- **Target Selection System**: Flexible node targeting (all nodes, clusters, groups, individual)
+- **Real-time YAML Preview**: Live generation of Ansible YAML from visual components
+- **Execution Engine**: Background Ansible execution with real-time monitoring
+- **Template Management**: System and user templates with versioning and usage tracking
+- **Custom Playbooks**: User-created playbooks with visual configuration support
+- **Node Groups**: Custom node groupings for flexible targeting
+- **Execution History**: Complete audit trail with status tracking and output capture
+
+### Pre-built Templates
+
+The system includes several pre-built templates:
+
+- **Install MicroK8s**: Complete MicroK8s installation with user setup
+- **Enable Addons**: Common addons (DNS, Dashboard, Storage, Ingress, Metrics Server)
+- **System Health Check**: Comprehensive system health assessment
+- **Update Packages**: System package management
+- **Configure Firewall**: Security configuration
+
+### Usage
+
+**Web Interface:**
+1. Navigate to "Playbooks" in the web interface
+2. Click "Create New Playbook" to open the visual editor
+3. Select targets (nodes, clusters, or groups)
+4. Drag tasks from the library to build your playbook
+5. Configure task parameters as needed
+6. Preview the generated YAML
+7. Execute with real-time monitoring
+
+**CLI Commands:**
+```bash
+# List available templates
+python cli.py playbook list-templates
+
+# Show template details
+python cli.py playbook show-template 1
+
+# List custom playbooks
+python cli.py playbook list-custom
+
+# List executions
+python cli.py playbook list-executions
+
+# Show execution details
+python cli.py playbook show-execution 1
+
+# Initialize system templates
+python cli.py playbook init-templates
+```
+
+**Make Commands:**
+```bash
+# List templates
+make playbook-templates
+
+# Initialize system templates
+make playbook-init
+
+# List recent executions
+make playbook-executions
+```
+
+**API Usage:**
+```bash
+# List templates
+curl -X GET http://localhost:5000/api/playbook-templates
+
+# Create custom playbook
+curl -X POST http://localhost:5000/api/custom-playbooks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Custom Playbook",
+    "description": "Custom automation",
+    "yaml_content": "---\n- name: My Playbook\n  hosts: all\n  tasks: []"
+  }'
+
+# Execute playbook
+curl -X POST http://localhost:5000/api/playbook-executions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "execution_name": "Test Execution",
+    "yaml_content": "---\n- name: Test\n  hosts: all\n  tasks: []",
+    "targets": [{"type": "all_nodes"}]
+  }'
+```
+
+### Target Selection
+
+The playbook editor supports multiple target selection methods:
+
+- **All Nodes**: Target every node in the system
+- **Cluster-based**: Target specific clusters
+- **Node Groups**: Custom groupings with dynamic criteria
+- **Individual Nodes**: Precise node selection
+- **Tag-based**: Target nodes with specific tags
+
+### Execution Monitoring
+
+- **Real-time Progress**: Visual progress indicators
+- **Live Output**: Stream execution logs in real-time
+- **Status Tracking**: Pending, Running, Completed, Failed states
+- **Error Handling**: Comprehensive error capture and reporting
+- **Cancellation**: Stop running executions if needed
+
 ## Wake-on-LAN Management System
 
 The orchestrator includes a comprehensive Wake-on-LAN (WoL) management system that allows you to remotely power on cluster nodes after they have been gracefully shut down due to power events.
@@ -805,6 +946,20 @@ python cli.py wol configure 1 \
 
 # Enable WoL after configuration
 python cli.py wol enable 1
+```
+
+### Database Management
+
+The orchestrator includes database management commands:
+
+```bash
+# Show database path and information
+python cli.py database path
+
+# Example output:
+# Database path: /path/to/cluster_data.db
+# Database exists: Yes
+# Database size: 98,304 bytes (0.09 MB)
 ```
 
 ### Web Interface
@@ -838,6 +993,27 @@ The system provides REST API endpoints for:
 - UPS power management and monitoring
 - Power management rules configuration
 - Network information collection
+
+## Recent Improvements
+
+### 🔧 Bug Fixes & Enhancements
+- **Fixed SQLAlchemy Model Conflicts**: Resolved database schema conflicts between CLI and web interface
+- **Enhanced SSH Key Management**: Added manual SSH key selection and improved key detection
+- **Fixed Wake-on-LAN Errors**: Resolved WoL configuration issues and improved error handling
+- **Database Schema Updates**: Added missing database columns and improved model compatibility
+- **Improved Error Handling**: Better error messages and recovery mechanisms
+
+### 🆕 New Features
+- **Manual SSH Key Selection**: Choose from existing SSH keys during node setup
+- **Enhanced SSH Key Scanning**: Automatic detection and listing of available SSH keys
+- **Database Path Command**: New CLI command to show database location and information
+- **Improved Web Interface**: Better SSH key management UI with selection options
+- **Professional Documentation**: Added CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, and LICENSE
+
+### 🔒 Security Improvements
+- **Comprehensive Security Audit**: Scanned for secrets and sensitive data
+- **Legal Compliance**: Added trademark disclaimers and proper licensing
+- **Professional Standards**: Implemented industry-standard documentation and practices
 
 ## Security
 

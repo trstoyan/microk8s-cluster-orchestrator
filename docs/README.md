@@ -15,6 +15,11 @@ This directory contains all documentation for the MicroK8s Cluster Orchestrator 
 - **[SSH_KEY_MANAGEMENT.md](SSH_KEY_MANAGEMENT.md)** - SSH key management documentation
 - **[WAKE_ON_LAN_GUIDE.md](WAKE_ON_LAN_GUIDE.md)** - Wake-on-LAN configuration guide
 
+## AI Assistant
+
+- **[AI_ASSISTANT_GUIDE.md](AI_ASSISTANT_GUIDE.md)** - Complete guide to AI Assistant features and usage
+- **[AI_ASSISTANT_SUMMARY.md](AI_ASSISTANT_SUMMARY.md)** - Quick summary of AI Assistant features and benefits
+
 ## Project Documentation
 
 - **[CHANGELOG.md](CHANGELOG.md)** - Version history and changes

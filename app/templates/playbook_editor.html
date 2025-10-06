@@ -1,0 +1,1414 @@
+{% extends "base.html" %}
+
+{% block title %}Playbook Editor{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #6366f1;
+        --primary-hover: #5855eb;
+        --success-color: #10b981;
+        --warning-color: #f59e0b;
+        --danger-color: #ef4444;
+        --info-color: #3b82f6;
+        --dark-color: #1f2937;
+        --light-color: #f8fafc;
+        --border-color: #e5e7eb;
+        --text-primary: #111827;
+        --text-secondary: #6b7280;
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        --radius-sm: 0.375rem;
+        --radius-md: 0.5rem;
+        --radius-lg: 0.75rem;
+    }
+
+    .editor-container {
+        display: flex;
+        height: calc(100vh - 200px);
+        gap: 24px;
+        background: var(--light-color);
+        padding: 24px;
+        border-radius: var(--radius-lg);
+    }
+    
+    .editor-sidebar {
+        width: 320px;
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        overflow-y: auto;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+    }
+    
+    .editor-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+    }
+    
+    .editor-tabs {
+        display: flex;
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: 8px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-color);
+        margin-bottom: 24px;
+    }
+    
+    .editor-tab {
+        flex: 1;
+        padding: 12px 20px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        border-radius: var(--radius-md);
+        transition: all 0.3s ease;
+        font-weight: 500;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+    
+    .editor-tab:hover {
+        background: var(--light-color);
+        color: var(--text-primary);
+    }
+    
+    .editor-tab.active {
+        background: var(--primary-color);
+        color: white;
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .editor-content {
+        flex: 1;
+        display: none;
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+    }
+    
+    .editor-content.active {
+        display: block;
+    }
+    
+    .target-selector {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+    }
+    
+    .target-type {
+        margin-bottom: 24px;
+    }
+    
+    .target-type h4 {
+        margin-bottom: 12px;
+        color: var(--text-primary);
+        font-weight: 600;
+        font-size: 1.1rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .target-option {
+        display: flex;
+        align-items: center;
+        padding: 16px;
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+        margin-bottom: 12px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: white;
+    }
+    
+    .target-option:hover {
+        background: var(--light-color);
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .target-option.selected {
+        background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+        border-color: var(--primary-color);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .target-option input[type="checkbox"] {
+        margin-right: 12px;
+        transform: scale(1.2);
+        accent-color: var(--primary-color);
+    }
+    
+    .target-option label {
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+    
+    .task-library {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    
+    .task-category {
+        margin-bottom: 24px;
+    }
+    
+    .task-category h4 {
+        margin-bottom: 12px;
+        color: var(--text-primary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        font-weight: 600;
+        font-size: 1.1rem;
+        padding: 12px 16px;
+        background: var(--light-color);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-color);
+        transition: all 0.3s ease;
+    }
+    
+    .task-category h4:hover {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+    
+    .task-category h4::before {
+        content: "▶";
+        margin-right: 12px;
+        transition: transform 0.3s ease;
+        font-size: 0.8rem;
+    }
+    
+    .task-category.collapsed h4::before {
+        transform: rotate(90deg);
+    }
+    
+    .task-item {
+        padding: 16px;
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+        margin-bottom: 12px;
+        cursor: grab;
+        transition: all 0.3s ease;
+        background: white;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .task-item:hover {
+        background: var(--light-color);
+        border-color: var(--primary-color);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .task-item.dragging {
+        opacity: 0.6;
+        transform: rotate(5deg);
+        cursor: grabbing;
+    }
+    
+    .task-item .task-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: var(--radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+        color: white;
+        flex-shrink: 0;
+    }
+    
+    .task-item .task-content {
+        flex: 1;
+    }
+    
+    .task-item .task-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 4px;
+    }
+    
+    .task-item .task-description {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+    
+    .playbook-builder {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+        min-height: 500px;
+    }
+    
+    .playbook-step {
+        display: flex;
+        align-items: center;
+        padding: 20px;
+        border: 2px dashed var(--border-color);
+        border-radius: var(--radius-lg);
+        margin-bottom: 16px;
+        min-height: 80px;
+        transition: all 0.3s ease;
+        background: var(--light-color);
+        position: relative;
+    }
+    
+    .playbook-step.drag-over {
+        border-color: var(--primary-color);
+        background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
+        transform: scale(1.02);
+        box-shadow: var(--shadow-lg);
+    }
+    
+    .playbook-step.has-content {
+        border-style: solid;
+        border-color: var(--success-color);
+        background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .step-number {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 1.2rem;
+        margin-right: 20px;
+        flex-shrink: 0;
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .step-content {
+        flex: 1;
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+    }
+    
+    .step-actions {
+        display: flex;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+    
+    .step-actions .btn {
+        padding: 8px 12px;
+        border-radius: var(--radius-md);
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+    
+    .yaml-preview {
+        background: #1e1e1e;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        font-family: 'Fira Code', 'Courier New', monospace;
+        font-size: 14px;
+        white-space: pre-wrap;
+        max-height: 500px;
+        overflow-y: auto;
+        color: #d4d4d4;
+        line-height: 1.6;
+        box-shadow: var(--shadow-md);
+    }
+    
+    .execution-controls {
+        background: white;
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+    }
+    
+    .btn-group-custom {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+    }
+    
+    .btn-group-custom .btn {
+        padding: 12px 24px;
+        border-radius: var(--radius-md);
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-group-custom .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .status-badge {
+        padding: 8px 16px;
+        border-radius: var(--radius-lg);
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .status-pending { 
+        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); 
+        color: #92400e; 
+        border: 1px solid #f59e0b;
+    }
+    .status-running { 
+        background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); 
+        color: #1e40af; 
+        border: 1px solid #3b82f6;
+    }
+    .status-completed { 
+        background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); 
+        color: #065f46; 
+        border: 1px solid #10b981;
+    }
+    .status-failed { 
+        background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); 
+        color: #991b1b; 
+        border: 1px solid #ef4444;
+    }
+    
+    .execution-log {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        font-family: 'Fira Code', 'Courier New', monospace;
+        font-size: 13px;
+        max-height: 400px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        line-height: 1.6;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .progress-section {
+        background: var(--light-color);
+        border-radius: var(--radius-lg);
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border-color);
+    }
+    
+    .progress-bar-custom {
+        height: 12px;
+        background: var(--border-color);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        margin: 12px 0;
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .progress-fill-custom {
+        height: 100%;
+        background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+        border-radius: var(--radius-lg);
+        transition: width 0.3s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    
+    /* Animations and transitions */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes slideIn {
+        from { transform: translateX(-20px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .editor-container {
+        animation: fadeIn 0.5s ease-out;
+    }
+    
+    .editor-sidebar {
+        animation: slideIn 0.6s ease-out;
+    }
+    
+    .task-item {
+        animation: fadeIn 0.3s ease-out;
+    }
+    
+    .playbook-step {
+        animation: fadeIn 0.4s ease-out;
+    }
+    
+    /* Loading states */
+    .loading {
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .loading::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+        animation: loading 1.5s infinite;
+    }
+    
+    @keyframes loading {
+        0% { left: -100%; }
+        100% { left: 100%; }
+    }
+    
+    /* Improved form controls */
+    .form-control, .form-select {
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 12px 16px;
+        transition: all 0.3s ease;
+    }
+    
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    
+    /* Better buttons */
+    .btn {
+        border-radius: var(--radius-md);
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border: 2px solid transparent;
+    }
+    
+    .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .btn:active {
+        transform: translateY(0);
+    }
+    
+    /* Improved empty states */
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-secondary);
+        background: var(--light-color);
+        border-radius: var(--radius-lg);
+        border: 2px dashed var(--border-color);
+    }
+    
+    .empty-state i {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        opacity: 0.5;
+        color: var(--primary-color);
+    }
+    
+    .empty-state h3 {
+        color: var(--text-primary);
+        font-weight: 600;
+        margin-bottom: 12px;
+    }
+    
+    .empty-state p {
+        margin-bottom: 24px;
+        line-height: 1.6;
+    }
+    
+    /* Responsive improvements */
+    @media (max-width: 768px) {
+        .editor-container {
+            flex-direction: column;
+            height: auto;
+        }
+        
+        .editor-sidebar {
+            width: 100%;
+            margin-bottom: 24px;
+        }
+        
+        .editor-tabs {
+            flex-direction: column;
+        }
+        
+        .btn-group-custom {
+            flex-direction: column;
+        }
+        
+        .btn-group-custom .btn {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="mb-2" style="color: var(--text-primary); font-weight: 700;">
+                        <i class="fas fa-code" style="color: var(--primary-color); margin-right: 12px;"></i>
+                        Playbook Editor
+                    </h1>
+                    <p class="text-muted mb-0">Create and manage Ansible playbooks with a visual interface</p>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-outline-primary" onclick="savePlaybook()" style="border-color: var(--primary-color); color: var(--primary-color);">
+                        <i class="fas fa-save"></i> Save Playbook
+                    </button>
+                    <button class="btn" onclick="executePlaybook()" style="background: var(--success-color); border-color: var(--success-color); color: white;">
+                        <i class="fas fa-play"></i> Execute
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="editor-container">
+        <!-- Sidebar -->
+        <div class="editor-sidebar">
+            <div class="target-selector">
+                <h3 style="color: var(--text-primary); font-weight: 600; margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+                    <i class="fas fa-bullseye" style="color: var(--primary-color);"></i>
+                    Target Selection
+                </h3>
+                
+                <div class="target-type">
+                    <h4><i class="fas fa-server" style="color: var(--info-color);"></i> All Nodes</h4>
+                    <div class="target-option" onclick="toggleTarget('all_nodes')">
+                        <input type="checkbox" id="target_all_nodes">
+                        <label for="target_all_nodes">
+                            <strong>All Nodes</strong>
+                            <div style="font-size: 0.875rem; color: var(--text-secondary);">{{ nodes|length }} nodes available</div>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="target-type">
+                    <h4><i class="fas fa-sitemap" style="color: var(--success-color);"></i> Clusters</h4>
+                    {% for cluster in clusters %}
+                    <div class="target-option" onclick="toggleTarget('cluster_{{ cluster.id }}')">
+                        <input type="checkbox" id="target_cluster_{{ cluster.id }}">
+                        <label for="target_cluster_{{ cluster.id }}">
+                            <strong>{{ cluster.name }}</strong>
+                            <div style="font-size: 0.875rem; color: var(--text-secondary);">{{ cluster.node_count }} nodes</div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="target-type">
+                    <h4><i class="fas fa-users" style="color: var(--warning-color);"></i> Node Groups</h4>
+                    {% for group in node_groups %}
+                    <div class="target-option" onclick="toggleTarget('group_{{ group.id }}')">
+                        <input type="checkbox" id="target_group_{{ group.id }}">
+                        <label for="target_group_{{ group.id }}">
+                            <strong>{{ group.name }}</strong>
+                            <div style="font-size: 0.875rem; color: var(--text-secondary);">{{ group.node_count }} nodes</div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="target-type">
+                    <h4><i class="fas fa-desktop" style="color: var(--danger-color);"></i> Individual Nodes</h4>
+                    {% for node in nodes %}
+                    <div class="target-option" onclick="toggleTarget('node_{{ node.id }}')">
+                        <input type="checkbox" id="target_node_{{ node.id }}">
+                        <label for="target_node_{{ node.id }}">
+                            <strong>{{ node.hostname }}</strong>
+                            <div style="font-size: 0.875rem; color: var(--text-secondary);">{{ node.ip_address }}</div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Editor -->
+        <div class="editor-main">
+            <div class="editor-tabs">
+                <button class="editor-tab active" onclick="showTab('builder')">
+                    <i class="fas fa-tools"></i> Builder
+                </button>
+                <button class="editor-tab" onclick="showTab('yaml')">
+                    <i class="fas fa-code"></i> YAML Preview
+                </button>
+                <button class="editor-tab" onclick="showTab('execution')">
+                    <i class="fas fa-play-circle"></i> Execution
+                </button>
+            </div>
+            
+            <!-- Builder Tab -->
+            <div id="builder-tab" class="editor-content active">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="playbook-builder">
+                            <h3><i class="fas fa-list-ol"></i> Playbook Steps</h3>
+                            <div id="playbook-steps">
+                                <div class="playbook-step" data-step="1" ondrop="drop(event)" ondragover="allowDrop(event)">
+                                    <div class="step-number">1</div>
+                                    <div class="step-content">
+                                        <div class="text-muted">Drag a task here to start building your playbook</div>
+                                    </div>
+                                    <div class="step-actions">
+                                        <button class="btn btn-sm btn-outline-danger" onclick="removeStep(1)" style="display: none;">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="btn btn-outline-primary" onclick="addStep()">
+                                <i class="fas fa-plus"></i> Add Step
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="task-library">
+                            <h3 style="color: var(--text-primary); font-weight: 600; margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+                                <i class="fas fa-toolbox" style="color: var(--primary-color);"></i>
+                                Task Library
+                            </h3>
+                            
+                            <div class="task-category">
+                                <h4 onclick="toggleCategory(this)"><i class="fas fa-cube" style="margin-right: 8px;"></i>MicroK8s Operations</h4>
+                                <div class="category-content">
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="install_microk8s">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);">
+                                            <i class="fas fa-download"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Install MicroK8s</div>
+                                            <div class="task-description">Install MicroK8s on target nodes</div>
+                                        </div>
+                                    </div>
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="enable_addons">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                                            <i class="fas fa-plus-circle"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Enable Addons</div>
+                                            <div class="task-description">Enable common MicroK8s addons</div>
+                                        </div>
+                                    </div>
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="join_cluster">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
+                                            <i class="fas fa-link"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Join Cluster</div>
+                                            <div class="task-description">Join nodes to existing cluster</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="task-category">
+                                <h4 onclick="toggleCategory(this)"><i class="fas fa-cogs" style="margin-right: 8px;"></i>System Operations</h4>
+                                <div class="category-content">
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="update_packages">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Update Packages</div>
+                                            <div class="task-description">Update system packages</div>
+                                        </div>
+                                    </div>
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="configure_firewall">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);">
+                                            <i class="fas fa-shield-alt"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Configure Firewall</div>
+                                            <div class="task-description">Configure firewall rules</div>
+                                        </div>
+                                    </div>
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="install_packages">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+                                            <i class="fas fa-box"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Install Packages</div>
+                                            <div class="task-description">Install additional packages</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="task-category">
+                                <h4 onclick="toggleCategory(this)"><i class="fas fa-chart-line" style="margin-right: 8px;"></i>Monitoring</h4>
+                                <div class="category-content">
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="health_check">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                                            <i class="fas fa-heartbeat"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Health Check</div>
+                                            <div class="task-description">Perform system health check</div>
+                                        </div>
+                                    </div>
+                                    <div class="task-item" draggable="true" ondragstart="drag(event)" data-task="collect_metrics">
+                                        <div class="task-icon" style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);">
+                                            <i class="fas fa-chart-bar"></i>
+                                        </div>
+                                        <div class="task-content">
+                                            <div class="task-title">Collect Metrics</div>
+                                            <div class="task-description">Collect system metrics</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- YAML Preview Tab -->
+            <div id="yaml-tab" class="editor-content">
+                <div class="yaml-preview" id="yaml-preview">
+                    # YAML preview will appear here
+                </div>
+            </div>
+            
+            <!-- Execution Tab -->
+            <div id="execution-tab" class="editor-content">
+                <div class="execution-controls">
+                    <h3><i class="fas fa-play-circle"></i> Execute Playbook</h3>
+                    
+                    <div class="mb-3">
+                        <label for="execution-name" class="form-label">Execution Name</label>
+                        <input type="text" class="form-control" id="execution-name" placeholder="My Playbook Execution">
+                    </div>
+                    
+                    <div class="btn-group-custom">
+                        <button class="btn btn-success" onclick="executePlaybook()">
+                            <i class="fas fa-play"></i> Execute Now
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="validatePlaybook()">
+                            <i class="fas fa-check"></i> Validate
+                        </button>
+                        <button class="btn btn-outline-info" onclick="previewInventory()">
+                            <i class="fas fa-eye"></i> Preview Inventory
+                        </button>
+                    </div>
+                    
+                    <div id="execution-status" style="display: none;">
+                        <div class="progress-section">
+                            <h4 style="color: var(--text-primary); font-weight: 600; margin-bottom: 16px;">
+                                <i class="fas fa-tasks" style="color: var(--primary-color); margin-right: 8px;"></i>
+                                Execution Status
+                            </h4>
+                            <div class="d-flex align-items-center mb-3">
+                                <span class="status-badge" id="status-badge">Pending</span>
+                                <div class="progress-bar-custom flex-grow-1 ms-3">
+                                    <div class="progress-fill-custom" id="progress-bar" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="execution-log" id="execution-log"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentStep = 1;
+let playbookData = {
+    name: '',
+    description: '',
+    steps: [],
+    targets: []
+};
+
+// Tab management
+function showTab(tabName) {
+    // Hide all tabs
+    document.querySelectorAll('.editor-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelectorAll('.editor-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Show selected tab
+    document.getElementById(tabName + '-tab').classList.add('active');
+    event.target.classList.add('active');
+    
+    // Update YAML preview if switching to YAML tab
+    if (tabName === 'yaml') {
+        updateYamlPreview();
+    }
+}
+
+// Category management
+function toggleCategory(element) {
+    const category = element.parentElement;
+    const content = category.querySelector('.category-content');
+    
+    category.classList.toggle('collapsed');
+    content.style.display = category.classList.contains('collapsed') ? 'none' : 'block';
+}
+
+// Drag and drop functionality
+function allowDrop(ev) {
+    ev.preventDefault();
+    ev.currentTarget.classList.add('drag-over');
+}
+
+function drag(ev) {
+    ev.dataTransfer.setData("text", ev.target.dataset.task);
+    ev.target.classList.add('dragging');
+}
+
+function drop(ev) {
+    ev.preventDefault();
+    ev.currentTarget.classList.remove('drag-over');
+    
+    const taskType = ev.dataTransfer.getData("text");
+    const stepElement = ev.currentTarget;
+    const stepNumber = stepElement.dataset.step;
+    
+    addTaskToStep(stepNumber, taskType);
+    
+    // Remove dragging class from all task items
+    document.querySelectorAll('.task-item').forEach(item => {
+        item.classList.remove('dragging');
+    });
+}
+
+// Step management
+function addStep() {
+    currentStep++;
+    const stepsContainer = document.getElementById('playbook-steps');
+    const stepElement = document.createElement('div');
+    stepElement.className = 'playbook-step';
+    stepElement.dataset.step = currentStep;
+    stepElement.setAttribute('ondrop', 'drop(event)');
+    stepElement.setAttribute('ondragover', 'allowDrop(event)');
+    
+    stepElement.innerHTML = `
+        <div class="step-number">${currentStep}</div>
+        <div class="step-content">
+            <div class="text-muted">Drag a task here</div>
+        </div>
+        <div class="step-actions">
+            <button class="btn btn-sm btn-outline-danger" onclick="removeStep(${currentStep})" style="display: none;">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `;
+    
+    stepsContainer.appendChild(stepElement);
+}
+
+function removeStep(stepNumber) {
+    const stepElement = document.querySelector(`[data-step="${stepNumber}"]`);
+    if (stepElement) {
+        stepElement.remove();
+        updateStepNumbers();
+    }
+}
+
+function updateStepNumbers() {
+    const steps = document.querySelectorAll('.playbook-step');
+    steps.forEach((step, index) => {
+        const stepNumber = index + 1;
+        step.dataset.step = stepNumber;
+        step.querySelector('.step-number').textContent = stepNumber;
+        step.querySelector('.step-actions button').setAttribute('onclick', `removeStep(${stepNumber})`);
+    });
+    currentStep = steps.length;
+}
+
+// Task management
+function addTaskToStep(stepNumber, taskType) {
+    const stepElement = document.querySelector(`[data-step="${stepNumber}"]`);
+    const stepContent = stepElement.querySelector('.step-content');
+    const removeButton = stepElement.querySelector('.step-actions button');
+    
+    const taskConfig = getTaskConfig(taskType);
+    
+    stepContent.innerHTML = `
+        <div class="task-content">
+            <strong>${taskConfig.name}</strong>
+            <div class="text-muted">${taskConfig.description}</div>
+            <div class="task-config mt-2" style="display: none;">
+                ${taskConfig.configHtml}
+            </div>
+        </div>
+        <button class="btn btn-sm btn-outline-primary mt-2" onclick="toggleTaskConfig(this)">
+            <i class="fas fa-cog"></i> Configure
+        </button>
+    `;
+    
+    stepElement.classList.add('has-content');
+    removeButton.style.display = 'block';
+    
+    // Store task data
+    playbookData.steps[stepNumber - 1] = {
+        step: stepNumber,
+        task: taskType,
+        config: taskConfig.defaultConfig
+    };
+}
+
+function getTaskConfig(taskType) {
+    const configs = {
+        'install_microk8s': {
+            name: 'Install MicroK8s',
+            description: 'Install MicroK8s on target nodes',
+            defaultConfig: { version: 'latest' },
+            configHtml: `
+                <div class="mb-2">
+                    <label class="form-label">Version</label>
+                    <select class="form-select" onchange="updateTaskConfig(this, 'version')">
+                        <option value="latest">Latest</option>
+                        <option value="1.28">1.28</option>
+                        <option value="1.27">1.27</option>
+                    </select>
+                </div>
+            `
+        },
+        'enable_addons': {
+            name: 'Enable MicroK8s Addons',
+            description: 'Enable common MicroK8s addons',
+            defaultConfig: { addons: ['dns', 'dashboard', 'storage'] },
+            configHtml: `
+                <div class="mb-2">
+                    <label class="form-label">Addons</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="dns" checked onchange="updateAddonConfig(this)">
+                        <label class="form-check-label">DNS</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="dashboard" checked onchange="updateAddonConfig(this)">
+                        <label class="form-check-label">Dashboard</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="storage" checked onchange="updateAddonConfig(this)">
+                        <label class="form-check-label">Storage</label>
+                    </div>
+                </div>
+            `
+        },
+        'update_packages': {
+            name: 'Update System Packages',
+            description: 'Update system packages',
+            defaultConfig: {},
+            configHtml: '<p class="text-muted">No additional configuration required.</p>'
+        }
+    };
+    
+    return configs[taskType] || {
+        name: 'Unknown Task',
+        description: 'Unknown task type',
+        defaultConfig: {},
+        configHtml: '<p class="text-muted">No configuration available.</p>'
+    };
+}
+
+function toggleTaskConfig(button) {
+    const configDiv = button.parentElement.querySelector('.task-config');
+    const isVisible = configDiv.style.display !== 'none';
+    
+    configDiv.style.display = isVisible ? 'none' : 'block';
+    button.innerHTML = isVisible ? 
+        '<i class="fas fa-cog"></i> Configure' : 
+        '<i class="fas fa-cog"></i> Hide Config';
+}
+
+function updateTaskConfig(select, key) {
+    const stepElement = select.closest('.playbook-step');
+    const stepNumber = stepElement.dataset.step;
+    const stepIndex = stepNumber - 1;
+    
+    if (playbookData.steps[stepIndex]) {
+        playbookData.steps[stepIndex].config[key] = select.value;
+    }
+}
+
+function updateAddonConfig(checkbox) {
+    const stepElement = checkbox.closest('.playbook-step');
+    const stepNumber = stepElement.dataset.step;
+    const stepIndex = stepNumber - 1;
+    
+    if (playbookData.steps[stepIndex]) {
+        const addons = playbookData.steps[stepIndex].config.addons || [];
+        if (checkbox.checked) {
+            if (!addons.includes(checkbox.value)) {
+                addons.push(checkbox.value);
+            }
+        } else {
+            const index = addons.indexOf(checkbox.value);
+            if (index > -1) {
+                addons.splice(index, 1);
+            }
+        }
+        playbookData.steps[stepIndex].config.addons = addons;
+    }
+}
+
+// Target management
+function toggleTarget(targetId) {
+    const checkbox = document.getElementById('target_' + targetId);
+    checkbox.checked = !checkbox.checked;
+    
+    const targetElement = checkbox.closest('.target-option');
+    targetElement.classList.toggle('selected', checkbox.checked);
+    
+    updateTargets();
+}
+
+function updateTargets() {
+    playbookData.targets = [];
+    
+    // All nodes
+    if (document.getElementById('target_all_nodes').checked) {
+        playbookData.targets.push({ type: 'all_nodes' });
+    }
+    
+    // Clusters
+    document.querySelectorAll('input[id^="target_cluster_"]').forEach(checkbox => {
+        if (checkbox.checked) {
+            const clusterId = checkbox.id.replace('target_cluster_', '');
+            playbookData.targets.push({ type: 'cluster', cluster_id: parseInt(clusterId) });
+        }
+    });
+    
+    // Node groups
+    document.querySelectorAll('input[id^="target_group_"]').forEach(checkbox => {
+        if (checkbox.checked) {
+            const groupId = checkbox.id.replace('target_group_', '');
+            playbookData.targets.push({ type: 'node_group', group_id: parseInt(groupId) });
+        }
+    });
+    
+    // Individual nodes
+    const nodeIds = [];
+    document.querySelectorAll('input[id^="target_node_"]').forEach(checkbox => {
+        if (checkbox.checked) {
+            const nodeId = checkbox.id.replace('target_node_', '');
+            nodeIds.push(parseInt(nodeId));
+        }
+    });
+    if (nodeIds.length > 0) {
+        playbookData.targets.push({ type: 'individual_nodes', node_ids: nodeIds });
+    }
+}
+
+// YAML generation
+function updateYamlPreview() {
+    const yamlPreview = document.getElementById('yaml-preview');
+    
+    if (playbookData.steps.length === 0) {
+        yamlPreview.textContent = '# No steps defined yet';
+        return;
+    }
+    
+    const yaml = generateYaml();
+    yamlPreview.textContent = yaml;
+}
+
+function generateYaml() {
+    let yaml = '---\n';
+    yaml += '- name: Generated Playbook\n';
+    yaml += '  hosts: all\n';
+    yaml += '  become: yes\n';
+    yaml += '  tasks:\n';
+    
+    playbookData.steps.forEach(step => {
+        if (step && step.task) {
+            yaml += generateTaskYaml(step);
+        }
+    });
+    
+    return yaml;
+}
+
+function generateTaskYaml(step) {
+    const taskConfigs = {
+        'install_microk8s': (config) => {
+            let yaml = '    - name: Install MicroK8s\n';
+            yaml += '      snap:\n';
+            yaml += '        name: microk8s\n';
+            yaml += '        classic: yes\n';
+            if (config.version && config.version !== 'latest') {
+                yaml += `        version: ${config.version}\n`;
+            }
+            return yaml;
+        },
+        'enable_addons': (config) => {
+            let yaml = '    - name: Enable MicroK8s addons\n';
+            yaml += '      shell: microk8s enable {{ item }}\n';
+            yaml += '      loop:\n';
+            config.addons.forEach(addon => {
+                yaml += `        - ${addon}\n`;
+            });
+            return yaml;
+        },
+        'update_packages': (config) => {
+            let yaml = '    - name: Update system packages\n';
+            yaml += '      apt:\n';
+            yaml += '        update_cache: yes\n';
+            yaml += '        upgrade: yes\n';
+            return yaml;
+        }
+    };
+    
+    const generator = taskConfigs[step.task];
+    return generator ? generator(step.config) : '    # Unknown task type\n';
+}
+
+// Playbook management
+function savePlaybook() {
+    const name = prompt('Enter playbook name:');
+    if (!name) return;
+    
+    playbookData.name = name;
+    playbookData.description = prompt('Enter playbook description (optional):') || '';
+    
+    const yaml = generateYaml();
+    
+    fetch('/api/custom-playbooks', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            name: playbookData.name,
+            description: playbookData.description,
+            yaml_content: yaml,
+            visual_config: JSON.stringify(playbookData)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error saving playbook: ' + data.error);
+        } else {
+            alert('Playbook saved successfully!');
+        }
+    })
+    .catch(error => {
+        alert('Error saving playbook: ' + error);
+    });
+}
+
+function validatePlaybook() {
+    const yaml = generateYaml();
+    
+    fetch('/api/playbooks/validate-yaml', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            yaml_content: yaml
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.valid) {
+            alert('Playbook YAML is valid!');
+        } else {
+            alert('YAML validation error: ' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('Error validating playbook: ' + error);
+    });
+}
+
+function executePlaybook() {
+    if (playbookData.targets.length === 0) {
+        alert('Please select at least one target.');
+        return;
+    }
+    
+    if (playbookData.steps.length === 0) {
+        alert('Please add at least one step to the playbook.');
+        return;
+    }
+    
+    const executionName = document.getElementById('execution-name').value || 'Playbook Execution';
+    const yaml = generateYaml();
+    
+    // Show execution status
+    document.getElementById('execution-status').style.display = 'block';
+    document.getElementById('status-badge').textContent = 'Running';
+    document.getElementById('status-badge').className = 'status-badge status-running';
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('execution-log').textContent = 'Starting execution...';
+    
+    fetch('/api/playbook-executions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            execution_name: executionName,
+            yaml_content: yaml,
+            targets: playbookData.targets
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error executing playbook: ' + data.error);
+        } else {
+            // Start polling for execution status
+            pollExecutionStatus(data.id);
+        }
+    })
+    .catch(error => {
+        alert('Error executing playbook: ' + error);
+    });
+}
+
+function pollExecutionStatus(executionId) {
+    const pollInterval = setInterval(() => {
+        fetch(`/api/playbook-executions/${executionId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                clearInterval(pollInterval);
+                return;
+            }
+            
+            const statusBadge = document.getElementById('status-badge');
+            const progressBar = document.getElementById('progress-bar');
+            const executionLog = document.getElementById('execution-log');
+            
+            statusBadge.textContent = data.status;
+            statusBadge.className = `status-badge status-${data.status}`;
+            progressBar.style.width = `${data.progress_percent}%`;
+            
+            if (data.output) {
+                executionLog.textContent = data.output;
+            }
+            
+            if (data.is_completed) {
+                clearInterval(pollInterval);
+                if (data.success) {
+                    statusBadge.className = 'status-badge status-completed';
+                } else {
+                    statusBadge.className = 'status-badge status-failed';
+                }
+            }
+        })
+        .catch(error => {
+            clearInterval(pollInterval);
+            console.error('Error polling execution status:', error);
+        });
+    }, 2000);
+}
+
+function previewInventory() {
+    if (playbookData.targets.length === 0) {
+        alert('Please select at least one target.');
+        return;
+    }
+    
+    fetch('/api/playbooks/resolve-targets', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            targets: playbookData.targets
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error resolving targets: ' + data.error);
+        } else {
+            const nodeIds = data.map(node => node.id);
+            
+            fetch('/api/playbooks/generate-inventory', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    node_ids: nodeIds
+                })
+            })
+            .then(response => response.json())
+            .then(inventoryData => {
+                if (inventoryData.error) {
+                    alert('Error generating inventory: ' + inventoryData.error);
+                } else {
+                    alert('Inventory Preview:\n\n' + inventoryData.inventory);
+                }
+            });
+        }
+    })
+    .catch(error => {
+        alert('Error previewing inventory: ' + error);
+    });
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize playbook data
+    playbookData.steps = [];
+    playbookData.targets = [];
+    
+    // Collapse all categories initially
+    document.querySelectorAll('.task-category').forEach(category => {
+        category.classList.add('collapsed');
+        category.querySelector('.category-content').style.display = 'none';
+    });
+});
+</script>
+{% endblock %}

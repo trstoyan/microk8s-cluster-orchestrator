@@ -1,6 +1,20 @@
 # MicroK8s Cluster Orchestrator - Deployment Guide
 
-This guide covers all deployment methods for the MicroK8s Cluster Orchestrator with enhanced SSH key management.
+This guide covers all deployment methods for the MicroK8s Cluster Orchestrator with enhanced SSH key management and recent bug fixes.
+
+## 🔧 Recent Fixes & Improvements
+
+### Fixed Issues
+- **SQLAlchemy Model Conflicts**: Resolved database schema conflicts between CLI and web interface
+- **Wake-on-LAN Errors**: Fixed WoL configuration issues and improved error handling
+- **SSH Key Detection**: Improved SSH key scanning and manual selection capabilities
+- **Database Schema**: Added missing columns and improved model compatibility
+
+### New Features
+- **Manual SSH Key Selection**: Choose from existing SSH keys during node setup
+- **Enhanced SSH Key Scanning**: Automatic detection and listing of available SSH keys
+- **Database Path Command**: New CLI command `python cli.py database path`
+- **Professional Documentation**: Added CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, and LICENSE
 
 ## 🚀 Quick Start
 

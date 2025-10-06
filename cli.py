@@ -334,6 +334,84 @@ def add_node(hostname, ip, user, port, cluster_id, notes, generate_ssh_key):
     finally:
         session.close()
 
+@node.command('update')
+@click.argument('node_id', type=int)
+@click.option('--hostname', '-h', help='Update node hostname')
+@click.option('--ip', '-i', help='Update node IP address')
+@click.option('--ssh-user', '-u', help='Update SSH username')
+@click.option('--ssh-port', '-p', type=int, help='Update SSH port')
+@click.option('--cluster-id', '-c', type=int, help='Update cluster assignment (use 0 to remove from cluster)')
+@click.option('--tags', '-t', help='Update node tags (comma-separated)')
+@click.option('--notes', '-n', help='Update node notes')
+def update_node(node_id, hostname, ip, ssh_user, ssh_port, cluster_id, tags, notes):
+    """Update node details."""
+    session = get_session()
+    try:
+        node = session.query(Node).filter_by(id=node_id).first()
+        if not node:
+            print_error(f"Node with ID {node_id} not found.")
+            return
+        
+        print_info(f"Updating node: {node.hostname} (ID: {node_id})")
+        
+        # Update fields if provided
+        if hostname:
+            old_hostname = node.hostname
+            node.hostname = hostname
+            print_info(f"  - Hostname: {old_hostname} → {hostname}")
+        
+        if ip:
+            old_ip = node.ip_address
+            node.ip_address = ip
+            print_info(f"  - IP Address: {old_ip} → {ip}")
+        
+        if ssh_user:
+            old_user = node.ssh_user
+            node.ssh_user = ssh_user
+            print_info(f"  - SSH User: {old_user} → {ssh_user}")
+        
+        if ssh_port:
+            old_port = node.ssh_port
+            node.ssh_port = ssh_port
+            print_info(f"  - SSH Port: {old_port} → {ssh_port}")
+        
+        if cluster_id is not None:
+            old_cluster = node.cluster.name if node.cluster else 'None'
+            if cluster_id == 0:
+                node.cluster_id = None
+                new_cluster = 'None'
+            else:
+                cluster = session.query(Cluster).filter_by(id=cluster_id).first()
+                if not cluster:
+                    print_error(f"Cluster with ID {cluster_id} not found.")
+                    return
+                node.cluster_id = cluster_id
+                new_cluster = cluster.name
+            print_info(f"  - Cluster: {old_cluster} → {new_cluster}")
+        
+        if tags is not None:
+            old_tags = node.tags or 'None'
+            node.tags = tags
+            print_info(f"  - Tags: {old_tags} → {tags}")
+        
+        if notes is not None:
+            old_notes = node.notes or 'None'
+            node.notes = notes
+            print_info(f"  - Notes: {old_notes} → {notes}")
+        
+        # Update timestamp
+        node.updated_at = datetime.utcnow()
+        
+        session.commit()
+        print_success(f"Node '{node.hostname}' updated successfully!")
+        
+    except Exception as e:
+        session.rollback()
+        print_error(f"Failed to update node: {e}")
+    
+    finally:
+        session.close()
+
 @node.command('test-ssh')
 @click.argument('node_id', type=int)
 def test_ssh_connection(node_id):
@@ -728,6 +806,60 @@ def configure_hosts_file(cluster_id, backup):
         print_info("This operation will:")
         print_info("  - Backup original /etc/hosts files")
         print_info("  - Add hostname-to-IP mappings for all cluster nodes")
+        print_info("  - Verify hostname resolution works correctly")
+        print_info("  - Test DNS resolution for all nodes")
+    
+    except Exception as e:
+        print_error(f"Failed to configure hosts file: {e}")
+    
+    finally:
+        session.close()
+
+@node.command('configure-hosts')
+@click.option('--backup', is_flag=True, default=True, help='Backup original /etc/hosts file (default: True)')
+def configure_all_nodes_hosts(backup):
+    """Configure /etc/hosts file on all nodes for proper hostname resolution."""
+    session = get_session()
+    orchestrator = CLIOrchestrationService()
+    
+    try:
+        nodes = session.query(Node).all()
+        
+        if not nodes:
+            print_error("No nodes found to configure.")
+            return
+        
+        print_info(f"Configuring /etc/hosts file for all {len(nodes)} nodes...")
+        print_info("This will add hostname-to-IP mappings for all nodes to ensure proper cluster communication.")
+        
+        if backup:
+            print_info("Original /etc/hosts files will be backed up before modification.")
+        
+        # Show which nodes will be configured
+        print_info("\nNodes to be configured:")
+        for node in nodes:
+            cluster_name = node.cluster.name if node.cluster else 'No cluster'
+            print_info(f"  - {node.hostname} ({node.ip_address}) - {cluster_name}")
+        
+        # Confirm before proceeding
+        if not click.confirm("\nDo you want to proceed with /etc/hosts configuration?"):
+            print_info("Operation cancelled.")
+            return
+        
+        # Create a temporary cluster-like object for the operation
+        class TempCluster:
+            def __init__(self, nodes):
+                self.name = "All Nodes"
+                self.nodes = nodes
+        
+        temp_cluster = TempCluster(nodes)
+        operation = orchestrator.configure_hosts_file(temp_cluster)
+        
+        print_info(f"Hosts file configuration started with operation ID {operation.id}")
+        print_info("Check the operations list for progress.")
+        print_info("This operation will:")
+        print_info("  - Backup original /etc/hosts files")
+        print_info("  - Add hostname-to-IP mappings for all nodes")
         print_info("  - Verify hostname resolution works correctly")
         print_info("  - Test DNS resolution for all nodes")
     
@@ -3411,6 +3543,211 @@ def configure_wol(node_id, mac_address, method, port, broadcast, enable, virtual
     except Exception as e:
         print_error(f"Failed to configure WoL: {e}")
         session.rollback()
+
+# Playbook Management Commands
+@cli.group()
+def playbook():
+    """Manage playbooks and templates."""
+    pass
+
+@playbook.command()
+def list_templates():
+    """List available playbook templates."""
+    try:
+        from app import create_app
+        from app.services.playbook_service import PlaybookService
+        
+        app = create_app()
+        with app.app_context():
+            service = PlaybookService()
+            templates = service.get_templates()
+            
+            if not templates:
+                print_info("No templates found.")
+                return
+            
+            data = []
+            for template in templates:
+                data.append([
+                    template.id,
+                    template.name,
+                    template.category,
+                    template.version,
+                    template.usage_count,
+                    "System" if template.is_system else "User"
+                ])
+            
+            headers = ["ID", "Name", "Category", "Version", "Uses", "Type"]
+            print(tabulate(data, headers=headers, tablefmt="grid"))
+            
+    except Exception as e:
+        print_error(f"Failed to list templates: {e}")
+
+@playbook.command()
+@click.argument('template_id', type=int)
+def show_template(template_id):
+    """Show details of a specific template."""
+    try:
+        from app import create_app
+        from app.services.playbook_service import PlaybookService
+        
+        app = create_app()
+        with app.app_context():
+            service = PlaybookService()
+            template = service.get_template(template_id)
+            
+            if not template:
+                print_error(f"Template {template_id} not found.")
+                return
+            
+            print_info(f"Template: {template.name}")
+            print_info(f"Category: {template.category}")
+            print_info(f"Description: {template.description or 'No description'}")
+            print_info(f"Version: {template.version}")
+            print_info(f"Usage Count: {template.usage_count}")
+            print_info(f"Type: {'System' if template.is_system else 'User'}")
+            print_info(f"Created: {template.created_at}")
+            
+            if template.tags:
+                print_info(f"Tags: {template.tags}")
+            
+            print_info("\nYAML Content:")
+            print(template.yaml_content)
+            
+    except Exception as e:
+        print_error(f"Failed to show template: {e}")
+
+@playbook.command()
+def list_custom():
+    """List custom playbooks."""
+    try:
+        from app import create_app
+        from app.services.playbook_service import PlaybookService
+        
+        app = create_app()
+        with app.app_context():
+            service = PlaybookService()
+            playbooks = service.get_custom_playbooks()
+            
+            if not playbooks:
+                print_info("No custom playbooks found.")
+                return
+            
+            data = []
+            for playbook in playbooks:
+                data.append([
+                    playbook.id,
+                    playbook.name,
+                    playbook.category,
+                    playbook.execution_count,
+                    f"{playbook.success_rate:.1f}%" if playbook.success_rate > 0 else "N/A",
+                    playbook.created_at.strftime("%Y-%m-%d")
+                ])
+            
+            headers = ["ID", "Name", "Category", "Executions", "Success Rate", "Created"]
+            print(tabulate(data, headers=headers, tablefmt="grid"))
+            
+    except Exception as e:
+        print_error(f"Failed to list custom playbooks: {e}")
+
+@playbook.command()
+def list_executions():
+    """List playbook executions."""
+    try:
+        from app import create_app
+        from app.services.playbook_service import PlaybookService
+        
+        app = create_app()
+        with app.app_context():
+            service = PlaybookService()
+            executions = service.get_executions()
+            
+            if not executions:
+                print_info("No executions found.")
+                return
+            
+            data = []
+            for execution in executions:
+                status_color = {
+                    'pending': Fore.YELLOW,
+                    'running': Fore.BLUE,
+                    'completed': Fore.GREEN,
+                    'failed': Fore.RED,
+                    'cancelled': Fore.YELLOW
+                }.get(execution.status, '')
+                
+                status_text = f"{status_color}{execution.status}{Style.RESET_ALL}"
+                
+                data.append([
+                    execution.id,
+                    execution.execution_name,
+                    execution.execution_type,
+                    status_text,
+                    f"{execution.progress_percent}%" if execution.progress_percent > 0 else "N/A",
+                    execution.created_at.strftime("%Y-%m-%d %H:%M")
+                ])
+            
+            headers = ["ID", "Name", "Type", "Status", "Progress", "Created"]
+            print(tabulate(data, headers=headers, tablefmt="grid"))
+            
+    except Exception as e:
+        print_error(f"Failed to list executions: {e}")
+
+@playbook.command()
+@click.argument('execution_id', type=int)
+def show_execution(execution_id):
+    """Show details of a specific execution."""
+    try:
+        from app import create_app
+        from app.services.playbook_service import PlaybookService
+        
+        app = create_app()
+        with app.app_context():
+            service = PlaybookService()
+            execution = service.get_execution(execution_id)
+            
+            if not execution:
+                print_error(f"Execution {execution_id} not found.")
+                return
+            
+            print_info(f"Execution: {execution.execution_name}")
+            print_info(f"Type: {execution.execution_type}")
+            print_info(f"Status: {execution.status}")
+            print_info(f"Progress: {execution.progress_percent}%")
+            print_info(f"Created: {execution.created_at}")
+            
+            if execution.started_at:
+                print_info(f"Started: {execution.started_at}")
+            if execution.completed_at:
+                print_info(f"Completed: {execution.completed_at}")
+            if execution.duration:
+                print_info(f"Duration: {execution.duration:.1f} seconds")
+            
+            if execution.error_message:
+                print_error(f"Error: {execution.error_message}")
+            
+            if execution.output:
+                print_info("\nOutput:")
+                print(execution.output)
+            
+    except Exception as e:
+        print_error(f"Failed to show execution: {e}")
+
+@playbook.command()
+def init_templates():
+    """Initialize system templates."""
+    try:
+        from app import create_app
+        from app.services.playbook_service import PlaybookService
+        
+        app = create_app()
+        with app.app_context():
+            service = PlaybookService()
+            service.create_system_templates()
+            print_success("System templates initialized successfully.")
+            
+    except Exception as e:
+        print_error(f"Failed to initialize templates: {e}")
 
 if __name__ == '__main__':
     cli()

@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Node - {{ node.hostname }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="bi bi-pencil-square"></i> Edit Node: {{ node.hostname }}</h2>
+                <a href="{{ url_for('web.nodes') }}" class="btn btn-secondary">
+                    <i class="bi bi-arrow-left"></i> Back to Nodes
+                </a>
+            </div>
+
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-gear"></i> Node Configuration
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <form method="POST">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="hostname" class="form-label">Hostname *</label>
+                                            <input type="text" class="form-control" id="hostname" name="hostname" 
+                                                   value="{{ node.hostname }}" required>
+                                            <div class="form-text">The hostname of the node</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="ip_address" class="form-label">IP Address *</label>
+                                            <input type="text" class="form-control" id="ip_address" name="ip_address" 
+                                                   value="{{ node.ip_address }}" required>
+                                            <div class="form-text">The IP address of the node</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="ssh_user" class="form-label">SSH User</label>
+                                            <input type="text" class="form-control" id="ssh_user" name="ssh_user" 
+                                                   value="{{ node.ssh_user or 'ubuntu' }}">
+                                            <div class="form-text">SSH username for connecting to the node</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="ssh_port" class="form-label">SSH Port</label>
+                                            <input type="number" class="form-control" id="ssh_port" name="ssh_port" 
+                                                   value="{{ node.ssh_port or 22 }}" min="1" max="65535">
+                                            <div class="form-text">SSH port for connecting to the node</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="cluster_id" class="form-label">Cluster</label>
+                                    <select class="form-select" id="cluster_id" name="cluster_id">
+                                        <option value="">No cluster assigned</option>
+                                        {% for cluster in clusters %}
+                                        <option value="{{ cluster.id }}" 
+                                                {% if node.cluster_id == cluster.id %}selected{% endif %}>
+                                            {{ cluster.name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <div class="form-text">Assign this node to a cluster</div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="tags" class="form-label">Tags</label>
+                                    <input type="text" class="form-control" id="tags" name="tags" 
+                                           value="{{ node.tags or '' }}">
+                                    <div class="form-text">Comma-separated tags for organizing nodes (e.g., "production,web-server")</div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="notes" class="form-label">Notes</label>
+                                    <textarea class="form-control" id="notes" name="notes" rows="3">{{ node.notes or '' }}</textarea>
+                                    <div class="form-text">Additional notes about this node</div>
+                                </div>
+
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-check-lg"></i> Update Node
+                                    </button>
+                                    <a href="{{ url_for('web.nodes') }}" class="btn btn-secondary">
+                                        <i class="bi bi-x-lg"></i> Cancel
+                                    </a>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-info-circle"></i> Node Information
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <strong>Node ID:</strong><br>
+                                <code>{{ node.id }}</code>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <strong>Status:</strong><br>
+                                {% if node.status == 'online' %}
+                                    <span class="badge bg-success">Online</span>
+                                {% elif node.status == 'offline' %}
+                                    <span class="badge bg-danger">Offline</span>
+                                {% else %}
+                                    <span class="badge bg-warning">{{ node.status|title }}</span>
+                                {% endif %}
+                            </div>
+
+                            {% if node.cluster %}
+                            <div class="mb-3">
+                                <strong>Current Cluster:</strong><br>
+                                <a href="{{ url_for('web.cluster_detail', cluster_id=node.cluster.id) }}" 
+                                   class="text-decoration-none">
+                                    {{ node.cluster.name }}
+                                </a>
+                            </div>
+                            {% endif %}
+
+                            <div class="mb-3">
+                                <strong>Created:</strong><br>
+                                {{ node.created_at.strftime('%Y-%m-%d %H:%M:%S') if node.created_at else 'Unknown' }}
+                            </div>
+
+                            <div class="mb-3">
+                                <strong>Last Updated:</strong><br>
+                                {{ node.updated_at.strftime('%Y-%m-%d %H:%M:%S') if node.updated_at else 'Unknown' }}
+                            </div>
+
+                            {% if node.ssh_key_path %}
+                            <div class="mb-3">
+                                <strong>SSH Key:</strong><br>
+                                <code class="small">{{ node.ssh_key_path }}</code>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-tools"></i> Quick Actions
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-grid gap-2">
+                                <a href="{{ url_for('web.node_detail', node_id=node.id) }}" 
+                                   class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-eye"></i> View Details
+                                </a>
+                                
+                                {% if node.ssh_key_generated %}
+                                <a href="{{ url_for('web.node_ssh_setup', node_id=node.id) }}" 
+                                   class="btn btn-outline-info btn-sm">
+                                    <i class="bi bi-key"></i> SSH Setup
+                                </a>
+                                {% endif %}
+
+                                <button type="button" class="btn btn-outline-warning btn-sm" 
+                                        onclick="testConnection({{ node.id }})">
+                                    <i class="bi bi-wifi"></i> Test Connection
+                                </button>
+
+                                <button type="button" class="btn btn-outline-success btn-sm" 
+                                        onclick="scanNode({{ node.id }})">
+                                    <i class="bi bi-search"></i> Scan Node
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function testConnection(nodeId) {
+    if (confirm('Test SSH connection to this node?')) {
+        fetch(`/nodes/${nodeId}/test-ssh`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Connection test successful!');
+            } else {
+                alert('Connection test failed: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error testing connection: ' + error);
+        });
+    }
+}
+
+function scanNode(nodeId) {
+    if (confirm('Scan this node for system information?')) {
+        fetch(`/api/nodes/${nodeId}/scan`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Node scan started successfully!');
+            } else {
+                alert('Node scan failed: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error starting scan: ' + error);
+        });
+    }
+}
+</script>
+{% endblock %}

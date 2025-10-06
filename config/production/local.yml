@@ -49,11 +49,30 @@ ai_assistant:
     retention_days: 365
     min_similarity: 0.1
     auto_learn: true
+  local_llm:
+    enabled: false
+    provider: ollama
+    base_url: http://localhost:11434
+    api_key: ""
+    model: llama2
+    timeout: 60
+    max_tokens: 2048
+    temperature: 0.7
+    available_models: []
   web_interface:
     enabled: true
     show_in_nav: true
     allow_ansible_analysis: true
     allow_health_insights: true
+    allow_model_selection: true
+    allow_multiple_chats: true
+    allow_operation_log_analysis: true
+  searchable_content:
+    enabled: true
+    include_playbooks: true
+    include_documentation: true
+    include_operation_logs: true
+    max_search_results: 50
   performance:
     max_concurrent_requests: 5
     response_timeout: 30

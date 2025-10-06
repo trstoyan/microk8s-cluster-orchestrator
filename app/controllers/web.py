@@ -3,7 +3,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, jsonify
 from flask_login import login_required, current_user
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User, PlaybookTemplate, CustomPlaybook, PlaybookExecution, NodeGroup
 from ..models.network_lease import NetworkLease, NetworkInterface
 
 bp = Blueprint('web', __name__)
@@ -96,6 +96,37 @@ def add_node():
     
     clusters = Cluster.query.all()
     return render_template('add_node.html', clusters=clusters)
+
+@bp.route('/nodes/<int:node_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_node(node_id):
+    """Edit node details."""
+    node = Node.query.get_or_404(node_id)
+    clusters = Cluster.query.all()
+    
+    if request.method == 'POST':
+        try:
+            # Update node details
+            node.hostname = request.form['hostname']
+            node.ip_address = request.form['ip_address']
+            node.ssh_user = request.form.get('ssh_user', 'ubuntu')
+            node.ssh_port = int(request.form.get('ssh_port', 22))
+            node.cluster_id = request.form.get('cluster_id') or None
+            node.notes = request.form.get('notes')
+            
+            # Update tags if provided
+            if 'tags' in request.form:
+                node.tags = request.form['tags']
+            
+            db.session.commit()
+            flash(f'Node "{node.hostname}" updated successfully!', 'success')
+            return redirect(url_for('web.nodes'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Error updating node: {str(e)}', 'error')
+    
+    return render_template('edit_node.html', node=node, clusters=clusters)
 
 @bp.route('/nodes/<int:node_id>/ssh-setup')
 @login_required
@@ -218,7 +249,7 @@ def api_check_ssh_keys(node_id):
         sync_needed = False
         available_keys = []
         
-        # First, scan for all available SSH keys
+        # First, scan for all available SSH keys in project ssh_keys/ directory
         ssh_keys_dir = Path('ssh_keys')
         if ssh_keys_dir.exists():
             for key_file in ssh_keys_dir.glob('*'):
@@ -238,7 +269,34 @@ def api_check_ssh_keys(node_id):
                                     'public_key': public_key,
                                     'fingerprint': key_info['fingerprint'],
                                     'size': key_file.stat().st_size,
-                                    'is_current': str(key_file.absolute()) == node.ssh_key_path
+                                    'is_current': str(key_file.absolute()) == node.ssh_key_path,
+                                    'location': 'project'
+                                })
+                        except Exception as e:
+                            print(f"Error reading key {key_file}: {e}")
+        
+        # Also scan user's .ssh/ directory for matching keys
+        user_ssh_dir = Path.home() / '.ssh'
+        if user_ssh_dir.exists():
+            for key_file in user_ssh_dir.glob('*'):
+                if not key_file.name.endswith('.pub') and not key_file.name.startswith('.') and not key_file.name.startswith('known_hosts'):
+                    pub_key_file = key_file.with_suffix('.pub')
+                    if pub_key_file.exists():
+                        try:
+                            with open(pub_key_file, 'r') as f:
+                                public_key = f.read().strip()
+                            
+                            # Get key info
+                            key_info = ssh_manager.get_key_info(str(key_file))
+                            if key_info:
+                                available_keys.append({
+                                    'name': key_file.name,
+                                    'path': str(key_file.absolute()),
+                                    'public_key': public_key,
+                                    'fingerprint': key_info['fingerprint'],
+                                    'size': key_file.stat().st_size,
+                                    'is_current': str(key_file.absolute()) == node.ssh_key_path,
+                                    'location': 'user'
                                 })
                         except Exception as e:
                             print(f"Error reading key {key_file}: {e}")
@@ -594,6 +652,41 @@ def configure_cluster_hosts(cluster_id):
     except Exception as e:
         flash(f'Error configuring hosts file: {str(e)}', 'error')
         return redirect(url_for('web.cluster_detail', cluster_id=cluster_id))
+
+@bp.route('/nodes/configure-hosts', methods=['POST'])
+@login_required
+def configure_all_nodes_hosts():
+    """Configure /etc/hosts file for all nodes."""
+    try:
+        nodes = Node.query.all()
+        
+        if not nodes:
+            flash('No nodes found to configure.', 'error')
+            return redirect(url_for('web.nodes'))
+        
+        from ..services.orchestrator import OrchestrationService
+        orchestrator = OrchestrationService()
+        
+        # Create a temporary cluster-like object for the operation
+        class TempCluster:
+            def __init__(self, nodes):
+                self.name = "All Nodes"
+                self.nodes = nodes
+        
+        temp_cluster = TempCluster(nodes)
+        operation = orchestrator.configure_hosts_file(temp_cluster)
+        
+        # Set the user who initiated the operation
+        operation.user_id = current_user.id
+        operation.created_by = current_user.full_name
+        db.session.commit()
+        
+        flash(f'Hosts file configuration started for all {len(nodes)} nodes. Operation ID: {operation.id}', 'success')
+        return redirect(url_for('web.nodes'))
+        
+    except Exception as e:
+        flash(f'Error configuring hosts file: {str(e)}', 'error')
+        return redirect(url_for('web.nodes'))
 
 @bp.route('/clusters/add', methods=['GET', 'POST'])
 @login_required
@@ -1383,7 +1476,7 @@ def assistant():
         flash('AI Assistant is disabled in system configuration', 'warning')
         return redirect(url_for('web.dashboard'))
     
-    return render_template('assistant.html')
+    return render_template('assistant_enhanced.html')
 
 @bp.route('/api/assistant/chat', methods=['POST'])
 @login_required
@@ -1571,3 +1664,415 @@ def ai_config_management():
     current_config = ai_config.get_full_config()
     
     return render_template('ai_config_management.html', ai_config=current_config)
+
+# Content Search API Endpoints
+@bp.route('/api/assistant/search-content', methods=['POST'])
+@login_required
+def search_content():
+    """Search playbooks, documentation, and operation logs."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if content search is enabled
+    if not ai_config.is_searchable_content_enabled():
+        return jsonify({'error': 'Content search is disabled'}), 403
+    
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        content_types = data.get('content_types', [])
+        limit = data.get('limit', 20)
+        
+        if not query:
+            return jsonify({'error': 'Search query is required'}), 400
+        
+        from ..services.content_search_service import get_content_search_service
+        search_service = get_content_search_service()
+        
+        if not search_service:
+            return jsonify({'error': 'Content search service is not available'}), 503
+        
+        results = search_service.search_content(query, content_types, limit)
+        
+        return jsonify({
+            'success': True,
+            'query': query,
+            'results': results,
+            'total_found': len(results)
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Content search error: {e}")
+        return jsonify({
+            'error': 'Failed to search content',
+            'success': False,
+            'results': []
+        }), 500
+
+@bp.route('/api/assistant/index-content', methods=['POST'])
+@login_required
+def index_content():
+    """Index searchable content (playbooks, docs, logs)."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if content search is enabled
+    if not ai_config.is_searchable_content_enabled():
+        return jsonify({'error': 'Content search is disabled'}), 403
+    
+    try:
+        data = request.get_json()
+        force_reindex = data.get('force_reindex', False)
+        
+        from ..services.content_search_service import get_content_search_service
+        search_service = get_content_search_service()
+        
+        if not search_service:
+            return jsonify({'error': 'Content search service is not available'}), 503
+        
+        results = search_service.index_content(force_reindex)
+        
+        return jsonify({
+            'success': True,
+            'indexing_results': results
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Content indexing error: {e}")
+        return jsonify({
+            'error': 'Failed to index content',
+            'success': False
+        }), 500
+
+@bp.route('/api/assistant/content-stats')
+@login_required
+def content_stats():
+    """Get content search statistics."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if content search is enabled
+    if not ai_config.is_searchable_content_enabled():
+        return jsonify({'error': 'Content search is disabled'}), 403
+    
+    try:
+        from ..services.content_search_service import get_content_search_service
+        search_service = get_content_search_service()
+        
+        if not search_service:
+            return jsonify({'error': 'Content search service is not available'}), 503
+        
+        stats = search_service.get_content_statistics()
+        
+        return jsonify({
+            'success': True,
+            'statistics': stats
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Content stats error: {e}")
+        return jsonify({
+            'error': 'Failed to get content statistics',
+            'success': False
+        }), 500
+
+# Chat Session API Endpoints
+@bp.route('/api/assistant/chat-sessions', methods=['GET'])
+@login_required
+def list_chat_sessions():
+    """List all chat sessions."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if multiple chats are enabled
+    if not ai_config.should_allow_multiple_chats():
+        return jsonify({'error': 'Multiple chat sessions are disabled'}), 403
+    
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        
+        from ..services.chat_session_manager import get_chat_session_manager
+        session_manager = get_chat_session_manager()
+        
+        if not session_manager:
+            return jsonify({'error': 'Chat session manager is not available'}), 503
+        
+        sessions = session_manager.list_sessions(limit)
+        
+        # Convert to JSON-serializable format
+        sessions_data = []
+        for session in sessions:
+            sessions_data.append({
+                'id': session.id,
+                'title': session.title,
+                'created_at': session.created_at,
+                'updated_at': session.updated_at,
+                'message_count': session.message_count,
+                'last_message': session.last_message,
+                'metadata': session.metadata
+            })
+        
+        return jsonify({
+            'success': True,
+            'sessions': sessions_data
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"List chat sessions error: {e}")
+        return jsonify({
+            'error': 'Failed to list chat sessions',
+            'success': False,
+            'sessions': []
+        }), 500
+
+@bp.route('/api/assistant/chat-sessions', methods=['POST'])
+@login_required
+def create_chat_session():
+    """Create a new chat session."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if multiple chats are enabled
+    if not ai_config.should_allow_multiple_chats():
+        return jsonify({'error': 'Multiple chat sessions are disabled'}), 403
+    
+    try:
+        data = request.get_json()
+        title = data.get('title', '').strip()
+        metadata = data.get('metadata', {})
+        
+        from ..services.chat_session_manager import get_chat_session_manager
+        session_manager = get_chat_session_manager()
+        
+        if not session_manager:
+            return jsonify({'error': 'Chat session manager is not available'}), 503
+        
+        session = session_manager.create_session(title or None, metadata)
+        
+        return jsonify({
+            'success': True,
+            'session': {
+                'id': session.id,
+                'title': session.title,
+                'created_at': session.created_at,
+                'updated_at': session.updated_at,
+                'message_count': session.message_count,
+                'last_message': session.last_message,
+                'metadata': session.metadata
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Create chat session error: {e}")
+        return jsonify({
+            'error': 'Failed to create chat session',
+            'success': False
+        }), 500
+
+@bp.route('/api/assistant/operation-logs', methods=['GET'])
+@login_required
+def get_operation_logs():
+    """Get operation logs for analysis."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if operation log analysis is enabled
+    if not ai_config.should_allow_operation_log_analysis():
+        return jsonify({'error': 'Operation log analysis is disabled'}), 403
+    
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        operation_type = request.args.get('type')
+        status = request.args.get('status')
+        
+        from ..models.flask_models import Operation
+        
+        query = Operation.query.filter(
+            Operation.output.isnot(None),
+            Operation.output != ''
+        )
+        
+        if operation_type:
+            query = query.filter(Operation.operation_type == operation_type)
+        
+        if status:
+            query = query.filter(Operation.status == status)
+        
+        operations = query.order_by(Operation.created_at.desc()).limit(limit).all()
+        
+        # Convert to JSON-serializable format
+        operations_data = []
+        for op in operations:
+            operations_data.append({
+                'id': op.id,
+                'operation_type': op.operation_type,
+                'status': op.status,
+                'created_at': op.created_at.isoformat() if op.created_at else None,
+                'duration': op.duration,
+                'output_preview': op.output[:500] if op.output else '',
+                'full_output': op.output
+            })
+        
+        return jsonify({
+            'success': True,
+            'operations': operations_data,
+            'total_found': len(operations_data)
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Get operation logs error: {e}")
+        return jsonify({
+            'error': 'Failed to get operation logs',
+            'success': False,
+            'operations': []
+        }), 500
+
+@bp.route('/api/assistant/reset-services', methods=['POST'])
+@login_required
+def reset_ai_services():
+    """Reset AI services to reload configuration."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if AI assistant is enabled
+    if not ai_config.is_ai_assistant_enabled():
+        return jsonify({'error': 'AI Assistant is disabled'}), 403
+    
+    try:
+        from ..services.content_search_service import reset_content_search_service
+        from ..services.chat_session_manager import reset_chat_session_manager
+        
+        # Reset services
+        reset_content_search_service()
+        reset_chat_session_manager()
+        
+        return jsonify({
+            'success': True,
+            'message': 'AI services reset successfully'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error resetting AI services: {e}")
+        return jsonify({
+            'error': 'Failed to reset AI services',
+            'success': False
+        }), 500
+
+# Playbook Editor Routes
+@bp.route('/playbooks')
+@login_required
+def playbooks():
+    """Playbook editor main page."""
+    templates = PlaybookTemplate.query.filter_by(is_public=True).all()
+    custom_playbooks = CustomPlaybook.query.filter_by(created_by=current_user.id).all()
+    executions = PlaybookExecution.query.filter_by(created_by=current_user.id).order_by(PlaybookExecution.created_at.desc()).limit(10).all()
+    
+    return render_template('playbooks.html', 
+                         templates=templates,
+                         custom_playbooks=custom_playbooks,
+                         executions=executions)
+
+@bp.route('/playbooks/editor')
+@login_required
+def playbook_editor():
+    """Playbook visual editor."""
+    templates = PlaybookTemplate.query.filter_by(is_public=True).all()
+    clusters = Cluster.query.all()
+    nodes = Node.query.all()
+    node_groups = NodeGroup.query.filter_by(created_by=current_user.id).all()
+    
+    return render_template('playbook_editor.html',
+                         templates=templates,
+                         clusters=clusters,
+                         nodes=nodes,
+                         node_groups=node_groups)
+
+@bp.route('/playbooks/templates')
+@login_required
+def playbook_templates():
+    """Playbook templates library."""
+    category = request.args.get('category')
+    templates = PlaybookTemplate.query
+    if category:
+        templates = templates.filter_by(category=category)
+    templates = templates.filter_by(is_public=True).all()
+    
+    categories = db.session.query(PlaybookTemplate.category).distinct().all()
+    categories = [cat[0] for cat in categories]
+    
+    return render_template('playbook_templates.html', 
+                         templates=templates,
+                         categories=categories,
+                         selected_category=category)
+
+@bp.route('/playbooks/templates/<int:template_id>')
+@login_required
+def playbook_template_detail(template_id):
+    """Playbook template detail page."""
+    template = PlaybookTemplate.query.get_or_404(template_id)
+    if not template.is_public:
+        flash('Template not found or not accessible', 'error')
+        return redirect(url_for('web.playbook_templates'))
+    
+    return render_template('playbook_template_detail.html', template=template)
+
+@bp.route('/playbooks/custom')
+@login_required
+def custom_playbooks():
+    """Custom playbooks management."""
+    playbooks = CustomPlaybook.query.filter_by(created_by=current_user.id).all()
+    return render_template('custom_playbooks.html', playbooks=playbooks)
+
+@bp.route('/playbooks/custom/<int:playbook_id>')
+@login_required
+def custom_playbook_detail(playbook_id):
+    """Custom playbook detail page."""
+    playbook = CustomPlaybook.query.get_or_404(playbook_id)
+    if playbook.created_by != current_user.id:
+        flash('Playbook not found or not accessible', 'error')
+        return redirect(url_for('web.custom_playbooks'))
+    
+    return render_template('custom_playbook_detail.html', playbook=playbook)
+
+@bp.route('/playbooks/executions')
+@login_required
+def playbook_executions():
+    """Playbook executions history."""
+    status = request.args.get('status')
+    executions = PlaybookExecution.query.filter_by(created_by=current_user.id)
+    if status:
+        executions = executions.filter_by(status=status)
+    executions = executions.order_by(PlaybookExecution.created_at.desc()).all()
+    
+    return render_template('playbook_executions.html', 
+                         executions=executions,
+                         selected_status=status)
+
+@bp.route('/playbooks/executions/<int:execution_id>')
+@login_required
+def playbook_execution_detail(execution_id):
+    """Playbook execution detail page."""
+    execution = PlaybookExecution.query.get_or_404(execution_id)
+    if execution.created_by != current_user.id:
+        flash('Execution not found or not accessible', 'error')
+        return redirect(url_for('web.playbook_executions'))
+    
+    return render_template('playbook_execution_detail.html', execution=execution)
+
+@bp.route('/playbooks/node-groups')
+@login_required
+def node_groups():
+    """Node groups management."""
+    groups = NodeGroup.query.filter_by(created_by=current_user.id).all()
+    return render_template('node_groups.html', groups=groups)
+
+@bp.route('/playbooks/node-groups/<int:group_id>')
+@login_required
+def node_group_detail(group_id):
+    """Node group detail page."""
+    group = NodeGroup.query.get_or_404(group_id)
+    if group.created_by != current_user.id:
+        flash('Node group not found or not accessible', 'error')
+        return redirect(url_for('web.node_groups'))
+    
+    return render_template('node_group_detail.html', group=group)

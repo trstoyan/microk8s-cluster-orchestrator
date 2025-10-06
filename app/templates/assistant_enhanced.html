@@ -1,0 +1,1083 @@
+{% extends "base.html" %}
+
+{% block title %}AI Assistant - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Chat Sessions Sidebar -->
+        <div class="col-lg-3" id="chatSessionsSidebar">
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-chat-dots"></i> Chat Sessions</h6>
+                    <button class="btn btn-outline-primary btn-sm" onclick="createNewChatSession()">
+                        <i class="bi bi-plus"></i> New
+                    </button>
+                </div>
+                <div class="card-body p-2" style="height: 300px; overflow-y: auto;" id="chatSessionsList">
+                    <div class="text-center text-muted">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Search -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-search"></i> Search Content</h6>
+                </div>
+                <div class="card-body p-2">
+                    <div class="input-group mb-2">
+                        <input type="text" class="form-control form-control-sm" id="contentSearchInput" placeholder="Search playbooks, docs...">
+                        <button class="btn btn-outline-primary btn-sm" onclick="searchContent()">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                    <div class="mb-2">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="searchPlaybooks" checked>
+                            <label class="form-check-label small" for="searchPlaybooks">Playbooks</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="searchDocs" checked>
+                            <label class="form-check-label small" for="searchDocs">Docs</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="searchLogs" checked>
+                            <label class="form-check-label small" for="searchLogs">Logs</label>
+                        </div>
+                    </div>
+                    <div id="searchResults" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+            </div>
+
+            <!-- Operation Logs -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-file-text"></i> Operation Logs</h6>
+                </div>
+                <div class="card-body p-2">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="loadOperationLogs()">
+                            <i class="bi bi-list"></i> View Recent Logs
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm" onclick="analyzeRecentErrors()">
+                            <i class="bi bi-exclamation-triangle"></i> Analyze Errors
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="showOperationLogSelector()">
+                            <i class="bi bi-check2-square"></i> Select Logs
+                        </button>
+                    </div>
+                    <div id="operationLogsList" class="mt-2" style="max-height: 150px; overflow-y: auto;"></div>
+                </div>
+            </div>
+
+            <!-- Log Output Analyzer -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-clipboard-data"></i> Log Output Analyzer</h6>
+                </div>
+                <div class="card-body p-2">
+                    <p class="small text-muted mb-2">Paste operation logs for AI analysis:</p>
+                    <textarea class="form-control form-control-sm mb-2" id="logOutputInput" rows="3" placeholder="Paste operation logs here..."></textarea>
+                    <div class="d-grid gap-1">
+                        <button class="btn btn-outline-primary btn-sm" onclick="analyzeLogOutput()">
+                            <i class="bi bi-search"></i> Analyze Logs
+                        </button>
+                        <button class="btn btn-outline-success btn-sm" onclick="explainLogOutput()">
+                            <i class="bi bi-question-circle"></i> Explain Logs
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="col-lg-9">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-chat-dots"></i> Chat Assistant
+                        <small class="ms-2">Powered by Local RAG System</small>
+                        <span id="currentSessionTitle" class="badge bg-info ms-2">Default Session</span>
+                    </h5>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-outline-light btn-sm" id="healthInsightsBtn">
+                            <i class="bi bi-heart-pulse"></i> Health Insights
+                        </button>
+                        <button type="button" class="btn btn-outline-light btn-sm" id="statisticsBtn">
+                            <i class="bi bi-graph-up"></i> Statistics
+                        </button>
+                        <button type="button" class="btn btn-outline-light btn-sm" onclick="indexContent()">
+                            <i class="bi bi-arrow-clockwise"></i> Reindex
+                        </button>
+                        <button type="button" class="btn btn-outline-light btn-sm" id="clearChatBtn">
+                            <i class="bi bi-trash"></i> Clear Chat
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <!-- Chat Messages -->
+                    <div id="chatMessages" class="p-3" style="height: 500px; overflow-y: auto; background-color: #f8f9fa;">
+                        <div class="text-center text-muted">
+                            <i class="bi bi-robot display-4"></i>
+                            <p class="mt-2">Welcome! I'm your AI assistant for MicroK8s cluster management.</p>
+                            <p>Ask me about:</p>
+                            <ul class="list-unstyled">
+                                <li><i class="bi bi-check-circle text-success"></i> Ansible troubleshooting</li>
+                                <li><i class="bi bi-check-circle text-success"></i> SSH configuration issues</li>
+                                <li><i class="bi bi-check-circle text-success"></i> MicroK8s installation problems</li>
+                                <li><i class="bi bi-check-circle text-success"></i> System health monitoring</li>
+                            </ul>
+                            <div class="mt-3">
+                                <button class="btn btn-outline-primary btn-sm me-2" onclick="askQuestion('What is the current health status of my cluster?')">
+                                    <i class="bi bi-heart-pulse"></i> Cluster Health
+                                </button>
+                                <button class="btn btn-outline-success btn-sm me-2" onclick="askQuestion('Show me recent errors and how to fix them')">
+                                    <i class="bi bi-exclamation-triangle"></i> Recent Errors
+                                </button>
+                                <button class="btn btn-outline-info btn-sm" onclick="askQuestion('What are the best practices for MicroK8s?')">
+                                    <i class="bi bi-book"></i> Best Practices
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chat Input -->
+                    <div class="border-top p-3 bg-white">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="messageInput" placeholder="Ask me anything about your cluster..." />
+                            <button class="btn btn-primary" id="sendBtn">
+                                <i class="bi bi-send"></i> Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ansible Output Analyzer Modal -->
+    <div class="modal fade" id="ansibleAnalyzerModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-code"></i> Ansible Output Analyzer
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">Paste Ansible output to get intelligent analysis and recommendations.</p>
+                    <textarea class="form-control mb-3" id="ansibleOutput" rows="8" placeholder="Paste Ansible output here..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="analyzeAnsibleBtn">
+                        <i class="bi bi-search"></i> Analyze Output
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Search Results Modal -->
+    <div class="modal fade" id="searchResultsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-search"></i> Search Results
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="searchResultsModalBody">
+                    <!-- Search results will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Operation Logs Modal -->
+    <div class="modal fade" id="operationLogsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-text"></i> Operation Logs
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="operationLogsModalBody">
+                    <!-- Operation logs will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Thinking indicator will be added directly to chat -->
+</div>
+
+<script>
+let chatHistory = [];
+let currentThinkingMessageId = null;
+let currentSessionId = 'default';
+let chatSessions = [];
+
+// Initialize the assistant
+document.addEventListener('DOMContentLoaded', function() {
+    loadSystemStatus();
+    loadChatSessions();
+    
+    // Chat input handlers
+    document.getElementById('sendBtn').addEventListener('click', sendMessage);
+    document.getElementById('messageInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    
+    // Ansible analyzer
+    document.getElementById('analyzeAnsibleBtn').addEventListener('click', analyzeAnsibleOutput);
+    
+    // Quick action buttons
+    document.getElementById('healthInsightsBtn').addEventListener('click', getHealthInsights);
+    document.getElementById('statisticsBtn').addEventListener('click', getStatistics);
+    document.getElementById('clearChatBtn').addEventListener('click', clearChat);
+    
+    // Content search
+    document.getElementById('contentSearchInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchContent();
+        }
+    });
+    
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (currentThinkingMessageId) {
+            hideThinkingIndicator();
+        }
+    });
+});
+
+function askQuestion(question) {
+    document.getElementById('messageInput').value = question;
+    sendMessage();
+}
+
+function showThinkingIndicator() {
+    // Hide any existing thinking indicator
+    hideThinkingIndicator();
+    
+    // Add thinking message to chat
+    const chatMessages = document.getElementById('chatMessages');
+    
+    // Remove welcome message if it exists
+    const welcomeMessage = chatMessages.querySelector('.text-center.text-muted');
+    if (welcomeMessage) {
+        welcomeMessage.remove();
+    }
+    
+    const thinkingDiv = document.createElement('div');
+    thinkingDiv.id = 'thinking-indicator';
+    thinkingDiv.className = 'mb-3 text-start thinking-message';
+    
+    thinkingDiv.innerHTML = `
+        <div class="d-inline-block p-3 rounded-3 bg-light border" style="max-width: 80%;">
+            <i class="bi bi-robot me-2"></i>
+            <div class="d-inline-flex align-items-center">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                    <span class="visually-hidden">Thinking...</span>
+                </div>
+                <span class="text-muted">AI is thinking...</span>
+            </div>
+        </div>
+    `;
+    
+    chatMessages.appendChild(thinkingDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Store the thinking message ID
+    currentThinkingMessageId = thinkingDiv.id;
+}
+
+function hideThinkingIndicator() {
+    if (currentThinkingMessageId) {
+        const thinkingElement = document.getElementById(currentThinkingMessageId);
+        if (thinkingElement) {
+            thinkingElement.remove();
+        }
+        currentThinkingMessageId = null;
+    }
+}
+
+function sendMessage() {
+    const messageInput = document.getElementById('messageInput');
+    const message = messageInput.value.trim();
+    
+    if (!message) return;
+    
+    // Clear input
+    messageInput.value = '';
+    
+    // Add user message to chat
+    addMessageToChat('user', message);
+    
+    // Show thinking indicator
+    showThinkingIndicator();
+    
+    // Send to backend
+    fetch('/api/assistant/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: message })
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Hide thinking indicator
+        hideThinkingIndicator();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Error: ${data.error}`, 'error');
+        } else {
+            const response = data.response;
+            const confidence = Math.round(data.confidence * 100);
+            const contextUsed = data.context_used;
+            
+            let assistantMessage = `
+                <div class="mb-2">
+                    <strong>🎯 Diagnosis:</strong> ${response.diagnosis || 'N/A'}
+                </div>
+                <div class="mb-2">
+                    <strong>🔧 Solution:</strong> ${response.solution || 'N/A'}
+                </div>
+                <div class="mb-2">
+                    <strong>📊 Confidence:</strong> ${response.confidence || 'N/A'}/10
+                </div>
+            `;
+            
+            if (contextUsed > 0) {
+                assistantMessage += `<div class="text-muted small">
+                    <i class="bi bi-info-circle"></i> Used ${contextUsed} relevant documents from knowledge base
+                </div>`;
+            }
+            
+            addMessageToChat('assistant', assistantMessage, 'success');
+        }
+    })
+    .catch(error => {
+        // Hide thinking indicator
+        hideThinkingIndicator();
+        addMessageToChat('assistant', `Network error: ${error.message}`, 'error');
+    });
+}
+
+function addMessageToChat(sender, message, type = 'info') {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    // Remove welcome message if it exists
+    const welcomeMessage = chatMessages.querySelector('.text-center.text-muted');
+    if (welcomeMessage) {
+        welcomeMessage.remove();
+    }
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `mb-3 ${sender === 'user' ? 'text-end' : 'text-start'}`;
+    
+    const messageClass = sender === 'user' ? 'bg-primary text-white' : 
+                        type === 'error' ? 'bg-danger text-white' :
+                        type === 'success' ? 'bg-success text-white' : 'bg-light';
+    
+    messageDiv.innerHTML = `
+        <div class="d-inline-block p-3 rounded-3 ${messageClass}" style="max-width: 80%;">
+            ${sender === 'assistant' ? '<i class="bi bi-robot me-2"></i>' : '<i class="bi bi-person me-2"></i>'}
+            ${sender === 'assistant' && typeof message === 'string' ? message.replace(/\n/g, '<br>') : message}
+        </div>
+        <div class="small text-muted mt-1">
+            ${new Date().toLocaleTimeString()}
+        </div>
+    `;
+    
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Store in chat history
+    chatHistory.push({
+        sender: sender,
+        message: message,
+        timestamp: new Date().toISOString(),
+        type: type
+    });
+}
+
+// Chat Session Management
+function loadChatSessions() {
+    fetch('/api/assistant/chat-sessions')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            chatSessions = data.sessions;
+            displayChatSessions();
+        } else {
+            console.error('Error loading chat sessions:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error loading chat sessions:', error);
+    });
+}
+
+function displayChatSessions() {
+    const container = document.getElementById('chatSessionsList');
+    
+    if (chatSessions.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted small">No chat sessions yet</div>';
+        return;
+    }
+    
+    let html = '';
+    chatSessions.forEach(session => {
+        const isActive = session.id === currentSessionId;
+        html += `
+            <div class="chat-session-item p-2 mb-1 rounded ${isActive ? 'bg-primary text-white' : 'bg-light'} cursor-pointer" 
+                 onclick="switchToSession('${session.id}')">
+                <div class="fw-bold small">${session.title}</div>
+                <div class="small ${isActive ? 'text-white-50' : 'text-muted'}">
+                    ${session.message_count} messages
+                </div>
+                <div class="small ${isActive ? 'text-white-50' : 'text-muted'}">
+                    ${new Date(session.updated_at * 1000).toLocaleDateString()}
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+function createNewChatSession() {
+    const title = prompt('Enter a title for the new chat session:');
+    if (!title) return;
+    
+    fetch('/api/assistant/chat-sessions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: title })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadChatSessions();
+            switchToSession(data.session.id);
+        } else {
+            alert('Error creating chat session: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Error creating chat session: ' + error.message);
+    });
+}
+
+function switchToSession(sessionId) {
+    if (sessionId === currentSessionId) return;
+    
+    currentSessionId = sessionId;
+    document.getElementById('currentSessionTitle').textContent = 
+        chatSessions.find(s => s.id === sessionId)?.title || 'Unknown Session';
+    
+    // Load messages for this session
+    loadSessionMessages(sessionId);
+    
+    // Update session list display
+    displayChatSessions();
+}
+
+function loadSessionMessages(sessionId) {
+    fetch(`/api/assistant/chat-sessions/${sessionId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Clear current chat
+            const chatMessages = document.getElementById('chatMessages');
+            chatMessages.innerHTML = '';
+            
+            // Add messages from session
+            data.messages.forEach(msg => {
+                addMessageToChat(msg.sender, msg.message, msg.metadata?.type || 'info');
+            });
+            
+            // If no messages, show welcome message
+            if (data.messages.length === 0) {
+                chatMessages.innerHTML = `
+                    <div class="text-center text-muted">
+                        <i class="bi bi-robot display-4"></i>
+                        <p class="mt-2">New chat session started!</p>
+                    </div>
+                `;
+            }
+        } else {
+            console.error('Error loading session messages:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error loading session messages:', error);
+    });
+}
+
+// Content Search
+function searchContent() {
+    const query = document.getElementById('contentSearchInput').value.trim();
+    if (!query) return;
+    
+    const contentTypes = [];
+    if (document.getElementById('searchPlaybooks').checked) contentTypes.push('playbook');
+    if (document.getElementById('searchDocs').checked) contentTypes.push('documentation');
+    if (document.getElementById('searchLogs').checked) contentTypes.push('operation_log');
+    
+    fetch('/api/assistant/search-content', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            query: query,
+            content_types: contentTypes,
+            limit: 20
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            displaySearchResults(data.results, query);
+        } else {
+            addMessageToChat('assistant', `Search error: ${data.error}`, 'error');
+        }
+    })
+    .catch(error => {
+        addMessageToChat('assistant', `Search error: ${error.message}`, 'error');
+    });
+}
+
+function displaySearchResults(results, query) {
+    const container = document.getElementById('searchResults');
+    
+    if (results.length === 0) {
+        container.innerHTML = '<div class="small text-muted">No results found</div>';
+        return;
+    }
+    
+    let html = `<div class="small text-muted mb-2">Found ${results.length} results for "${query}":</div>`;
+    
+    results.slice(0, 5).forEach(result => {
+        const typeIcon = result.content_type === 'playbook' ? 'bi-file-code' :
+                        result.content_type === 'documentation' ? 'bi-file-text' : 'bi-file-earmark-text';
+        
+        html += `
+            <div class="border rounded p-2 mb-2 small">
+                <div class="fw-bold">
+                    <i class="bi ${typeIcon}"></i> ${result.title}
+                </div>
+                <div class="text-muted">${result.content_type}</div>
+                <div class="mt-1">${result.content.substring(0, 100)}...</div>
+            </div>
+        `;
+    });
+    
+    if (results.length > 5) {
+        html += `<div class="small text-muted">... and ${results.length - 5} more results</div>`;
+    }
+    
+    container.innerHTML = html;
+}
+
+// Operation Logs
+function loadOperationLogs() {
+    fetch('/api/assistant/operation-logs?limit=10')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            displayOperationLogs(data.operations);
+        } else {
+            console.error('Error loading operation logs:', data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error loading operation logs:', error);
+    });
+}
+
+function displayOperationLogs(operations) {
+    const container = document.getElementById('operationLogsList');
+    
+    if (operations.length === 0) {
+        container.innerHTML = '<div class="small text-muted">No operation logs found</div>';
+        return;
+    }
+    
+    let html = '';
+    operations.slice(0, 3).forEach(op => {
+        const statusClass = op.status === 'completed' ? 'text-success' : 
+                           op.status === 'failed' ? 'text-danger' : 'text-warning';
+        
+        html += `
+            <div class="small mb-2">
+                <div class="fw-bold">${op.operation_type}</div>
+                <div class="${statusClass}">${op.status}</div>
+                <div class="text-muted">${new Date(op.created_at).toLocaleDateString()}</div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+function analyzeRecentErrors() {
+    fetch('/api/assistant/operation-logs?status=failed&limit=5')
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.operations.length > 0) {
+            const errorOutputs = data.operations.map(op => op.full_output).join('\n\n---\n\n');
+            askQuestion(`Analyze these recent error logs and provide solutions:\n\n${errorOutputs}`);
+        } else {
+            addMessageToChat('assistant', 'No recent errors found to analyze.', 'info');
+        }
+    })
+    .catch(error => {
+        addMessageToChat('assistant', `Error loading recent errors: ${error.message}`, 'error');
+    });
+}
+
+// Content Indexing
+function indexContent() {
+    // Show thinking indicator
+    showThinkingIndicator();
+    
+    fetch('/api/assistant/index-content', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ force_reindex: true })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideThinkingIndicator();
+        
+        if (data.success) {
+            const results = data.indexing_results;
+            addMessageToChat('assistant', `
+                <div class="mb-2">
+                    <strong>📚 Content Indexing Complete!</strong>
+                </div>
+                <div class="mb-2">
+                    <strong>📄 Playbooks:</strong> ${results.playbooks} indexed
+                </div>
+                <div class="mb-2">
+                    <strong>📖 Documentation:</strong> ${results.documentation} indexed
+                </div>
+                <div class="mb-2">
+                    <strong>📝 Operation Logs:</strong> ${results.operation_logs} indexed
+                </div>
+                <div class="mb-2">
+                    <strong>⚠️ Errors:</strong> ${results.errors.length}
+                </div>
+            `, 'success');
+        } else {
+            addMessageToChat('assistant', `Indexing error: ${data.error}`, 'error');
+        }
+    })
+    .catch(error => {
+        hideThinkingIndicator();
+        addMessageToChat('assistant', `Indexing error: ${error.message}`, 'error');
+    });
+}
+
+// Log Output Analysis Functions
+function analyzeLogOutput() {
+    const logOutput = document.getElementById('logOutputInput').value.trim();
+    
+    if (!logOutput) {
+        alert('Please paste operation logs to analyze.');
+        return;
+    }
+    
+    // Show thinking indicator
+    showThinkingIndicator();
+    
+    fetch('/api/assistant/analyze-ansible', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ output: logOutput, playbook: 'operation_log' })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideThinkingIndicator();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Log Analysis Error: ${data.error}`, 'error');
+        } else {
+            const analysis = data;
+            let analysisMessage = `
+                <div class="mb-2">
+                    <strong>🔍 Operation Log Analysis</strong>
+                </div>
+                <div class="mb-2">
+                    <strong>✅ Success:</strong> ${analysis.success ? 'Yes' : 'No'}
+                </div>
+            `;
+            
+            if (analysis.recommendations && analysis.recommendations.length > 0) {
+                analysisMessage += '<div class="mb-2"><strong>💡 Recommendations:</strong><ul>';
+                analysis.recommendations.forEach(rec => {
+                    analysisMessage += `<li>${rec}</li>`;
+                });
+                analysisMessage += '</ul></div>';
+            }
+            
+            if (analysis.errors && analysis.errors.length > 0) {
+                analysisMessage += '<div class="mb-2"><strong>❌ Errors Found:</strong><ul>';
+                analysis.errors.forEach(error => {
+                    analysisMessage += `<li>${error}</li>`;
+                });
+                analysisMessage += '</ul></div>';
+            }
+            
+            addMessageToChat('assistant', analysisMessage, 'info');
+        }
+    })
+    .catch(error => {
+        hideThinkingIndicator();
+        addMessageToChat('assistant', `Log Analysis Error: ${error.message}`, 'error');
+    });
+}
+
+function explainLogOutput() {
+    const logOutput = document.getElementById('logOutputInput').value.trim();
+    
+    if (!logOutput) {
+        alert('Please paste operation logs to explain.');
+        return;
+    }
+    
+    // Show thinking indicator
+    showThinkingIndicator();
+    
+    // Send as a chat message asking for explanation
+    fetch('/api/assistant/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            message: `Please explain what happened in these operation logs and what they mean:\n\n${logOutput}` 
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideThinkingIndicator();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Explanation Error: ${data.error}`, 'error');
+        } else {
+            const response = data.response;
+            const confidence = Math.round(data.confidence * 100);
+            
+            let explanationMessage = `
+                <div class="mb-2">
+                    <strong>📖 Log Explanation</strong>
+                </div>
+                <div class="mb-2">
+                    <strong>🔍 Analysis:</strong> ${response.diagnosis || 'N/A'}
+                </div>
+                <div class="mb-2">
+                    <strong>💡 What it means:</strong> ${response.solution || 'N/A'}
+                </div>
+                <div class="mb-2">
+                    <strong>📊 Confidence:</strong> ${response.confidence || 'N/A'}/10
+                </div>
+            `;
+            
+            addMessageToChat('assistant', explanationMessage, 'success');
+        }
+    })
+    .catch(error => {
+        hideThinkingIndicator();
+        addMessageToChat('assistant', `Explanation Error: ${error.message}`, 'error');
+    });
+}
+
+function showOperationLogSelector() {
+    // This would open a modal to select specific operation logs
+    // For now, we'll load recent logs and let user select from them
+    loadOperationLogs();
+    addMessageToChat('assistant', 'Use the operation logs listed in the sidebar. Click on any log to analyze it, or paste logs directly into the Log Output Analyzer.', 'info');
+}
+
+// Existing functions (analyzeAnsibleOutput, getHealthInsights, getStatistics, loadSystemStatus, clearChat)
+function analyzeAnsibleOutput() {
+    const ansibleOutput = document.getElementById('ansibleOutput').value.trim();
+    
+    if (!ansibleOutput) {
+        alert('Please enter Ansible output to analyze.');
+        return;
+    }
+    
+    // Show thinking indicator
+    showThinkingIndicator();
+    
+    fetch('/api/assistant/analyze-ansible', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ output: ansibleOutput })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideThinkingIndicator();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Analysis Error: ${data.error}`, 'error');
+        } else {
+            const analysis = data;
+            let analysisMessage = `
+                <div class="mb-2">
+                    <strong>🔍 Ansible Output Analysis</strong>
+                </div>
+                <div class="mb-2">
+                    <strong>✅ Success:</strong> ${analysis.success ? 'Yes' : 'No'}
+                </div>
+            `;
+            
+            if (analysis.recommendations && analysis.recommendations.length > 0) {
+                analysisMessage += '<div class="mb-2"><strong>💡 Recommendations:</strong><ul>';
+                analysis.recommendations.forEach(rec => {
+                    analysisMessage += `<li>${rec}</li>`;
+                });
+                analysisMessage += '</ul></div>';
+            }
+            
+            if (analysis.errors && analysis.errors.length > 0) {
+                analysisMessage += '<div class="mb-2"><strong>❌ Errors Found:</strong><ul>';
+                analysis.errors.forEach(error => {
+                    analysisMessage += `<li>${error}</li>`;
+                });
+                analysisMessage += '</ul></div>';
+            }
+            
+            addMessageToChat('assistant', analysisMessage, 'info');
+        }
+    })
+    .catch(error => {
+        hideThinkingIndicator();
+        addMessageToChat('assistant', `Analysis Error: ${error.message}`, 'error');
+    });
+}
+
+function getHealthInsights() {
+    // Show thinking indicator
+    showThinkingIndicator();
+    
+    fetch('/api/assistant/health-insights')
+    .then(response => response.json())
+    .then(data => {
+        hideThinkingIndicator();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Health Insights Error: ${data.error}`, 'error');
+        } else {
+            const insights = data.insights || [];
+            const confidence = Math.round(data.confidence * 100);
+            
+            let insightsMessage = `
+                <div class="mb-2">
+                    <strong>💡 Health Insights (${confidence}% confidence)</strong>
+                </div>
+            `;
+            
+            if (insights.length > 0) {
+                insightsMessage += '<ul>';
+                insights.forEach(insight => {
+                    insightsMessage += `<li>${insight}</li>`;
+                });
+                insightsMessage += '</ul>';
+            } else {
+                insightsMessage += '<div class="text-muted">No specific insights available at this time.</div>';
+            }
+            
+            addMessageToChat('assistant', insightsMessage, 'success');
+        }
+    })
+    .catch(error => {
+        hideThinkingIndicator();
+        addMessageToChat('assistant', `Health Insights Error: ${error.message}`, 'error');
+    });
+}
+
+function getStatistics() {
+    // Show thinking indicator
+    showThinkingIndicator();
+    
+    fetch('/api/assistant/statistics')
+    .then(response => response.json())
+    .then(data => {
+        hideThinkingIndicator();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Statistics Error: ${data.error}`, 'error');
+        } else {
+            let statsMessage = `
+                <div class="mb-2">
+                    <strong>📊 AI Assistant Statistics</strong>
+                </div>
+                <div class="mb-2">
+                    <strong>📄 Total Documents:</strong> ${data.total_documents || 0}
+                </div>
+                <div class="mb-2">
+                    <strong>📝 Vocabulary Size:</strong> ${data.vocabulary_size || 0}
+                </div>
+                <div class="mb-2">
+                    <strong>🔄 Recent Activity:</strong> ${data.recent_documents_7d || 0} documents in last 7 days
+                </div>
+                <div class="mb-2">
+                    <strong>🏠 System Type:</strong> ${data.system_type || 'unknown'}
+                </div>
+                <div class="mb-2">
+                    <strong>🌐 External Dependencies:</strong> ${data.external_dependencies || 0}
+                </div>
+            `;
+            
+            if (data.documents_by_type) {
+                statsMessage += '<div class="mb-2"><strong>📋 Documents by Type:</strong><ul>';
+                Object.entries(data.documents_by_type).forEach(([type, count]) => {
+                    statsMessage += `<li>${type}: ${count}</li>`;
+                });
+                statsMessage += '</ul></div>';
+            }
+            
+            addMessageToChat('assistant', statsMessage, 'info');
+        }
+    })
+    .catch(error => {
+        hideThinkingIndicator();
+        addMessageToChat('assistant', `Statistics Error: ${error.message}`, 'error');
+    });
+}
+
+function loadSystemStatus() {
+    fetch('/api/assistant/statistics')
+    .then(response => response.json())
+    .then(data => {
+        const statusDiv = document.getElementById('systemStatus');
+        
+        if (data.error) {
+            statusDiv.innerHTML = `
+                <div class="text-danger">
+                    <i class="bi bi-exclamation-triangle"></i> Error loading status
+                </div>
+            `;
+        } else {
+            statusDiv.innerHTML = `
+                <div class="mb-2">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>RAG System:</strong> Active
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-database text-info"></i>
+                    <strong>Documents:</strong> ${data.total_documents || 0}
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-lightning text-warning"></i>
+                    <strong>Recent Activity:</strong> ${data.recent_documents_7d || 0} in 7 days
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-shield-check text-success"></i>
+                    <strong>Dependencies:</strong> ${data.external_dependencies || 0} external
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('systemStatus').innerHTML = `
+            <div class="text-danger">
+                <i class="bi bi-exclamation-triangle"></i> Error loading status
+            </div>
+        `;
+    });
+}
+
+function clearChat() {
+    if (confirm('Are you sure you want to clear the chat history?')) {
+        document.getElementById('chatMessages').innerHTML = `
+            <div class="text-center text-muted">
+                <i class="bi bi-robot display-4"></i>
+                <p class="mt-2">Chat cleared. Ask me anything!</p>
+            </div>
+        `;
+        chatHistory = [];
+    }
+}
+</script>
+
+<style>
+.chat-session-item {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.chat-session-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.thinking-message {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.7; }
+}
+
+.thinking-message .spinner-border {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Smooth transitions for chat messages */
+.mb-3 {
+    transition: all 0.3s ease;
+}
+
+/* Better styling for log output textarea */
+#logOutputInput {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    resize: vertical;
+}
+</style>
+{% endblock %}

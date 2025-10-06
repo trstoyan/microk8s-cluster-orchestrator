@@ -27,6 +27,11 @@ help:
 	@echo "  validate-models  Validate model-database consistency"
 	@echo "  health-check     Run comprehensive system health check"
 	@echo ""
+	@echo "Playbook Commands:"
+	@echo "  playbook-templates  List available playbook templates"
+	@echo "  playbook-init      Initialize system templates"
+	@echo "  playbook-executions List recent executions"
+	@echo ""
 	@echo "Docker Commands:"
 	@echo "  docker-build     Build Docker image"
 	@echo "  docker-run       Run with Docker Compose"
@@ -182,6 +187,19 @@ install-full: install-deps create-dirs install
 	@echo "1. Run 'make init' to initialize the database"
 	@echo "2. Run 'make run' to start the web interface"
 	@echo "3. Access http://localhost:5000 in your browser"
+
+# Playbook commands
+playbook-templates:
+	@echo "📋 Listing playbook templates..."
+	.venv/bin/python cli.py playbook list-templates
+
+playbook-init:
+	@echo "🔧 Initializing system templates..."
+	.venv/bin/python cli.py playbook init-templates
+
+playbook-executions:
+	@echo "📊 Listing recent executions..."
+	.venv/bin/python cli.py playbook list-executions
 
 # Show help for specific command
 help-%:

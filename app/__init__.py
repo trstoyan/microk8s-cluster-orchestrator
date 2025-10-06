@@ -2,6 +2,8 @@
 
 from flask import Flask
 from flask_login import LoginManager
+from datetime import datetime
+import json
 from .models.database import init_database
 from .utils.config import config
 
@@ -22,6 +24,33 @@ def create_app():
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Please log in to access this page.'
     login_manager.login_message_category = 'info'
+    
+    # Add template filters
+    @app.template_filter('datetimeformat')
+    def datetimeformat_filter(value, format='%Y-%m-%d %H:%M:%S'):
+        """Format datetime objects for display in templates."""
+        if value is None:
+            return ''
+        if isinstance(value, str):
+            try:
+                value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                return value
+        if isinstance(value, datetime):
+            return value.strftime(format)
+        return str(value)
+    
+    @app.template_filter('from_json')
+    def from_json_filter(value):
+        """Parse JSON string to Python object."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value
+        return value
     
     # Add template context processors
     @app.context_processor

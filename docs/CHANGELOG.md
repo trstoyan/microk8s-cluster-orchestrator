@@ -8,6 +8,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Playbook Editor**: Comprehensive visual playbook creation and management system
+  - **Visual Drag-and-Drop Interface**: Build Ansible playbooks without YAML knowledge
+  - **Template Library**: Pre-built templates for common MicroK8s operations
+  - **Target Selection System**: Flexible node targeting (all nodes, clusters, groups, individual)
+  - **Real-time YAML Preview**: Live generation of Ansible YAML from visual components
+  - **Execution Engine**: Background Ansible execution with real-time monitoring
+  - **Template Management**: System and user templates with versioning and usage tracking
+  - **Custom Playbooks**: User-created playbooks with visual configuration support
+  - **Node Groups**: Custom node groupings for flexible targeting
+  - **Execution History**: Complete audit trail with status tracking and output capture
+  - **CLI Integration**: Full command-line interface for playbook management
+  - **Web Interface**: Complete web-based playbook editor with modern UI
+  - **API Endpoints**: RESTful API for all playbook operations
+  - **System Templates**: Pre-built templates for MicroK8s installation, addon management, and health checks
+  - **Real-time Monitoring**: Live execution progress with output streaming
+  - **Error Handling**: Comprehensive error capture and reporting
+  - **Security**: User isolation and permission-based access control
+
+### Fixed
+- **SQLAlchemy Model Conflicts**: Resolved database schema conflicts between CLI and web interface models
+- **Wake-on-LAN Errors**: Fixed `'Node' object has no attribute 'wol_description'` error
+- **SSH Key Detection**: Improved SSH key scanning to properly detect existing keys
+- **Database Schema Issues**: Added missing database columns and improved model compatibility
+- **Web Interface Errors**: Fixed cluster page errors and improved error handling
+
+### Enhanced
+- **SSH Key Management**: Added manual SSH key selection from existing keys
+- **SSH Key Scanning**: Enhanced to show all available keys with fingerprints and selection options
+- **Web Interface**: Improved SSH key management UI with interactive key selection
+- **Database Management**: Added new CLI command `python cli.py database path` to show database information
+- **Error Handling**: Better error messages and recovery mechanisms throughout the application
+
+### Added
+- **AI Assistant with Local RAG System**: Comprehensive AI-powered troubleshooting and analysis
+  - **Local-Only Operation**: Runs entirely on local resources, no external dependencies
+  - **Retrieval-Augmented Generation (RAG)**: Learns from Ansible outputs and operation logs
+  - **Multiple Chat Sessions**: Separate conversations for different topics and issues
+  - **Searchable Content**: Index and search through playbooks, documentation, and operation logs
+  - **Operation Log Analysis**: Intelligent analysis of failed operations with recommendations
+  - **Ansible Output Analysis**: Parse and explain complex Ansible execution results
+  - **Health Insights**: AI-powered system health monitoring and recommendations
+  - **Knowledge Base**: Automatically builds knowledge from successful and failed operations
+  - **Privacy-First**: Configurable data retention and anonymization
+  - **Raspberry Pi 5 Optimized**: Designed for resource-constrained environments
+  - **Content Search Service**: Indexes and searches playbooks, docs, and operation logs
+  - **Chat Session Manager**: Manages multiple chat sessions with persistent storage
+  - **Enhanced Web Interface**: Integrated AI chat interface with sidebar navigation
+  - **Configuration Management**: Comprehensive AI Assistant configuration options
+  - **Local LLM Integration**: Support for Ollama and other local LLM providers
+
 - **SSH Key Management System**: Comprehensive SSH key management with automatic generation
   - Automatic generation of unique RSA 2048-bit SSH key pairs for each node
   - Secure storage of private keys with proper file permissions (600)
@@ -19,15 +69,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - CLI commands for SSH key management (`test-ssh`, `ssh-status`, `regenerate-ssh-key`)
 
 ### Enhanced
+- **Web Interface**: Enhanced with AI Assistant and improved user experience
+  - **AI Chat Interface**: Integrated chat interface with thinking indicator in chat flow
+  - **Sidebar Navigation**: Organized sidebar with chat sessions, content search, and operation logs
+  - **Modal Improvements**: Replaced modal popups with inline chat indicators
+  - **Enhanced Templates**: Updated assistant template with multiple chat sessions and log analysis
+  - **SSH Key Management**: New SSH setup page for each node with detailed instructions
+  - **SSH Key Status**: SSH key status column in the nodes list
+
+- **System Management**: Enhanced with timezone configuration and improved restart functionality
+  - **Timezone Setup**: Configure system timezone with timezone selection interface
+  - **Robust Restart**: Improved system restart handling for different deployment scenarios
+  - **Prerequisites Check**: Comprehensive system requirements validation
+  - **Log Viewer**: Multi-log viewer with clear and refresh capabilities
+
+- **Configuration System**: Enhanced with AI Assistant configuration options
+  - **AI Configuration**: Comprehensive AI Assistant settings in configuration files
+  - **Feature Toggles**: Enable/disable AI features and content types
+  - **Privacy Controls**: Configurable data retention and anonymization settings
+  - **Performance Settings**: Configurable timeouts, caching, and resource limits
+
 - **Node Addition Workflow**: Streamlined node addition with automatic SSH key generation
   - Removed manual SSH key path requirement
   - Automatic redirect to SSH setup page after node creation
   - Clear setup instructions provided to users
   - Integration with existing node management workflow
-
-- **Web Interface**: Enhanced with SSH key management features
-  - New SSH setup page for each node with detailed instructions
-  - SSH key status column in the nodes list
   - Copy-to-clipboard functionality for public keys
   - Connection testing with real-time feedback
   - Key regeneration with confirmation dialogs
@@ -38,14 +104,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `node regenerate-ssh-key <node_id>` - Regenerate SSH key for a node
   - Enhanced `node add` command with automatic SSH key generation
 
-- **Database Schema**: Added SSH key management fields to nodes table
-  - `ssh_key_generated` - Boolean indicating if SSH key pair has been generated
-  - `ssh_public_key` - Text field containing the public key content
-  - `ssh_key_fingerprint` - String field for key fingerprint identification
-  - `ssh_key_status` - String field for key status tracking
-  - `ssh_connection_tested` - Boolean indicating if SSH connection has been tested
-  - `ssh_connection_test_result` - Text field for last SSH connection test result
-  - `ssh_setup_instructions` - Text field for setup instructions
+- **AI Assistant Services**: New service modules for AI functionality
+  - `ContentSearchService`: Indexes and searches playbooks, docs, and operation logs
+  - `ChatSessionManager`: Manages multiple chat sessions with SQLite storage
+  - `LocalRAGSystem`: Core RAG system with TF-IDF similarity and pattern matching
+  - `AIConfigManager`: Centralized AI configuration management
+
+- **Database Schema**: Enhanced with AI Assistant and SSH key management
+  - **SSH Key Fields**: Added to nodes table for SSH key management
+    - `ssh_key_generated` - Boolean indicating if SSH key pair has been generated
+    - `ssh_public_key` - Text field containing the public key content
+    - `ssh_key_fingerprint` - String field for key fingerprint identification
+    - `ssh_key_status` - String field for key status tracking
+    - `ssh_connection_tested` - Boolean indicating if SSH connection has been tested
+    - `ssh_connection_test_result` - Text field for last SSH connection test result
+    - `ssh_setup_instructions` - Text field for setup instructions
+  - **AI Knowledge Base**: New SQLite databases for AI functionality
+    - Content index database for searchable content
+    - Chat sessions database for multiple conversations
+    - Messages database for chat history
+
+- **API Endpoints**: New REST endpoints for AI Assistant functionality
+  - `/api/assistant/chat`: Chat endpoint for AI conversations
+  - `/api/assistant/search-content`: Search playbooks, docs, and logs
+  - `/api/assistant/index-content`: Index searchable content
+  - `/api/assistant/chat-sessions`: Manage multiple chat sessions
+  - `/api/assistant/operation-logs`: Retrieve and analyze operation logs
+  - `/api/assistant/health-insights`: Get AI-powered health insights
+  - `/api/assistant/statistics`: Get AI system statistics
+
+- **Configuration Files**: Enhanced with AI Assistant settings
+  - Added `ai_assistant` section to production configuration
+  - Support for local LLM integration (Ollama, OpenAI Local)
+  - Configurable content search and privacy settings
+  - Performance and timeout configurations
 
 - **Ansible Integration**: Enhanced inventory generation with SSH key validation
   - SSH connection validation before running playbooks
@@ -62,6 +154,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Audit trail of SSH connection tests
 
 ### Documentation
+- **AI Assistant Documentation**: Comprehensive AI Assistant documentation
+  - Complete AI Assistant guide (`docs/AI_ASSISTANT_GUIDE.md`)
+  - Updated documentation index with AI Assistant section
+  - Detailed feature descriptions and usage examples
+  - Configuration and troubleshooting guides
+
 - **Comprehensive Documentation**: Added detailed SSH key management documentation
   - Complete SSH key management guide (`docs/SSH_KEY_MANAGEMENT.md`)
   - Updated README with SSH key management features

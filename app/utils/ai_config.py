@@ -102,6 +102,84 @@ class AIConfigManager:
             'auto_cleanup': self.config.get('ai_assistant.privacy.auto_cleanup', True),
             'cleanup_interval_days': self.config.get('ai_assistant.privacy.cleanup_interval_days', 30)
         }
+
+    def is_local_llm_enabled(self) -> bool:
+        """Check if local LLM integration is enabled."""
+        if not self.is_ai_assistant_enabled():
+            return False
+        return self.config.get('ai_assistant.local_llm.enabled', False)
+
+    def get_local_llm_config(self) -> Dict[str, Any]:
+        """Get local LLM configuration."""
+        return {
+            'enabled': self.is_local_llm_enabled(),
+            'provider': self.config.get('ai_assistant.local_llm.provider', 'ollama'),
+            'base_url': self.config.get('ai_assistant.local_llm.base_url', 'http://localhost:11434'),
+            'api_key': self.config.get('ai_assistant.local_llm.api_key', ''),
+            'model': self.config.get('ai_assistant.local_llm.model', 'llama2'),
+            'timeout': self.config.get('ai_assistant.local_llm.timeout', 60),
+            'max_tokens': self.config.get('ai_assistant.local_llm.max_tokens', 2048),
+            'temperature': self.config.get('ai_assistant.local_llm.temperature', 0.7),
+            'available_models': self.config.get('ai_assistant.local_llm.available_models', [])
+        }
+
+    def get_local_llm_provider(self) -> str:
+        """Get the local LLM provider."""
+        return self.config.get('ai_assistant.local_llm.provider', 'ollama')
+
+    def get_local_llm_base_url(self) -> str:
+        """Get the local LLM base URL."""
+        return self.config.get('ai_assistant.local_llm.base_url', 'http://localhost:11434')
+
+    def get_local_llm_model(self) -> str:
+        """Get the default local LLM model."""
+        return self.config.get('ai_assistant.local_llm.model', 'llama2')
+
+    def get_local_llm_timeout(self) -> int:
+        """Get the local LLM request timeout."""
+        return self.config.get('ai_assistant.local_llm.timeout', 60)
+
+    def get_local_llm_max_tokens(self) -> int:
+        """Get the maximum tokens for local LLM responses."""
+        return self.config.get('ai_assistant.local_llm.max_tokens', 2048)
+
+    def get_local_llm_temperature(self) -> float:
+        """Get the temperature setting for local LLM responses."""
+        return self.config.get('ai_assistant.local_llm.temperature', 0.7)
+
+    def should_allow_model_selection(self) -> bool:
+        """Check if users should be allowed to select different models."""
+        if not self.is_web_interface_enabled():
+            return False
+        return self.config.get('ai_assistant.web_interface.allow_model_selection', False)
+
+    def should_allow_multiple_chats(self) -> bool:
+        """Check if multiple chat sessions should be allowed."""
+        if not self.is_web_interface_enabled():
+            return False
+        return self.config.get('ai_assistant.web_interface.allow_multiple_chats', False)
+
+    def should_allow_operation_log_analysis(self) -> bool:
+        """Check if operation log analysis should be allowed."""
+        if not self.is_web_interface_enabled():
+            return False
+        return self.config.get('ai_assistant.web_interface.allow_operation_log_analysis', False)
+
+    def is_searchable_content_enabled(self) -> bool:
+        """Check if searchable content features are enabled."""
+        if not self.is_ai_assistant_enabled():
+            return False
+        return self.config.get('ai_assistant.searchable_content.enabled', False)
+
+    def get_searchable_content_config(self) -> Dict[str, Any]:
+        """Get searchable content configuration."""
+        return {
+            'enabled': self.is_searchable_content_enabled(),
+            'include_playbooks': self.config.get('ai_assistant.searchable_content.include_playbooks', True),
+            'include_documentation': self.config.get('ai_assistant.searchable_content.include_documentation', True),
+            'include_operation_logs': self.config.get('ai_assistant.searchable_content.include_operation_logs', True),
+            'max_search_results': self.config.get('ai_assistant.searchable_content.max_search_results', 50)
+        }
     
     def get_full_config(self) -> Dict[str, Any]:
         """Get full AI assistant configuration."""
@@ -111,12 +189,17 @@ class AIConfigManager:
                 'enabled': self.is_rag_system_enabled(),
                 **self.get_rag_config()
             },
+            'local_llm': self.get_local_llm_config(),
             'web_interface': {
                 'enabled': self.is_web_interface_enabled(),
                 'show_in_nav': self.should_show_in_navigation(),
                 'allow_ansible_analysis': self.is_ansible_analysis_enabled(),
-                'allow_health_insights': self.is_health_insights_enabled()
+                'allow_health_insights': self.is_health_insights_enabled(),
+                'allow_model_selection': self.should_allow_model_selection(),
+                'allow_multiple_chats': self.should_allow_multiple_chats(),
+                'allow_operation_log_analysis': self.should_allow_operation_log_analysis()
             },
+            'searchable_content': self.get_searchable_content_config(),
             'performance': self.get_performance_config(),
             'privacy': self.get_privacy_config()
         }

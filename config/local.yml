@@ -1,0 +1,107 @@
+# MicroK8s Cluster Orchestrator - Local Development Configuration
+# This configuration is used for local development and testing
+
+# Database configuration
+database:
+  url: "sqlite:///data/orchestrator_dev.db"
+  echo: true
+
+# Logging configuration
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/orchestrator_dev.log"
+  max_size: "10MB"
+  backup_count: 3
+
+# AI Assistant (RAG System) settings
+ai_assistant:
+  enabled: true
+  rag_system:
+    enabled: true
+    data_dir: "data/local_rag_dev"
+    max_documents: 1000
+    max_document_size: 10000
+    retention_days: 30
+    min_similarity: 0.1
+    auto_learn: true
+  local_llm:
+    enabled: false
+    provider: "ollama"
+    base_url: "http://localhost:11434"
+    api_key: ""
+    model: "llama2"
+    timeout: 30
+    max_tokens: 1024
+    temperature: 0.7
+    available_models: []
+  web_interface:
+    enabled: true
+    show_in_nav: true
+    allow_ansible_analysis: true
+    allow_health_insights: true
+    allow_model_selection: false
+    allow_multiple_chats: true
+    allow_operation_log_analysis: true
+  searchable_content:
+    enabled: true
+    include_playbooks: true
+    include_documentation: true
+    include_operation_logs: true
+    max_search_results: 20
+  performance:
+    max_concurrent_requests: 3
+    response_timeout: 15
+    cache_responses: false
+    cache_duration: 60
+  privacy:
+    store_chat_history: true
+    store_ansible_outputs: true
+    anonymize_data: false
+    auto_cleanup: true
+    cleanup_interval_days: 7
+
+# SSH configuration
+ssh:
+  default_user: "ubuntu"
+  default_port: 22
+  key_size: 2048
+  key_type: "rsa"
+
+# Ansible configuration
+ansible:
+  inventory_file: "inventory_dev.ini"
+  playbook_dir: "ansible/playbooks"
+  log_level: "DEBUG"
+  timeout: 180
+
+# Web interface configuration
+web:
+  host: "127.0.0.1"
+  port: 5000
+  debug: true
+  secret_key: "dev-secret-key-change-in-production"
+
+# Cluster configuration
+cluster:
+  default_namespace: "default"
+  enable_addons: true
+  addons:
+    - "dns"
+    - "storage"
+
+# Hardware monitoring
+hardware:
+  enabled: true
+  collection_interval: 60  # seconds
+  retention_days: 7
+
+# UPS power management
+ups:
+  enabled: false
+
+# Wake-on-LAN
+wake_on_lan:
+  enabled: true
+  default_port: 9
+  timeout: 3

@@ -7,10 +7,13 @@ The MicroK8s Cluster Orchestrator now includes a comprehensive SSH key managemen
 The SSH key management system provides:
 
 - **Automatic SSH key generation** for each node
+- **Manual SSH key selection** from existing keys
+- **SSH key scanning and detection** of available keys
 - **Unique key pairs** per node for enhanced security
 - **Step-by-step setup instructions** for users
 - **Connection testing** to verify SSH access
 - **Key regeneration** capabilities
+- **Support for existing SSH key infrastructure**
 - **Integration with Ansible** for cluster operations
 
 ## How It Works
@@ -19,10 +22,19 @@ The SSH key management system provides:
 
 When adding a new node, the system:
 
-1. **Generates a unique SSH key pair** (RSA 2048-bit)
+1. **Generates a unique SSH key pair** (RSA 2048-bit) OR allows manual key selection
 2. **Stores the private key** securely on the orchestrator
 3. **Provides setup instructions** for adding the public key to the target node
 4. **Tracks the setup status** through various stages
+
+### 1.1 Manual SSH Key Selection
+
+For nodes with existing SSH keys, you can:
+
+1. **Scan for available keys** in the `ssh_keys/` directory
+2. **Select from existing keys** instead of generating new ones
+3. **View key information** including fingerprints and current usage
+4. **Switch between keys** as needed for different nodes
 
 ### 2. SSH Key Lifecycle
 
@@ -65,6 +77,17 @@ The SSH setup page provides:
 - **Copyable public key** for easy setup
 - **Step-by-step instructions** for the target node
 - **Connection testing** functionality
+
+#### SSH Key Scanning and Selection
+
+1. **Check SSH Keys**: Click the "Check SSH Keys" button for any node
+2. **View Available Keys**: The system will show all SSH keys found in the `ssh_keys/` directory
+3. **Key Information**: Each key shows:
+   - Key name and fingerprint
+   - Current usage status
+   - File size and location
+4. **Manual Selection**: If multiple keys are available, you can choose which one to use
+5. **Key Switching**: Easily switch between different SSH keys for the same node
 - **Key regeneration** options
 
 #### Node Management
