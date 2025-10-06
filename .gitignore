@@ -173,8 +173,7 @@ temp/
 tmp/
 
 # SSH Keys (keep structure but ignore actual keys)
-ssh_keys/*.pem
-ssh_keys/*.key
+ssh_keys/
 !ssh_keys/.gitkeep
 
 # Ansible
