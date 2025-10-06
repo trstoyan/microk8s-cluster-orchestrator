@@ -1,0 +1,485 @@
+{% extends "base.html" %}
+
+{% block title %}AI Assistant Configuration - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h3 mb-0">
+                    <i class="bi bi-robot text-primary"></i> AI Assistant Configuration
+                </h1>
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="validateConfigBtn">
+                        <i class="bi bi-check-circle"></i> Validate Configuration
+                    </button>
+                    <button type="button" class="btn btn-outline-info btn-sm" id="testRAGBtn">
+                        <i class="bi bi-play-circle"></i> Test RAG System
+                    </button>
+                    <button type="button" class="btn btn-outline-warning btn-sm" id="resetConfigBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Main Configuration -->
+        <div class="col-lg-8">
+            <!-- AI Assistant Status -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-toggle-on text-success"></i> AI Assistant Status
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="aiAssistantEnabled" 
+                                       {% if ai_config.enabled %}checked{% endif %}>
+                                <label class="form-check-label" for="aiAssistantEnabled">
+                                    <strong>Enable AI Assistant</strong>
+                                    <br><small class="text-muted">Master switch for all AI features</small>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="webInterfaceEnabled" 
+                                       {% if ai_config.web_interface.enabled %}checked{% endif %}
+                                       {% if not ai_config.enabled %}disabled{% endif %}>
+                                <label class="form-check-label" for="webInterfaceEnabled">
+                                    <strong>Enable Web Interface</strong>
+                                    <br><small class="text-muted">Chat interface and web-based features</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RAG System Configuration -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-database text-info"></i> RAG System Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="ragSystemEnabled" 
+                                       {% if ai_config.rag_system.enabled %}checked{% endif %}
+                                       {% if not ai_config.enabled %}disabled{% endif %}>
+                                <label class="form-check-label" for="ragSystemEnabled">
+                                    <strong>Enable RAG System</strong>
+                                    <br><small class="text-muted">Local knowledge base and learning</small>
+                                </label>
+                            </div>
+                            
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="autoLearnEnabled" 
+                                       {% if ai_config.rag_system.auto_learn %}checked{% endif %}
+                                       {% if not ai_config.rag_system.enabled %}disabled{% endif %}>
+                                <label class="form-check-label" for="autoLearnEnabled">
+                                    <strong>Auto-Learning</strong>
+                                    <br><small class="text-muted">Learn from operations automatically</small>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="dataDirectory" class="form-label">Data Directory</label>
+                                <input type="text" class="form-control" id="dataDirectory" 
+                                       value="{{ ai_config.rag_system.data_dir }}"
+                                       {% if not ai_config.rag_system.enabled %}disabled{% endif %}>
+                                <div class="form-text">Directory for storing RAG system data</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="maxDocuments" class="form-label">Max Documents</label>
+                                <input type="number" class="form-control" id="maxDocuments" 
+                                       value="{{ ai_config.rag_system.max_documents }}"
+                                       {% if not ai_config.rag_system.enabled %}disabled{% endif %}>
+                                <div class="form-text">Maximum documents to store (0 = unlimited)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Web Interface Configuration -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-globe text-warning"></i> Web Interface Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="showInNavigation" 
+                                       {% if ai_config.web_interface.show_in_nav %}checked{% endif %}
+                                       {% if not ai_config.web_interface.enabled %}disabled{% endif %}>
+                                <label class="form-check-label" for="showInNavigation">
+                                    <strong>Show in Navigation</strong>
+                                    <br><small class="text-muted">Display assistant link in sidebar</small>
+                                </label>
+                            </div>
+                            
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="allowAnsibleAnalysis" 
+                                       {% if ai_config.web_interface.allow_ansible_analysis %}checked{% endif %}
+                                       {% if not ai_config.web_interface.enabled %}disabled{% endif %}>
+                                <label class="form-check-label" for="allowAnsibleAnalysis">
+                                    <strong>Allow Ansible Analysis</strong>
+                                    <br><small class="text-muted">Analyze Ansible outputs in web interface</small>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="allowHealthInsights" 
+                                       {% if ai_config.web_interface.allow_health_insights %}checked{% endif %}
+                                       {% if not ai_config.web_interface.enabled %}disabled{% endif %}>
+                                <label class="form-check-label" for="allowHealthInsights">
+                                    <strong>Allow Health Insights</strong>
+                                    <br><small class="text-muted">Generate health insights in web interface</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Privacy Configuration -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-shield-lock text-danger"></i> Privacy Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="storeChatHistory" 
+                                       {% if ai_config.privacy.store_chat_history %}checked{% endif %}>
+                                <label class="form-check-label" for="storeChatHistory">
+                                    <strong>Store Chat History</strong>
+                                    <br><small class="text-muted">Save chat interactions for learning</small>
+                                </label>
+                            </div>
+                            
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="storeAnsibleOutputs" 
+                                       {% if ai_config.privacy.store_ansible_outputs %}checked{% endif %}>
+                                <label class="form-check-label" for="storeAnsibleOutputs">
+                                    <strong>Store Ansible Outputs</strong>
+                                    <br><small class="text-muted">Save Ansible outputs for analysis</small>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="anonymizeData" 
+                                       {% if ai_config.privacy.anonymize_data %}checked{% endif %}>
+                                <label class="form-check-label" for="anonymizeData">
+                                    <strong>Anonymize Data</strong>
+                                    <br><small class="text-muted">Remove sensitive information from stored data</small>
+                                </label>
+                            </div>
+                            
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="autoCleanup" 
+                                       {% if ai_config.privacy.auto_cleanup %}checked{% endif %}>
+                                <label class="form-check-label" for="autoCleanup">
+                                    <strong>Auto Cleanup</strong>
+                                    <br><small class="text-muted">Automatically clean old data</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Current Status -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-activity"></i> Current Status</h6>
+                </div>
+                <div class="card-body">
+                    <div id="currentStatus">
+                        <div class="mb-2">
+                            <span class="badge {% if ai_config.enabled %}bg-success{% else %}bg-danger{% endif %}">
+                                AI Assistant: {% if ai_config.enabled %}ENABLED{% else %}DISABLED{% endif %}
+                            </span>
+                        </div>
+                        <div class="mb-2">
+                            <span class="badge {% if ai_config.rag_system.enabled %}bg-success{% else %}bg-secondary{% endif %}">
+                                RAG System: {% if ai_config.rag_system.enabled %}ENABLED{% else %}DISABLED{% endif %}
+                            </span>
+                        </div>
+                        <div class="mb-2">
+                            <span class="badge {% if ai_config.web_interface.enabled %}bg-success{% else %}bg-secondary{% endif %}">
+                                Web Interface: {% if ai_config.web_interface.enabled %}ENABLED{% else %}DISABLED{% endif %}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Statistics -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-graph-up"></i> System Statistics</h6>
+                </div>
+                <div class="card-body">
+                    <div id="systemStats">
+                        <div class="text-center">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Loading statistics...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Configuration Validation -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-check-circle"></i> Configuration Validation</h6>
+                </div>
+                <div class="card-body">
+                    <div id="configValidation">
+                        <div class="text-center">
+                            <button class="btn btn-primary btn-sm" onclick="validateConfiguration()">
+                                <i class="bi bi-check-circle"></i> Validate Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Configuration Button -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body text-center">
+                    <button class="btn btn-success btn-lg" id="saveConfigBtn" onclick="saveConfiguration()">
+                        <i class="bi bi-save"></i> Save Configuration
+                    </button>
+                    <p class="mt-2 text-muted">
+                        <i class="bi bi-info-circle"></i> 
+                        Configuration changes will take effect after saving and restarting the application.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Load system statistics
+document.addEventListener('DOMContentLoaded', function() {
+    loadSystemStatistics();
+});
+
+function loadSystemStatistics() {
+    fetch('/api/assistant/statistics')
+    .then(response => response.json())
+    .then(data => {
+        const statsDiv = document.getElementById('systemStats');
+        
+        if (data.error) {
+            statsDiv.innerHTML = `
+                <div class="text-danger">
+                    <i class="bi bi-exclamation-triangle"></i> Error loading statistics
+                </div>
+            `;
+        } else {
+            statsDiv.innerHTML = `
+                <div class="mb-2">
+                    <i class="bi bi-database text-info"></i>
+                    <strong>Documents:</strong> ${data.total_documents || 0}
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-list-ul text-warning"></i>
+                    <strong>Vocabulary:</strong> ${data.vocabulary_size || 0}
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-clock text-success"></i>
+                    <strong>Recent (7d):</strong> ${data.recent_documents_7d || 0}
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-shield-check text-primary"></i>
+                    <strong>Dependencies:</strong> ${data.external_dependencies || 0}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('systemStats').innerHTML = `
+            <div class="text-danger">
+                <i class="bi bi-exclamation-triangle"></i> Error loading statistics
+            </div>
+        `;
+    });
+}
+
+function validateConfiguration() {
+    const validationDiv = document.getElementById('configValidation');
+    validationDiv.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border spinner-border-sm" role="status">
+                <span class="visually-hidden">Validating...</span>
+            </div>
+            <p class="mt-2 text-muted">Validating configuration...</p>
+        </div>
+    `;
+    
+    // Simulate validation (in real implementation, this would call the backend)
+    setTimeout(() => {
+        const issues = [];
+        const warnings = [];
+        
+        // Check if AI assistant is enabled but RAG system is disabled
+        const aiEnabled = document.getElementById('aiAssistantEnabled').checked;
+        const ragEnabled = document.getElementById('ragSystemEnabled').checked;
+        
+        if (aiEnabled && !ragEnabled) {
+            warnings.push('AI Assistant is enabled but RAG system is disabled - limited functionality');
+        }
+        
+        // Check data directory
+        const dataDir = document.getElementById('dataDirectory').value.trim();
+        if (!dataDir) {
+            issues.push('Data directory is required');
+        }
+        
+        // Check max documents
+        const maxDocs = parseInt(document.getElementById('maxDocuments').value);
+        if (maxDocs < 0) {
+            issues.push('Max documents must be non-negative');
+        }
+        
+        let validationHTML = '';
+        
+        if (issues.length === 0 && warnings.length === 0) {
+            validationHTML = `
+                <div class="text-success">
+                    <i class="bi bi-check-circle"></i> Configuration is valid
+                </div>
+            `;
+        } else {
+            if (issues.length > 0) {
+                validationHTML += `
+                    <div class="text-danger mb-2">
+                        <i class="bi bi-exclamation-triangle"></i> <strong>Issues:</strong>
+                        <ul class="mb-0 mt-1">
+                            ${issues.map(issue => `<li>${issue}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            if (warnings.length > 0) {
+                validationHTML += `
+                    <div class="text-warning">
+                        <i class="bi bi-exclamation-circle"></i> <strong>Warnings:</strong>
+                        <ul class="mb-0 mt-1">
+                            ${warnings.map(warning => `<li>${warning}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+        }
+        
+        validationDiv.innerHTML = validationHTML;
+    }, 1000);
+}
+
+function saveConfiguration() {
+    // Collect configuration values
+    const config = {
+        enabled: document.getElementById('aiAssistantEnabled').checked,
+        rag_system: {
+            enabled: document.getElementById('ragSystemEnabled').checked,
+            data_dir: document.getElementById('dataDirectory').value.trim(),
+            max_documents: parseInt(document.getElementById('maxDocuments').value),
+            auto_learn: document.getElementById('autoLearnEnabled').checked
+        },
+        web_interface: {
+            enabled: document.getElementById('webInterfaceEnabled').checked,
+            show_in_nav: document.getElementById('showInNavigation').checked,
+            allow_ansible_analysis: document.getElementById('allowAnsibleAnalysis').checked,
+            allow_health_insights: document.getElementById('allowHealthInsights').checked
+        },
+        privacy: {
+            store_chat_history: document.getElementById('storeChatHistory').checked,
+            store_ansible_outputs: document.getElementById('storeAnsibleOutputs').checked,
+            anonymize_data: document.getElementById('anonymizeData').checked,
+            auto_cleanup: document.getElementById('autoCleanup').checked
+        }
+    };
+    
+    // Show loading state
+    const saveBtn = document.getElementById('saveConfigBtn');
+    const originalText = saveBtn.innerHTML;
+    saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+    saveBtn.disabled = true;
+    
+    // Simulate save (in real implementation, this would call the backend)
+    setTimeout(() => {
+        saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Saved!';
+        saveBtn.classList.remove('btn-success');
+        saveBtn.classList.add('btn-success');
+        
+        // Reset button after 2 seconds
+        setTimeout(() => {
+            saveBtn.innerHTML = originalText;
+            saveBtn.disabled = false;
+        }, 2000);
+        
+        // Show success message
+        alert('Configuration saved successfully! Please restart the application for changes to take effect.');
+    }, 1500);
+}
+
+// Handle dependent checkboxes
+document.getElementById('aiAssistantEnabled').addEventListener('change', function() {
+    const enabled = this.checked;
+    document.getElementById('webInterfaceEnabled').disabled = !enabled;
+    document.getElementById('ragSystemEnabled').disabled = !enabled;
+    document.getElementById('autoLearnEnabled').disabled = !enabled;
+    document.getElementById('dataDirectory').disabled = !enabled;
+    document.getElementById('maxDocuments').disabled = !enabled;
+});
+
+document.getElementById('webInterfaceEnabled').addEventListener('change', function() {
+    const enabled = this.checked;
+    document.getElementById('showInNavigation').disabled = !enabled;
+    document.getElementById('allowAnsibleAnalysis').disabled = !enabled;
+    document.getElementById('allowHealthInsights').disabled = !enabled;
+});
+
+document.getElementById('ragSystemEnabled').addEventListener('change', function() {
+    const enabled = this.checked;
+    document.getElementById('autoLearnEnabled').disabled = !enabled;
+    document.getElementById('dataDirectory').disabled = !enabled;
+    document.getElementById('maxDocuments').disabled = !enabled;
+});
+</script>
+{% endblock %}

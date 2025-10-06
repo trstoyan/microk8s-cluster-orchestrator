@@ -226,27 +226,83 @@ SSH into the target node using your current credentials:
 ssh {ssh_user}@<NODE_IP_ADDRESS>
 ```
 
-## Step 2: Add the public key to authorized_keys
+## Step 2: Configure SSH server for key-based authentication
+**IMPORTANT**: Configure the SSH server before adding the key to ensure security:
+
+```bash
+# Edit SSH server configuration
+sudo nano /etc/ssh/sshd_config
+```
+
+Add or modify the following settings:
+```bash
+# Enable public key authentication
+PubkeyAuthentication yes
+
+# Disable password authentication (recommended for security)
+PasswordAuthentication no
+
+# Ensure authorized keys file is set correctly
+AuthorizedKeysFile .ssh/authorized_keys
+
+# Disable root login (additional security)
+PermitRootLogin no
+
+# Optional: Change SSH port for additional security
+# Port 2222
+```
+
+Save the file and restart SSH service:
+```bash
+sudo systemctl restart ssh
+# or on some systems:
+sudo systemctl restart sshd
+```
+
+**⚠️ SECURITY WARNING**: Before restarting SSH, ensure you have:
+1. Added the public key (Step 3) AND tested it (Step 6)
+2. Or kept PasswordAuthentication yes until key authentication is confirmed
+
+## Step 3: Add the public key to authorized_keys
 Run the following command on the target node:
 ```bash
+mkdir -p ~/.ssh
 echo "{public_key}" >> ~/.ssh/authorized_keys
 ```
 
-## Step 3: Set proper permissions
+## Step 4: Set proper permissions
 Ensure the SSH directory and files have correct permissions:
 ```bash
-mkdir -p ~/.ssh
 chmod 700 ~/.ssh
 chmod 600 ~/.ssh/authorized_keys
 ```
 
-## Step 4: Configure passwordless sudo (if not already configured)
+## Step 5: Configure passwordless sudo (if not already configured)
 Add the following line to /etc/sudoers.d/{ssh_user} (create the file if it doesn't exist):
 ```bash
 {ssh_user} ALL=(ALL) NOPASSWD:ALL
 ```
 
-## Step 5: Verify the setup
+## Step 6: Test key authentication BEFORE disabling passwords
+Open a NEW terminal and test the SSH key connection:
+```bash
+# Test from the orchestrator (replace <NODE_IP_ADDRESS> with actual IP)
+ssh -i <PRIVATE_KEY_PATH> {ssh_user}@<NODE_IP_ADDRESS>
+```
+
+If the test is successful, you can now safely disable password authentication:
+```bash
+# Edit SSH config again
+sudo nano /etc/ssh/sshd_config
+
+# Set PasswordAuthentication to no
+PasswordAuthentication no
+
+# Restart SSH service
+sudo systemctl restart ssh
+```
+
+## Step 7: Final verification
 Test the connection from the orchestrator:
 ```bash
 # The orchestrator will automatically test the connection
@@ -259,12 +315,16 @@ ssh -i <PRIVATE_KEY_PATH> {ssh_user}@<NODE_IP_ADDRESS>
 - Only the public key needs to be added to the target node
 - The key is unique to this node and should not be shared
 - Keep the private key secure and never share it
+- Disabling password authentication prevents brute force attacks
+- Always test key authentication before disabling passwords
 
 ## Troubleshooting:
 - If connection fails, check that the public key was added correctly
 - Ensure SSH service is running on the target node
 - Verify firewall settings allow SSH connections
 - Check that the SSH user has the correct permissions
+- If locked out, access via console and re-enable PasswordAuthentication yes
+- Verify sshd_config syntax: `sudo sshd -t`
 """
         return instructions.strip()
     

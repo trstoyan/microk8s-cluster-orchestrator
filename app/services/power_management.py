@@ -14,7 +14,7 @@ from sqlalchemy import and_
 
 from app.models.database import db
 from app.models.ups import UPS
-from app.models.cluster import Cluster
+from app.models.flask_models import Cluster
 from app.models.ups_cluster_rule import UPSClusterRule, PowerEventType, ClusterActionType
 from app.services.ups_scanner import UPSScanner
 from app.services.orchestrator import OrchestrationService

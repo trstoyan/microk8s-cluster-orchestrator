@@ -1,0 +1,178 @@
+# AI Health Monitoring Configuration
+# Configuration for the AI-powered health monitoring system
+
+ai_health:
+  # Enable/disable AI features
+  enabled: true
+  
+  # LLM Configuration
+  llm:
+    # LLM endpoint (Ollama, OpenAI, etc.)
+    endpoint: "http://localhost:11434/api/generate"
+    
+    # Model to use
+    model: "llama3.2:1b"
+    
+    # Timeout for LLM requests (seconds)
+    timeout: 30
+    
+    # Enable/disable LLM features
+    enabled: true
+  
+  # Machine Learning Configuration
+  ml:
+    # Enable/disable ML features
+    enabled: true
+    
+    # Data directory for ML models and data
+    data_dir: "data/ai_health"
+    
+    # Model parameters
+    models:
+      # TF-IDF vectorizer
+      vectorizer:
+        max_features: 1000
+        stop_words: "english"
+      
+      # K-means clustering
+      clusterer:
+        n_clusters: 10
+        random_state: 42
+      
+      # Random forest classifier
+      classifier:
+        n_estimators: 100
+        random_state: 42
+  
+  # Health Check Configuration
+  health_checks:
+    # Check intervals (minutes)
+    intervals:
+      comprehensive: 60    # Full health check
+      quick: 15           # Quick health check
+      ai_analysis: 30     # AI analysis only
+    
+    # Health score thresholds
+    thresholds:
+      healthy: 80
+      degraded: 60
+      warning: 40
+      critical: 0
+    
+    # Categories and their weights for overall score
+    category_weights:
+      system: 0.25
+      network: 0.20
+      security: 0.20
+      performance: 0.15
+      ansible: 0.10
+      storage: 0.05
+      configuration: 0.03
+      dependencies: 0.02
+  
+  # Pattern Recognition
+  patterns:
+    # Enable pattern recognition
+    enabled: true
+    
+    # Minimum frequency to consider a pattern
+    min_frequency: 3
+    
+    # Pattern similarity threshold
+    similarity_threshold: 0.7
+    
+    # Maximum patterns to track
+    max_patterns: 1000
+  
+  # Learning Configuration
+  learning:
+    # Enable reinforcement learning
+    enabled: true
+    
+    # Learning rate
+    learning_rate: 0.01
+    
+    # Discount factor for future rewards
+    discount_factor: 0.95
+    
+    # Exploration vs exploitation balance
+    exploration_rate: 0.1
+    
+    # Maximum feedback history to keep
+    max_feedback_history: 1000
+  
+  # Database Configuration
+  database:
+    # Issues database path
+    issues_db: "data/ai_health/issues.db"
+    
+    # Patterns database path
+    patterns_db: "data/ai_health/patterns.db"
+    
+    # Health scores database path
+    scores_db: "data/ai_health/scores.db"
+  
+  # Logging Configuration
+  logging:
+    # Log level for AI health monitoring
+    level: "INFO"
+    
+    # Log AI decisions
+    log_decisions: true
+    
+    # Log pattern recognition
+    log_patterns: true
+    
+    # Log learning updates
+    log_learning: true
+  
+  # Performance Configuration
+  performance:
+    # Maximum concurrent AI analyses
+    max_concurrent_analyses: 5
+    
+    # Cache AI results for (minutes)
+    cache_duration: 15
+    
+    # Maximum output size to analyze (characters)
+    max_output_size: 10000
+  
+  # Integration Configuration
+  integration:
+    # Enable integration with existing health checks
+    integrate_existing: true
+    
+    # Weight for traditional vs AI scores
+    traditional_weight: 0.4
+    ai_weight: 0.6
+    
+    # Minimum AI confidence to use AI score
+    min_ai_confidence: 0.3
+
+# Development/Testing Configuration
+development:
+  # Enable debug mode
+  debug: false
+  
+  # Mock LLM responses for testing
+  mock_llm: false
+  
+  # Mock ML models for testing
+  mock_ml: false
+  
+  # Test data directory
+  test_data_dir: "tests/data/ai_health"
+
+# Production Configuration
+production:
+  # Use production-optimized models
+  use_production_models: true
+  
+  # Enable model caching
+  enable_model_caching: true
+  
+  # Enable result caching
+  enable_result_caching: true
+  
+  # Maximum cache size (MB)
+  max_cache_size: 100

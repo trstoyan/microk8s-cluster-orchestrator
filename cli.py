@@ -60,10 +60,7 @@ except ImportError:
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
 from app.models.database import get_session, init_database
-from app.models.node import Node
-from app.models.cluster import Cluster
-from app.models.operation import Operation
-from app.models.router_switch import RouterSwitch
+from app.models.flask_models import Node, Cluster, Operation, RouterSwitch
 from app.models.network_lease import NetworkLease, NetworkInterface
 from app.services.cli_orchestrator import CLIOrchestrationService
 from app.utils.config import config
@@ -120,6 +117,27 @@ def cli(ctx, config_file, verbose):
     except Exception as e:
         print_warning(f"Failed to run migrations: {e}")
         print_info("Continuing with application startup...")
+
+@cli.group()
+def database():
+    """Database management commands."""
+    pass
+
+@database.command('path')
+def show_database_path():
+    """Show the path to the database file."""
+    from app.utils.config import config
+    import os
+    
+    db_path = config.get('database.path', 'cluster_data.db')
+    abs_path = os.path.abspath(db_path)
+    
+    print(f"Database path: {abs_path}")
+    print(f"Database exists: {'Yes' if os.path.exists(abs_path) else 'No'}")
+    
+    if os.path.exists(abs_path):
+        size = os.path.getsize(abs_path)
+        print(f"Database size: {size:,} bytes ({size/1024/1024:.2f} MB)")
 
 @cli.group()
 def migrate():
@@ -3075,7 +3093,7 @@ def wake_node(node_id, retries, delay):
     try:
         from app.services.wake_on_lan import WakeOnLANService
         from app.models.database import db
-        from app.models.node import Node
+        from app.models.flask_models import Node
         
         init_database()
         session = db.session
@@ -3110,7 +3128,7 @@ def wake_cluster(cluster_id, retries, delay):
     try:
         from app.services.wake_on_lan import WakeOnLANService
         from app.models.database import db
-        from app.models.cluster import Cluster
+        from app.models.flask_models import Cluster
         
         init_database()
         session = db.session
@@ -3154,7 +3172,7 @@ def wol_status(node_id):
     try:
         from app.services.wake_on_lan import WakeOnLANService
         from app.models.database import db
-        from app.models.node import Node
+        from app.models.flask_models import Node
         
         init_database()
         session = db.session
@@ -3210,7 +3228,7 @@ def enable_wol(node_id):
     try:
         from app.services.wake_on_lan import WakeOnLANService
         from app.models.database import db
-        from app.models.node import Node
+        from app.models.flask_models import Node
         
         init_database()
         session = db.session
@@ -3242,7 +3260,7 @@ def disable_wol(node_id):
     try:
         from app.services.wake_on_lan import WakeOnLANService
         from app.models.database import db
-        from app.models.node import Node
+        from app.models.flask_models import Node
         
         init_database()
         session = db.session
@@ -3274,7 +3292,7 @@ def collect_mac_addresses(node_ids):
     try:
         from app.services.wake_on_lan import WakeOnLANService
         from app.models.database import db
-        from app.models.node import Node
+        from app.models.flask_models import Node
         
         init_database()
         session = db.session
@@ -3332,7 +3350,7 @@ def configure_wol(node_id, mac_address, method, port, broadcast, enable, virtual
     """Configure Wake-on-LAN settings for a node."""
     try:
         from app.models.database import db
-        from app.models.node import Node
+        from app.models.flask_models import Node
         
         init_database()
         session = db.session

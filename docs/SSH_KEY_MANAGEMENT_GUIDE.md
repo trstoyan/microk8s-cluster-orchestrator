@@ -185,6 +185,43 @@ Content-Type: application/json
 }
 ```
 
+## SSH Server Configuration
+
+### Required SSH Server Settings
+
+For secure key-based authentication, the SSH server on target nodes must be properly configured. The system generates instructions that include these essential settings:
+
+#### Essential Configuration (`/etc/ssh/sshd_config`)
+
+```bash
+# Enable public key authentication
+PubkeyAuthentication yes
+
+# Disable password authentication (recommended for security)
+PasswordAuthentication no
+
+# Ensure authorized keys file is set correctly
+AuthorizedKeysFile .ssh/authorized_keys
+
+# Disable root login (additional security)
+PermitRootLogin no
+
+# Optional: Change SSH port for additional security
+# Port 2222
+```
+
+#### Configuration Process
+
+1. **Before Adding Keys**: Configure SSH server settings first
+2. **Add Public Key**: Add the generated public key to `~/.ssh/authorized_keys`
+3. **Test Connection**: Verify key authentication works
+4. **Disable Passwords**: Set `PasswordAuthentication no` for security
+5. **Restart SSH**: Apply configuration changes
+
+#### Security Warning
+
+⚠️ **Important**: Always test key authentication before disabling password authentication to avoid being locked out of the system.
+
 ## Security Considerations
 
 ### Key Security
@@ -203,6 +240,11 @@ Content-Type: application/json
    - SHA256 fingerprints are generated and stored
    - Connection testing validates key authenticity
    - Fingerprint verification prevents key tampering
+
+4. **Server Security**:
+   - Password authentication is disabled after key setup
+   - Root login is disabled for additional security
+   - SSH service is properly configured for key-only access
 
 ### Best Practices
 
@@ -245,6 +287,8 @@ Content-Type: application/json
    sudo nano /etc/ssh/sshd_config
    # Ensure: PubkeyAuthentication yes
    # Ensure: AuthorizedKeysFile .ssh/authorized_keys
+   # Ensure: PasswordAuthentication no (for security)
+   # Ensure: PermitRootLogin no (for security)
    ```
 
 4. **Validate Key Setup**:

@@ -7,10 +7,7 @@ import subprocess
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from ..models.database import db
-from ..models.node import Node
-from ..models.cluster import Cluster
-from ..models.operation import Operation
-from ..models.router_switch import RouterSwitch
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
 from .network_monitor import NetworkMonitorService
 
 class OrchestrationService:

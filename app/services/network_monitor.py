@@ -9,8 +9,7 @@ import paramiko
 import re
 from ..models.database import db
 from ..models.network_lease import NetworkLease, NetworkInterface
-from ..models.router_switch import RouterSwitch
-from ..models.node import Node
+from ..models.flask_models import Node, RouterSwitch
 
 logger = logging.getLogger(__name__)
 

@@ -39,3 +39,29 @@ ssh:
   default_port: 22
   default_user: ubuntu
   key_directory: ~/.ssh
+ai_assistant:
+  enabled: true
+  rag_system:
+    enabled: true
+    data_dir: data/local_rag
+    max_documents: 10000
+    max_document_size: 50000
+    retention_days: 365
+    min_similarity: 0.1
+    auto_learn: true
+  web_interface:
+    enabled: true
+    show_in_nav: true
+    allow_ansible_analysis: true
+    allow_health_insights: true
+  performance:
+    max_concurrent_requests: 5
+    response_timeout: 30
+    cache_responses: true
+    cache_duration: 300
+  privacy:
+    store_chat_history: true
+    store_ansible_outputs: true
+    anonymize_data: false
+    auto_cleanup: true
+    cleanup_interval_days: 30

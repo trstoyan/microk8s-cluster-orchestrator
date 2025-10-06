@@ -12,8 +12,7 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
 from app.models.database import db
-from app.models.node import Node
-from app.models.operation import Operation
+from app.models.flask_models import Node, Operation
 
 
 class WakeOnLANService:

@@ -1,0 +1,494 @@
+{% extends "base.html" %}
+
+{% block title %}AI Assistant - MicroK8s Cluster Orchestrator{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h3 mb-0">
+                    <i class="bi bi-robot text-primary"></i> AI Assistant
+                    <span class="badge bg-success ms-2">Local RAG</span>
+                </h1>
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="healthInsightsBtn">
+                        <i class="bi bi-heart-pulse"></i> Health Insights
+                    </button>
+                    <button type="button" class="btn btn-outline-info btn-sm" id="statisticsBtn">
+                        <i class="bi bi-graph-up"></i> Statistics
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="clearChatBtn">
+                        <i class="bi bi-trash"></i> Clear Chat
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Chat Interface -->
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-chat-dots"></i> Chat Assistant
+                        <small class="ms-2">Powered by Local RAG System</small>
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <!-- Chat Messages -->
+                    <div id="chatMessages" class="p-3" style="height: 500px; overflow-y: auto; background-color: #f8f9fa;">
+                        <div class="text-center text-muted">
+                            <i class="bi bi-robot display-4"></i>
+                            <p class="mt-2">Welcome! I'm your AI assistant for MicroK8s cluster management.</p>
+                            <p>Ask me about:</p>
+                            <ul class="list-unstyled">
+                                <li><i class="bi bi-check-circle text-success"></i> Ansible troubleshooting</li>
+                                <li><i class="bi bi-check-circle text-success"></i> SSH configuration issues</li>
+                                <li><i class="bi bi-check-circle text-success"></i> MicroK8s installation problems</li>
+                                <li><i class="bi bi-check-circle text-success"></i> System health monitoring</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <!-- Chat Input -->
+                    <div class="border-top p-3">
+                        <div class="input-group">
+                            <textarea class="form-control" id="messageInput" rows="2" 
+                                    placeholder="Ask me anything about your cluster... (e.g., 'How to fix snap command not found?')"
+                                    style="resize: none;"></textarea>
+                            <button class="btn btn-primary" type="button" id="sendBtn">
+                                <i class="bi bi-send"></i> Send
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            <i class="bi bi-info-circle"></i> 
+                            The assistant learns from your cluster operations and provides intelligent recommendations.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Quick Actions -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-lightning"></i> Quick Actions</h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-primary btn-sm" onclick="askQuestion('How do I fix SSH connection issues?')">
+                            <i class="bi bi-shield-lock"></i> SSH Issues
+                        </button>
+                        <button class="btn btn-outline-success btn-sm" onclick="askQuestion('How to install MicroK8s?')">
+                            <i class="bi bi-download"></i> MicroK8s Install
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm" onclick="askQuestion('How to troubleshoot Ansible failures?')">
+                            <i class="bi bi-tools"></i> Ansible Help
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="askQuestion('What is the cluster health status?')">
+                            <i class="bi bi-heart-pulse"></i> Health Check
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ansible Analyzer -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-code-square"></i> Ansible Output Analyzer</h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="playbookName" class="form-label">Playbook Name</label>
+                        <input type="text" class="form-control" id="playbookName" placeholder="e.g., install_microk8s.yml">
+                    </div>
+                    <div class="mb-3">
+                        <label for="affectedHosts" class="form-label">Affected Hosts</label>
+                        <input type="text" class="form-control" id="affectedHosts" placeholder="e.g., node1,node2">
+                    </div>
+                    <div class="mb-3">
+                        <label for="ansibleOutput" class="form-label">Ansible Output</label>
+                        <textarea class="form-control" id="ansibleOutput" rows="4" 
+                                placeholder="Paste your Ansible output here..."></textarea>
+                    </div>
+                    <button class="btn btn-primary btn-sm w-100" id="analyzeAnsibleBtn">
+                        <i class="bi bi-search"></i> Analyze Output
+                    </button>
+                </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-activity"></i> System Status</h6>
+                </div>
+                <div class="card-body">
+                    <div id="systemStatus">
+                        <div class="text-center">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Loading system status...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Processing...</span>
+                </div>
+                <p class="mt-2 mb-0">AI Assistant is thinking...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let chatHistory = [];
+
+// Initialize the assistant
+document.addEventListener('DOMContentLoaded', function() {
+    loadSystemStatus();
+    
+    // Chat input handlers
+    document.getElementById('sendBtn').addEventListener('click', sendMessage);
+    document.getElementById('messageInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    
+    // Ansible analyzer
+    document.getElementById('analyzeAnsibleBtn').addEventListener('click', analyzeAnsibleOutput);
+    
+    // Quick action buttons
+    document.getElementById('healthInsightsBtn').addEventListener('click', getHealthInsights);
+    document.getElementById('statisticsBtn').addEventListener('click', getStatistics);
+    document.getElementById('clearChatBtn').addEventListener('click', clearChat);
+});
+
+function askQuestion(question) {
+    document.getElementById('messageInput').value = question;
+    sendMessage();
+}
+
+function sendMessage() {
+    const messageInput = document.getElementById('messageInput');
+    const message = messageInput.value.trim();
+    
+    if (!message) return;
+    
+    // Clear input
+    messageInput.value = '';
+    
+    // Add user message to chat
+    addMessageToChat('user', message);
+    
+    // Show loading
+    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    loadingModal.show();
+    
+    // Send to backend
+    fetch('/api/assistant/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: message })
+    })
+    .then(response => response.json())
+    .then(data => {
+        loadingModal.hide();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Error: ${data.error}`, 'error');
+        } else {
+            const response = data.response;
+            const confidence = Math.round(data.confidence * 100);
+            const contextUsed = data.context_used;
+            
+            let assistantMessage = `
+                <div class="mb-2">
+                    <strong>🎯 Diagnosis:</strong> ${response.diagnosis || 'N/A'}
+                </div>
+                <div class="mb-2">
+                    <strong>🔧 Solution:</strong> ${response.solution || 'N/A'}
+                </div>
+                <div class="mb-2">
+                    <strong>📊 Confidence:</strong> ${response.confidence || 'N/A'}/10
+                </div>
+            `;
+            
+            if (contextUsed > 0) {
+                assistantMessage += `<div class="text-muted small">
+                    <i class="bi bi-info-circle"></i> Used ${contextUsed} relevant documents from knowledge base
+                </div>`;
+            }
+            
+            addMessageToChat('assistant', assistantMessage, 'success');
+        }
+    })
+    .catch(error => {
+        loadingModal.hide();
+        addMessageToChat('assistant', `Network error: ${error.message}`, 'error');
+    });
+}
+
+function addMessageToChat(sender, message, type = 'info') {
+    const chatMessages = document.getElementById('chatMessages');
+    
+    // Remove welcome message if it exists
+    const welcomeMessage = chatMessages.querySelector('.text-center.text-muted');
+    if (welcomeMessage) {
+        welcomeMessage.remove();
+    }
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `mb-3 ${sender === 'user' ? 'text-end' : 'text-start'}`;
+    
+    const messageClass = sender === 'user' ? 'bg-primary text-white' : 
+                        type === 'error' ? 'bg-danger text-white' :
+                        type === 'success' ? 'bg-success text-white' : 'bg-light';
+    
+    messageDiv.innerHTML = `
+        <div class="d-inline-block p-3 rounded-3 ${messageClass}" style="max-width: 80%;">
+            ${sender === 'assistant' ? '<i class="bi bi-robot me-2"></i>' : '<i class="bi bi-person me-2"></i>'}
+            ${sender === 'assistant' && typeof message === 'string' ? message.replace(/\n/g, '<br>') : message}
+        </div>
+        <div class="small text-muted mt-1">
+            ${new Date().toLocaleTimeString()}
+        </div>
+    `;
+    
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Store in history
+    chatHistory.push({ sender, message, timestamp: new Date() });
+}
+
+function analyzeAnsibleOutput() {
+    const playbookName = document.getElementById('playbookName').value.trim() || 'unknown_playbook';
+    const affectedHosts = document.getElementById('affectedHosts').value.trim().split(',').map(h => h.trim()).filter(h => h);
+    const ansibleOutput = document.getElementById('ansibleOutput').value.trim();
+    
+    if (!ansibleOutput) {
+        alert('Please enter Ansible output to analyze');
+        return;
+    }
+    
+    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    loadingModal.show();
+    
+    fetch('/api/assistant/analyze-ansible', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            output: ansibleOutput,
+            playbook: playbookName,
+            hosts: affectedHosts
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        loadingModal.hide();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Analysis Error: ${data.error}`, 'error');
+        } else {
+            const success = data.success ? '✅ Success' : '❌ Failed';
+            const confidence = data.confidence || 'N/A';
+            
+            let analysisMessage = `
+                <div class="mb-2">
+                    <strong>📋 Playbook:</strong> ${playbookName}
+                </div>
+                <div class="mb-2">
+                    <strong>📊 Result:</strong> ${success}
+                </div>
+                <div class="mb-2">
+                    <strong>🎯 Confidence:</strong> ${confidence}/10
+                </div>
+            `;
+            
+            if (data.recommendations && data.recommendations.length > 0) {
+                analysisMessage += '<div class="mb-2"><strong>🔧 Recommendations:</strong><ul>';
+                data.recommendations.forEach(rec => {
+                    analysisMessage += `<li>${rec}</li>`;
+                });
+                analysisMessage += '</ul></div>';
+            }
+            
+            addMessageToChat('assistant', analysisMessage, data.success ? 'success' : 'warning');
+        }
+    })
+    .catch(error => {
+        loadingModal.hide();
+        addMessageToChat('assistant', `Analysis Error: ${error.message}`, 'error');
+    });
+}
+
+function getHealthInsights() {
+    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    loadingModal.show();
+    
+    fetch('/api/assistant/health-insights')
+    .then(response => response.json())
+    .then(data => {
+        loadingModal.hide();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Health Insights Error: ${data.error}`, 'error');
+        } else {
+            const confidence = Math.round(data.confidence * 100);
+            const patternsFound = data.patterns_found || 0;
+            
+            let insightsMessage = `
+                <div class="mb-2">
+                    <strong>🏥 Health Insights</strong>
+                </div>
+                <div class="mb-2">
+                    <strong>📊 Confidence:</strong> ${confidence}%
+                </div>
+                <div class="mb-2">
+                    <strong>🔍 Patterns Found:</strong> ${patternsFound}
+                </div>
+            `;
+            
+            if (data.insights && data.insights.length > 0) {
+                insightsMessage += '<div class="mb-2"><strong>💡 Insights:</strong><ul>';
+                data.insights.forEach(insight => {
+                    insightsMessage += `<li>${insight}</li>`;
+                });
+                insightsMessage += '</ul></div>';
+            }
+            
+            addMessageToChat('assistant', insightsMessage, 'info');
+        }
+    })
+    .catch(error => {
+        loadingModal.hide();
+        addMessageToChat('assistant', `Health Insights Error: ${error.message}`, 'error');
+    });
+}
+
+function getStatistics() {
+    const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+    loadingModal.show();
+    
+    fetch('/api/assistant/statistics')
+    .then(response => response.json())
+    .then(data => {
+        loadingModal.hide();
+        
+        if (data.error) {
+            addMessageToChat('assistant', `Statistics Error: ${data.error}`, 'error');
+        } else {
+            let statsMessage = `
+                <div class="mb-2">
+                    <strong>📊 AI Assistant Statistics</strong>
+                </div>
+                <div class="mb-2">
+                    <strong>📄 Total Documents:</strong> ${data.total_documents || 0}
+                </div>
+                <div class="mb-2">
+                    <strong>📝 Vocabulary Size:</strong> ${data.vocabulary_size || 0}
+                </div>
+                <div class="mb-2">
+                    <strong>🔄 Recent Activity:</strong> ${data.recent_documents_7d || 0} documents in last 7 days
+                </div>
+                <div class="mb-2">
+                    <strong>🏠 System Type:</strong> ${data.system_type || 'unknown'}
+                </div>
+                <div class="mb-2">
+                    <strong>🌐 External Dependencies:</strong> ${data.external_dependencies || 0}
+                </div>
+            `;
+            
+            if (data.documents_by_type) {
+                statsMessage += '<div class="mb-2"><strong>📋 Documents by Type:</strong><ul>';
+                Object.entries(data.documents_by_type).forEach(([type, count]) => {
+                    statsMessage += `<li>${type}: ${count}</li>`;
+                });
+                statsMessage += '</ul></div>';
+            }
+            
+            addMessageToChat('assistant', statsMessage, 'info');
+        }
+    })
+    .catch(error => {
+        loadingModal.hide();
+        addMessageToChat('assistant', `Statistics Error: ${error.message}`, 'error');
+    });
+}
+
+function loadSystemStatus() {
+    fetch('/api/assistant/statistics')
+    .then(response => response.json())
+    .then(data => {
+        const statusDiv = document.getElementById('systemStatus');
+        
+        if (data.error) {
+            statusDiv.innerHTML = `
+                <div class="text-danger">
+                    <i class="bi bi-exclamation-triangle"></i> Error loading status
+                </div>
+            `;
+        } else {
+            statusDiv.innerHTML = `
+                <div class="mb-2">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong>RAG System:</strong> Active
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-database text-info"></i>
+                    <strong>Documents:</strong> ${data.total_documents || 0}
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-lightning text-warning"></i>
+                    <strong>Recent Activity:</strong> ${data.recent_documents_7d || 0} in 7 days
+                </div>
+                <div class="mb-2">
+                    <i class="bi bi-shield-check text-success"></i>
+                    <strong>Dependencies:</strong> ${data.external_dependencies || 0} external
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('systemStatus').innerHTML = `
+            <div class="text-danger">
+                <i class="bi bi-exclamation-triangle"></i> Error loading status
+            </div>
+        `;
+    });
+}
+
+function clearChat() {
+    if (confirm('Are you sure you want to clear the chat history?')) {
+        document.getElementById('chatMessages').innerHTML = `
+            <div class="text-center text-muted">
+                <i class="bi bi-robot display-4"></i>
+                <p class="mt-2">Chat cleared. Ask me anything!</p>
+            </div>
+        `;
+        chatHistory = [];
+    }
+}
+</script>
+{% endblock %}

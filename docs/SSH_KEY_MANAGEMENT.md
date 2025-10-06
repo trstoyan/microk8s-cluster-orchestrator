@@ -38,10 +38,12 @@ The SSH key goes through several status stages:
 
 The system generates detailed setup instructions that include:
 
+- SSH server configuration for secure key-based authentication
 - Commands to add the public key to `~/.ssh/authorized_keys`
 - Proper file permissions setup
 - Sudo configuration for passwordless access
 - Connection testing steps
+- Security hardening with password authentication disabled
 
 ## Usage
 
@@ -102,6 +104,40 @@ microk8s-cluster node regenerate-ssh-key 1
 microk8s-cluster node regenerate-ssh-key 1 --force
 ```
 
+## SSH Server Configuration
+
+### Required Configuration
+
+The SSH server on target nodes must be properly configured for secure key-based authentication. The setup instructions include:
+
+#### Essential SSH Server Settings (`/etc/ssh/sshd_config`)
+
+```bash
+# Enable public key authentication
+PubkeyAuthentication yes
+
+# Disable password authentication (for security)
+PasswordAuthentication no
+
+# Ensure authorized keys file is set correctly
+AuthorizedKeysFile .ssh/authorized_keys
+
+# Disable root login (additional security)
+PermitRootLogin no
+```
+
+#### Configuration Process
+
+1. **Configure SSH Server**: Set the required parameters in `sshd_config`
+2. **Add Public Key**: Add the generated public key to `~/.ssh/authorized_keys`
+3. **Test Key Authentication**: Verify the key works before disabling passwords
+4. **Disable Password Auth**: Set `PasswordAuthentication no` for security
+5. **Restart SSH Service**: Apply the configuration changes
+
+#### Security Warning
+
+⚠️ **Critical**: Always test key authentication before disabling password authentication to avoid being locked out of the system.
+
 ## Security Features
 
 ### Key Security
@@ -110,6 +146,13 @@ microk8s-cluster node regenerate-ssh-key 1 --force
 - **2048-bit RSA keys** provide strong encryption
 - **Secure key storage** with proper file permissions (600)
 - **Key fingerprinting** for identification and verification
+
+### Server Security
+
+- **Password authentication disabled** after key setup
+- **Root login disabled** for additional security
+- **SSH service hardened** for key-only access
+- **Proper SSH configuration** ensures secure connections
 
 ### Access Control
 

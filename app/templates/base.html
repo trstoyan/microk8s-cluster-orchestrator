@@ -268,6 +268,25 @@
                                 Operations
                             </a>
                         </li>
+                        {% if ai_config_enabled %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.assistant' %}active{% endif %}" href="{{ url_for('web.assistant') }}">
+                                <i class="bi bi-robot"></i>
+                                <span class="d-none d-lg-inline">AI Assistant</span>
+                                <span class="d-lg-none">AI</span>
+                                <span class="badge bg-success ms-1" style="font-size: 0.6em;">RAG</span>
+                            </a>
+                        </li>
+                        {% endif %}
+                        {% if ai_assistant_enabled %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.ai_config_management' %}active{% endif %}" href="{{ url_for('web.ai_config_management') }}">
+                                <i class="bi bi-gear"></i>
+                                <span class="d-none d-lg-inline">AI Config</span>
+                                <span class="d-lg-none">AI Config</span>
+                            </a>
+                        </li>
+                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'web.system_management' %}active{% endif %}" href="{{ url_for('web.system_management') }}">
                                 <i class="bi bi-gear-fill"></i>

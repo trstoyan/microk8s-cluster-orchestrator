@@ -86,67 +86,6 @@ def run_migration():
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-def run_migration():
-    """Run the database migration."""
-    # Database path
-    db_path = project_root / "cluster_data.db"
-    
-    if not db_path.exists():
-        print("Database file not found. Please run the application first to create the database.")
-        return False
-    
-    try:
-        # Connect to the database
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-        
-        print("Running SSH key fields migration...")
-        
-        # Check if the new fields already exist
-        cursor.execute("PRAGMA table_info(nodes)")
-        columns = [column[1] for column in cursor.fetchall()]
-        
-        new_fields = [
-            ('ssh_key_generated', 'BOOLEAN DEFAULT 0'),
-            ('ssh_public_key', 'TEXT'),
-            ('ssh_key_fingerprint', 'VARCHAR(100)'),
-            ('ssh_key_status', 'VARCHAR(50) DEFAULT "not_generated"'),
-            ('ssh_connection_tested', 'BOOLEAN DEFAULT 0'),
-            ('ssh_connection_test_result', 'TEXT'),
-            ('ssh_setup_instructions', 'TEXT')
-        ]
-        
-        # Add new fields if they don't exist
-        for field_name, field_definition in new_fields:
-            if field_name not in columns:
-                print(f"Adding field: {field_name}")
-                cursor.execute(f"ALTER TABLE nodes ADD COLUMN {field_name} {field_definition}")
-            else:
-                print(f"Field {field_name} already exists, skipping...")
-        
-        # Commit the changes
-        conn.commit()
-        print("Migration completed successfully!")
-        
-        # Show current table structure
-        print("\nCurrent nodes table structure:")
-        cursor.execute("PRAGMA table_info(nodes)")
-        columns = cursor.fetchall()
-        for column in columns:
-            print(f"  {column[1]} ({column[2]})")
-        
-        return True
-        
-    except Exception as e:
-        print(f"Migration failed: {e}")
-        if conn:
-            conn.rollback()
-        return False
-    
-    finally:
-        if conn:
-            conn.close()
-
 def rollback_migration():
     """Rollback the migration by removing the new fields."""
     db_path = project_root / "cluster_data.db"

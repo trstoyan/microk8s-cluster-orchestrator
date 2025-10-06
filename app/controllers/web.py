@@ -1,9 +1,9 @@
 """Web interface endpoints for the MicroK8s Cluster Orchestrator."""
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, jsonify
 from flask_login import login_required, current_user
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User
 from ..models.network_lease import NetworkLease, NetworkInterface
 
 bp = Blueprint('web', __name__)
@@ -216,7 +216,34 @@ def api_check_ssh_keys(node_id):
         key_path = None
         fingerprint = None
         sync_needed = False
+        available_keys = []
         
+        # First, scan for all available SSH keys
+        ssh_keys_dir = Path('ssh_keys')
+        if ssh_keys_dir.exists():
+            for key_file in ssh_keys_dir.glob('*'):
+                if not key_file.name.endswith('.pub') and not key_file.name.startswith('.'):
+                    pub_key_file = key_file.with_suffix('.pub')
+                    if pub_key_file.exists():
+                        try:
+                            with open(pub_key_file, 'r') as f:
+                                public_key = f.read().strip()
+                            
+                            # Get key info
+                            key_info = ssh_manager.get_key_info(str(key_file))
+                            if key_info:
+                                available_keys.append({
+                                    'name': key_file.name,
+                                    'path': str(key_file.absolute()),
+                                    'public_key': public_key,
+                                    'fingerprint': key_info['fingerprint'],
+                                    'size': key_file.stat().st_size,
+                                    'is_current': str(key_file.absolute()) == node.ssh_key_path
+                                })
+                        except Exception as e:
+                            print(f"Error reading key {key_file}: {e}")
+        
+        # Check current key path
         if node.ssh_key_path:
             key_path = Path(node.ssh_key_path)
             public_key_path = key_path.with_suffix('.pub')
@@ -272,10 +299,82 @@ def api_check_ssh_keys(node_id):
             'fingerprint': fingerprint,
             'key_path': str(key_path) if key_path else None,
             'sync_needed': sync_needed,
-            'sync_performed': sync_needed
+            'sync_performed': sync_needed,
+            'available_keys': available_keys
         })
         
     except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+@bp.route('/api/nodes/<int:node_id>/select-ssh-key', methods=['POST'])
+@login_required
+def api_select_ssh_key(node_id):
+    """API endpoint to select a different SSH key for a node."""
+    from flask import jsonify
+    node = Node.query.get_or_404(node_id)
+    
+    try:
+        data = request.get_json()
+        key_path = data.get('key_path')
+        
+        if not key_path:
+            return jsonify({
+                'success': False,
+                'error': 'Key path is required'
+            })
+        
+        from ..services.ssh_key_manager import SSHKeyManager
+        from pathlib import Path
+        
+        ssh_manager = SSHKeyManager()
+        key_file = Path(key_path)
+        
+        if not key_file.exists():
+            return jsonify({
+                'success': False,
+                'error': 'Key file does not exist'
+            })
+        
+        # Get key info
+        key_info = ssh_manager.get_key_info(str(key_file))
+        if not key_info:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to read key information'
+            })
+        
+        # Update node with new key
+        node.ssh_key_path = str(key_file.absolute())
+        node.ssh_key_generated = True
+        node.ssh_key_status = 'generated'
+        node.ssh_public_key = key_info['public_key']
+        node.ssh_key_fingerprint = key_info['fingerprint']
+        
+        # Generate setup instructions
+        instructions = ssh_manager.get_setup_instructions(
+            node.hostname, 
+            key_info['public_key'],
+            node.ssh_user
+        )
+        node.ssh_setup_instructions = instructions
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'SSH key updated to {key_file.name}',
+            'key_info': {
+                'name': key_file.name,
+                'fingerprint': key_info['fingerprint'],
+                'public_key': key_info['public_key']
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
         return jsonify({
             'success': False,
             'error': str(e)
@@ -866,9 +965,9 @@ def hardware_report():
     nodes_with_memory_usage = [n for n in nodes if hasattr(n, 'memory_usage_percent') and n.memory_usage_percent is not None]
     nodes_with_disk_usage = [n for n in nodes if hasattr(n, 'disk_usage_percent') and n.disk_usage_percent is not None]
     
-    avg_cpu_usage = sum(n.cpu_usage_percent for n in nodes_with_cpu_usage) / len(nodes_with_cpu_usage) if nodes_with_cpu_usage else 0
-    avg_memory_usage = sum(n.memory_usage_percent for n in nodes_with_memory_usage) / len(nodes_with_memory_usage) if nodes_with_memory_usage else 0
-    avg_disk_usage = sum(n.disk_usage_percent for n in nodes_with_disk_usage) / len(nodes_with_disk_usage) if nodes_with_disk_usage else 0
+    avg_cpu_usage = sum(int(n.cpu_usage_percent) for n in nodes_with_cpu_usage if str(n.cpu_usage_percent).isdigit()) / len(nodes_with_cpu_usage) if nodes_with_cpu_usage else 0
+    avg_memory_usage = sum(int(n.memory_usage_percent) for n in nodes_with_memory_usage if str(n.memory_usage_percent).isdigit()) / len(nodes_with_memory_usage) if nodes_with_memory_usage else 0
+    avg_disk_usage = sum(int(n.disk_usage_percent) for n in nodes_with_disk_usage if str(n.disk_usage_percent).isdigit()) / len(nodes_with_disk_usage) if nodes_with_disk_usage else 0
     
     # Count nodes with GPU
     nodes_with_gpu = len([n for n in nodes if hasattr(n, 'gpu_info') and n.gpu_info and 'present": true' in n.gpu_info.lower()])
@@ -911,9 +1010,9 @@ def cluster_hardware_report(cluster_id):
     nodes_with_memory_usage = [n for n in nodes if hasattr(n, 'memory_usage_percent') and n.memory_usage_percent is not None]
     nodes_with_disk_usage = [n for n in nodes if hasattr(n, 'disk_usage_percent') and n.disk_usage_percent is not None]
     
-    avg_cpu_usage = sum(n.cpu_usage_percent for n in nodes_with_cpu_usage) / len(nodes_with_cpu_usage) if nodes_with_cpu_usage else 0
-    avg_memory_usage = sum(n.memory_usage_percent for n in nodes_with_memory_usage) / len(nodes_with_memory_usage) if nodes_with_memory_usage else 0
-    avg_disk_usage = sum(n.disk_usage_percent for n in nodes_with_disk_usage) / len(nodes_with_disk_usage) if nodes_with_disk_usage else 0
+    avg_cpu_usage = sum(int(n.cpu_usage_percent) for n in nodes_with_cpu_usage if str(n.cpu_usage_percent).isdigit()) / len(nodes_with_cpu_usage) if nodes_with_cpu_usage else 0
+    avg_memory_usage = sum(int(n.memory_usage_percent) for n in nodes_with_memory_usage if str(n.memory_usage_percent).isdigit()) / len(nodes_with_memory_usage) if nodes_with_memory_usage else 0
+    avg_disk_usage = sum(int(n.disk_usage_percent) for n in nodes_with_disk_usage if str(n.disk_usage_percent).isdigit()) / len(nodes_with_disk_usage) if nodes_with_disk_usage else 0
     
     # Count nodes with GPU
     nodes_with_gpu = len([n for n in nodes if hasattr(n, 'gpu_info') and n.gpu_info and 'present": true' in n.gpu_info.lower()])
@@ -1271,3 +1370,204 @@ def ups_services_restart():
 def system_management():
     """System management page."""
     return render_template('system_management.html')
+
+@bp.route('/assistant')
+@login_required
+def assistant():
+    """AI Assistant chat interface."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if AI assistant is enabled
+    if not ai_config.is_web_interface_enabled():
+        flash('AI Assistant is disabled in system configuration', 'warning')
+        return redirect(url_for('web.dashboard'))
+    
+    return render_template('assistant.html')
+
+@bp.route('/api/assistant/chat', methods=['POST'])
+@login_required
+def assistant_chat():
+    """Chat endpoint for AI assistant."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if AI assistant is enabled
+    if not ai_config.is_ai_assistant_enabled():
+        return jsonify({'error': 'AI Assistant is disabled'}), 403
+    
+    if not ai_config.is_rag_system_enabled():
+        return jsonify({'error': 'RAG System is disabled'}), 403
+    
+    try:
+        data = request.get_json()
+        message = data.get('message', '').strip()
+        
+        if not message:
+            return jsonify({'error': 'Message is required'}), 400
+        
+        # Import the local RAG system
+        from ..services.local_rag_system import get_local_rag_system
+        rag_system = get_local_rag_system()
+        
+        # Generate response using RAG system
+        response = rag_system.generate_response(message)
+        
+        # Format response for chat interface
+        chat_response = {
+            'message': message,
+            'response': response['response'],
+            'confidence': response['confidence'],
+            'method': response['method'],
+            'context_used': response['context_used'],
+            'timestamp': response.get('timestamp', None)
+        }
+        
+        # Store the interaction in the knowledge base if enabled
+        if ai_config.should_store_chat_history():
+            interaction_metadata = {
+                'type': 'chat_interaction',
+                'user_id': current_user.id,
+                'username': current_user.username,
+                'timestamp': response.get('timestamp', None),
+                'confidence': response['confidence']
+            }
+            
+            # Anonymize data if configured
+            content_to_store = f"User question: {message}\nAssistant response: {response['response'].get('solution', 'N/A')}"
+            if ai_config.should_anonymize_data():
+                content_to_store = content_to_store.replace(current_user.username, 'user')
+            
+            rag_system.add_document(content_to_store, interaction_metadata)
+        
+        return jsonify(chat_response)
+        
+    except Exception as e:
+        current_app.logger.error(f"Assistant chat error: {e}")
+        return jsonify({
+            'error': 'Failed to process request',
+            'message': message,
+            'response': {
+                'diagnosis': 'System error occurred',
+                'solution': 'Please try again or contact support',
+                'confidence': 1
+            },
+            'confidence': 0.1,
+            'method': 'error'
+        }), 500
+
+@bp.route('/api/assistant/analyze-ansible', methods=['POST'])
+@login_required
+def analyze_ansible():
+    """Analyze Ansible output using AI assistant."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if AI assistant and Ansible analysis are enabled
+    if not ai_config.is_ai_assistant_enabled():
+        return jsonify({'error': 'AI Assistant is disabled'}), 403
+    
+    if not ai_config.is_ansible_analysis_enabled():
+        return jsonify({'error': 'Ansible analysis is disabled'}), 403
+    
+    try:
+        data = request.get_json()
+        ansible_output = data.get('output', '').strip()
+        playbook_name = data.get('playbook', 'unknown_playbook')
+        affected_hosts = data.get('hosts', [])
+        
+        if not ansible_output:
+            return jsonify({'error': 'Ansible output is required'}), 400
+        
+        # Import the local RAG system
+        from ..services.local_rag_system import get_local_rag_system
+        rag_system = get_local_rag_system()
+        
+        # Analyze the Ansible output
+        analysis = rag_system.analyze_ansible_output(
+            ansible_output,
+            playbook_name,
+            affected_hosts
+        )
+        
+        return jsonify(analysis)
+        
+    except Exception as e:
+        current_app.logger.error(f"Ansible analysis error: {e}")
+        return jsonify({
+            'error': 'Failed to analyze Ansible output',
+            'success': False,
+            'recommendations': ['Check system logs for detailed error information']
+        }), 500
+
+@bp.route('/api/assistant/health-insights')
+@login_required
+def health_insights():
+    """Get health insights from AI assistant."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if AI assistant and health insights are enabled
+    if not ai_config.is_ai_assistant_enabled():
+        return jsonify({'error': 'AI Assistant is disabled'}), 403
+    
+    if not ai_config.is_health_insights_enabled():
+        return jsonify({'error': 'Health insights are disabled'}), 403
+    
+    try:
+        # Import the local RAG system
+        from ..services.local_rag_system import get_local_rag_system
+        rag_system = get_local_rag_system()
+        
+        # Get health insights
+        insights = rag_system.get_health_insights()
+        
+        return jsonify(insights)
+        
+    except Exception as e:
+        current_app.logger.error(f"Health insights error: {e}")
+        return jsonify({
+            'error': 'Failed to get health insights',
+            'insights': ['Unable to generate insights - check system logs'],
+            'confidence': 0.0
+        }), 500
+
+@bp.route('/api/assistant/statistics')
+@login_required
+def assistant_statistics():
+    """Get AI assistant statistics."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Check if AI assistant is enabled
+    if not ai_config.is_ai_assistant_enabled():
+        return jsonify({'error': 'AI Assistant is disabled'}), 403
+    
+    try:
+        # Import the local RAG system
+        from ..services.local_rag_system import get_local_rag_system
+        rag_system = get_local_rag_system()
+        
+        # Get statistics
+        stats = rag_system.get_statistics()
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        current_app.logger.error(f"Assistant statistics error: {e}")
+        return jsonify({
+            'error': 'Failed to get statistics',
+            'total_documents': 0
+        }), 500
+
+@bp.route('/ai-config')
+@login_required
+def ai_config_management():
+    """AI Assistant configuration management page."""
+    from ..utils.ai_config import get_ai_config
+    ai_config = get_ai_config()
+    
+    # Get current configuration
+    current_config = ai_config.get_full_config()
+    
+    return render_template('ai_config_management.html', ai_config=current_config)

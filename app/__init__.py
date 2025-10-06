@@ -23,6 +23,18 @@ def create_app():
     login_manager.login_message = 'Please log in to access this page.'
     login_manager.login_message_category = 'info'
     
+    # Add template context processors
+    @app.context_processor
+    def inject_ai_config():
+        """Inject AI configuration into all templates."""
+        from .utils.ai_config import get_ai_config
+        ai_config = get_ai_config()
+        return {
+            'ai_config_enabled': ai_config.is_web_interface_enabled() and ai_config.should_show_in_navigation(),
+            'ai_assistant_enabled': ai_config.is_ai_assistant_enabled(),
+            'rag_system_enabled': ai_config.is_rag_system_enabled()
+        }
+    
     @login_manager.user_loader
     def load_user(user_id):
         from .models.flask_models import User

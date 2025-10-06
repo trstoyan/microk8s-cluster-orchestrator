@@ -86,6 +86,37 @@ class ConfigManager:
                 'file': 'logs/orchestrator.log',
                 'max_size': '10MB',
                 'backup_count': 5
+            },
+            'ai_assistant': {
+                'enabled': True,
+                'rag_system': {
+                    'enabled': True,
+                    'data_dir': 'data/local_rag',
+                    'max_documents': 10000,
+                    'max_document_size': 50000,
+                    'retention_days': 365,
+                    'min_similarity': 0.1,
+                    'auto_learn': True
+                },
+                'web_interface': {
+                    'enabled': True,
+                    'show_in_nav': True,
+                    'allow_ansible_analysis': True,
+                    'allow_health_insights': True
+                },
+                'performance': {
+                    'max_concurrent_requests': 5,
+                    'response_timeout': 30,
+                    'cache_responses': True,
+                    'cache_duration': 300
+                },
+                'privacy': {
+                    'store_chat_history': True,
+                    'store_ansible_outputs': True,
+                    'anonymize_data': False,
+                    'auto_cleanup': True,
+                    'cleanup_interval_days': 30
+                }
             }
         }
     

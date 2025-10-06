@@ -57,3 +57,31 @@ security:
   encrypt_sensitive_data: true
   allowed_hosts: []  # Empty means all hosts allowed
   max_failed_operations: 5
+
+# AI Assistant (RAG System) settings
+ai_assistant:
+  enabled: true  # Enable/disable AI assistant features
+  rag_system:
+    enabled: true  # Enable/disable RAG system
+    data_dir: "data/local_rag"
+    max_documents: 10000
+    max_document_size: 50000
+    retention_days: 365
+    min_similarity: 0.1
+    auto_learn: true  # Automatically learn from operations
+  web_interface:
+    enabled: true  # Enable/disable web chat interface
+    show_in_nav: true  # Show assistant link in navigation
+    allow_ansible_analysis: true  # Allow Ansible output analysis
+    allow_health_insights: true  # Allow health insights generation
+  performance:
+    max_concurrent_requests: 5
+    response_timeout: 30  # seconds
+    cache_responses: true
+    cache_duration: 300  # seconds
+  privacy:
+    store_chat_history: true
+    store_ansible_outputs: true
+    anonymize_data: false  # Remove sensitive data from stored documents
+    auto_cleanup: true
+    cleanup_interval_days: 30

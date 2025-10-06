@@ -127,6 +127,7 @@ class Node(db.Model):
     wol_method = db.Column(db.String(20), default='ethernet')  # ethernet, wifi, pci, usb
     wol_broadcast_address = db.Column(db.String(45))  # Broadcast address for WoL packet (optional)
     wol_port = db.Column(db.Integer, default=9)  # UDP port for WoL packet (default: 9)
+    # wol_description = db.Column(db.Text)  # Description of WoL configuration - temporarily disabled
     is_virtual_node = db.Column(db.Boolean, default=False)  # True for Proxmox VMs, requires different handling
     proxmox_vm_id = db.Column(db.Integer)  # Proxmox VM ID if this is a virtual node
     proxmox_host_id = db.Column(db.Integer)  # ID of the Proxmox host running this VM

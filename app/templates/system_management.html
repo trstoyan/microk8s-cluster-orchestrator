@@ -76,6 +76,31 @@
                         <button class="btn btn-secondary" onclick="viewLogs()">
                             <i class="bi bi-file-text"></i> View Logs
                         </button>
+                        <button class="btn btn-primary" onclick="showTimezoneSetup()">
+                            <i class="bi bi-globe"></i> Configure Timezone
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Timezone Configuration Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-globe"></i> Timezone Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="timezone-info">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -130,12 +155,99 @@
     </div>
 </div>
 
+<!-- Timezone Setup Modal -->
+<div class="modal fade" id="timezoneModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-globe"></i> Configure System Timezone
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="timezone-content">
+                    <!-- Timezone content will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirm-timezone" onclick="applyTimezone()">
+                    <i class="bi bi-check-circle"></i> Apply Timezone
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Prerequisites Check Modal -->
+<div class="modal fade" id="prerequisitesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-check-circle"></i> System Prerequisites Check
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="prerequisites-content">
+                    <!-- Prerequisites content will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Viewer Modal -->
+<div class="modal fade" id="logsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-file-text"></i> System Logs
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <select class="form-select" id="log-file-select">
+                            <option value="orchestrator">Orchestrator Logs</option>
+                            <option value="ansible">Ansible Logs</option>
+                            <option value="system">System Logs</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <button class="btn btn-outline-primary" onclick="refreshLogs()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div id="logs-content" class="bg-dark text-light p-3 rounded" style="height: 400px; overflow-y: auto; font-family: monospace;">
+                    <!-- Logs content will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-outline-danger" onclick="clearLogs()">
+                    <i class="bi bi-trash"></i> Clear Logs
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 let currentUpdateStrategy = 'stash';
 
 // Load initial status
 document.addEventListener('DOMContentLoaded', function() {
     refreshStatus();
+    loadTimezoneInfo();
 });
 
 function refreshStatus() {
@@ -432,14 +544,261 @@ function restartSystem() {
     }
 }
 
+function loadTimezoneInfo() {
+    fetch('/api/system/timezone')
+        .then(response => response.json())
+        .then(data => {
+            displayTimezoneInfo(data);
+        })
+        .catch(error => {
+            console.error('Error loading timezone info:', error);
+            document.getElementById('timezone-info').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Error loading timezone information: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function displayTimezoneInfo(data) {
+    const infoDiv = document.getElementById('timezone-info');
+    
+    infoDiv.innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Current Timezone:</strong></td>
+                        <td><span class="badge bg-primary">${data.current_timezone || 'Unknown'}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>System Time:</strong></td>
+                        <td><code>${data.system_time || 'Unknown'}</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>UTC Offset:</strong></td>
+                        <td>${data.utc_offset || 'Unknown'}</td>
+                    </tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Timezone Information</strong><br>
+                    <small>The system timezone affects logging timestamps and scheduled operations. 
+                    Ensure all cluster nodes use the same timezone for consistency.</small>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function showTimezoneSetup() {
+    fetch('/api/system/timezone/list')
+        .then(response => response.json())
+        .then(data => {
+            let content = `
+                <div class="mb-3">
+                    <h6>Select Timezone</h6>
+                    <p class="text-muted">Choose a timezone for the orchestrator system:</p>
+                </div>
+                <div class="mb-3">
+                    <select class="form-select" id="timezone-select">
+                        <option value="">Loading timezones...</option>
+                    </select>
+                </div>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Important:</strong> Changing the timezone will affect all timestamps in logs and operations. 
+                    Consider the impact on your cluster nodes.
+                </div>
+            `;
+            
+            document.getElementById('timezone-content').innerHTML = content;
+            
+            // Populate timezone options
+            const select = document.getElementById('timezone-select');
+            select.innerHTML = '<option value="">Select a timezone...</option>';
+            
+            if (data.timezones && data.timezones.length > 0) {
+                data.timezones.forEach(tz => {
+                    const option = document.createElement('option');
+                    option.value = tz.value;
+                    option.textContent = tz.display;
+                    if (tz.value === data.current_timezone) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+            }
+            
+            const modal = new bootstrap.Modal(document.getElementById('timezoneModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error loading timezone list:', error);
+            document.getElementById('timezone-content').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Error loading timezone list: ${error.message}
+                </div>
+            `;
+            const modal = new bootstrap.Modal(document.getElementById('timezoneModal'));
+            modal.show();
+        });
+}
+
+function applyTimezone() {
+    const timezone = document.getElementById('timezone-select').value;
+    
+    if (!timezone) {
+        alert('Please select a timezone');
+        return;
+    }
+    
+    if (confirm(`Are you sure you want to change the system timezone to ${timezone}?`)) {
+        fetch('/api/system/timezone', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                timezone: timezone
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Timezone updated successfully! The system will restart to apply changes.');
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('timezoneModal'));
+                modal.hide();
+                // Reload timezone info
+                loadTimezoneInfo();
+            } else {
+                alert('Failed to update timezone: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error updating timezone: ' + error.message);
+        });
+    }
+}
+
 function checkPrerequisites() {
-    // This would integrate with your existing prerequisite checking
-    alert('Prerequisites check feature coming soon!');
+    fetch('/api/system/prerequisites')
+        .then(response => response.json())
+        .then(data => {
+            let content = `
+                <div class="mb-3">
+                    <h6>System Prerequisites Check</h6>
+                    <p class="text-muted">Checking system requirements and dependencies...</p>
+                </div>
+            `;
+            
+            if (data.checks && data.checks.length > 0) {
+                data.checks.forEach(check => {
+                    const statusClass = check.passed ? 'success' : 'danger';
+                    const icon = check.passed ? 'check-circle' : 'x-circle';
+                    
+                    content += `
+                        <div class="alert alert-${statusClass}">
+                            <i class="bi bi-${icon}"></i>
+                            <strong>${check.name}:</strong> ${check.message}
+                            ${check.details ? `<br><small>${check.details}</small>` : ''}
+                        </div>
+                    `;
+                });
+            }
+            
+            // Overall status
+            const overallStatus = data.all_passed ? 'success' : 'warning';
+            const overallIcon = data.all_passed ? 'check-circle' : 'exclamation-triangle';
+            const overallMessage = data.all_passed ? 'All prerequisites passed!' : 'Some prerequisites failed.';
+            
+            content += `
+                <div class="alert alert-${overallStatus}">
+                    <i class="bi bi-${overallIcon}"></i>
+                    <strong>Overall Status:</strong> ${overallMessage}
+                </div>
+            `;
+            
+            document.getElementById('prerequisites-content').innerHTML = content;
+            
+            const modal = new bootstrap.Modal(document.getElementById('prerequisitesModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Error checking prerequisites:', error);
+            document.getElementById('prerequisites-content').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Error checking prerequisites: ${error.message}
+                </div>
+            `;
+            const modal = new bootstrap.Modal(document.getElementById('prerequisitesModal'));
+            modal.show();
+        });
 }
 
 function viewLogs() {
-    // This would show system logs
-    alert('Log viewer feature coming soon!');
+    const modal = new bootstrap.Modal(document.getElementById('logsModal'));
+    modal.show();
+    refreshLogs();
+}
+
+function refreshLogs() {
+    const logType = document.getElementById('log-file-select').value;
+    
+    fetch(`/api/system/logs/${logType}`)
+        .then(response => response.json())
+        .then(data => {
+            let content = '';
+            
+            if (data.logs && data.logs.length > 0) {
+                data.logs.forEach(log => {
+                    content += `<div class="text-light">${log}</div>`;
+                });
+            } else {
+                content = '<div class="text-muted">No logs available</div>';
+            }
+            
+            document.getElementById('logs-content').innerHTML = content;
+            // Auto-scroll to bottom
+            const logsDiv = document.getElementById('logs-content');
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        })
+        .catch(error => {
+            console.error('Error loading logs:', error);
+            document.getElementById('logs-content').innerHTML = `
+                <div class="text-danger">
+                    Error loading logs: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function clearLogs() {
+    const logType = document.getElementById('log-file-select').value;
+    
+    if (confirm(`Are you sure you want to clear ${logType} logs?`)) {
+        fetch(`/api/system/logs/${logType}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Logs cleared successfully');
+                refreshLogs();
+            } else {
+                alert('Failed to clear logs: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('Error clearing logs: ' + error.message);
+        });
+    }
 }
 </script>
 {% endblock %}

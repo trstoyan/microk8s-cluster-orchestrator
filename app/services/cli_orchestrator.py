@@ -6,9 +6,7 @@ import subprocess
 from datetime import datetime
 from typing import Optional, Dict, Any
 from ..models.database import get_session
-from ..models.node import Node
-from ..models.cluster import Cluster
-from ..models.operation import Operation
+from ..models.flask_models import Node, Cluster, Operation
 
 class CLIOrchestrationService:
     """Service for orchestrating MicroK8s operations using Ansible (CLI version)."""

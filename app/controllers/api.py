@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
+from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User
 from ..models.network_lease import NetworkLease, NetworkInterface
 from ..services.orchestrator import OrchestrationService
 from ..services.wake_on_lan import WakeOnLANService
@@ -1507,26 +1507,438 @@ def perform_update():
 def restart_system():
     """Restart the orchestrator system."""
     try:
-        # This will restart the web service
-        # In production, you might want to use systemctl or other service managers
+        import subprocess
         import sys
+        import os
         import signal
         
-        # Schedule restart after response is sent
-        def delayed_restart():
-            import time
-            time.sleep(2)  # Give time for response to be sent
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+        # Check if running as systemd service
+        systemd_service = os.environ.get('SYSTEMD_SERVICE', '')
+        if systemd_service:
+            # Restart via systemctl
+            try:
+                result = subprocess.run(
+                    ['sudo', 'systemctl', 'restart', systemd_service],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0:
+                    return jsonify({
+                        'success': True,
+                        'message': f'System service {systemd_service} restarted successfully'
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Failed to restart service: {result.stderr}'
+                    }), 500
+            except subprocess.TimeoutExpired:
+                return jsonify({
+                    'success': False,
+                    'error': 'Service restart timed out'
+                }), 500
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Error restarting service: {str(e)}'
+                }), 500
         
-        import threading
-        restart_thread = threading.Thread(target=delayed_restart)
-        restart_thread.daemon = True
-        restart_thread.start()
+        # Check if running via gunicorn/uwsgi
+        if 'gunicorn' in sys.argv[0] or 'uwsgi' in sys.argv[0]:
+            # Send graceful restart signal
+            try:
+                os.kill(os.getppid(), signal.SIGHUP)
+                return jsonify({
+                    'success': True,
+                    'message': 'Application server restart signal sent'
+                })
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to send restart signal: {str(e)}'
+                }), 500
+        
+        # Fallback: try to restart the application process
+        try:
+            # Schedule restart after response is sent
+            def delayed_restart():
+                import time
+                time.sleep(3)  # Give time for response to be sent
+                try:
+                    # Try to restart with the same command line
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception as e:
+                    print(f"Failed to restart: {e}")
+            
+            import threading
+            restart_thread = threading.Thread(target=delayed_restart)
+            restart_thread.daemon = True
+            restart_thread.start()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Application restart initiated (may take a few seconds)'
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to restart application: {str(e)}'
+            }), 500
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'System restart failed: {str(e)}'
+        }), 500
+
+@bp.route('/system/timezone', methods=['GET'])
+@login_required
+def get_timezone_info():
+    """Get current timezone information."""
+    try:
+        import subprocess
+        from datetime import datetime
+        
+        # Get current timezone
+        try:
+            result = subprocess.run(['timedatectl', 'show', '--property=Timezone', '--value'], 
+                                  capture_output=True, text=True, timeout=10)
+            current_timezone = result.stdout.strip() if result.returncode == 0 else 'Unknown'
+        except:
+            current_timezone = 'Unknown'
+        
+        # Get system time
+        try:
+            system_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            system_time = 'Unknown'
+        
+        # Get UTC offset
+        try:
+            utc_offset = datetime.now().strftime('%z')
+        except:
+            utc_offset = 'Unknown'
         
         return jsonify({
-            'success': True,
-            'message': 'System restart initiated'
+            'current_timezone': current_timezone,
+            'system_time': system_time,
+            'utc_offset': utc_offset
         })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@bp.route('/system/timezone/list', methods=['GET'])
+@login_required
+def get_timezone_list():
+    """Get list of available timezones."""
+    try:
+        import subprocess
+        
+        # Get list of timezones
+        try:
+            result = subprocess.run(['timedatectl', 'list-timezones'], 
+                                  capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                timezones = []
+                for tz in result.stdout.strip().split('\n'):
+                    if tz.strip():
+                        # Format timezone for display
+                        display = tz.replace('_', ' ').replace('/', ' - ')
+                        timezones.append({
+                            'value': tz,
+                            'display': display
+                        })
+                
+                # Get current timezone for comparison
+                current_result = subprocess.run(['timedatectl', 'show', '--property=Timezone', '--value'], 
+                                              capture_output=True, text=True, timeout=10)
+                current_timezone = current_result.stdout.strip() if current_result.returncode == 0 else None
+                
+                return jsonify({
+                    'timezones': timezones,
+                    'current_timezone': current_timezone
+                })
+            else:
+                return jsonify({'error': 'Failed to list timezones'}), 500
+        except subprocess.TimeoutExpired:
+            return jsonify({'error': 'Timeout while listing timezones'}), 500
+        except Exception as e:
+            return jsonify({'error': f'Error listing timezones: {str(e)}'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/system/timezone', methods=['POST'])
+@login_required
+def set_timezone():
+    """Set system timezone."""
+    try:
+        import subprocess
+        from flask import request
+        
+        data = request.get_json()
+        timezone = data.get('timezone')
+        
+        if not timezone:
+            return jsonify({'success': False, 'error': 'Timezone is required'}), 400
+        
+        # Set timezone using timedatectl
+        try:
+            result = subprocess.run(['sudo', 'timedatectl', 'set-timezone', timezone], 
+                                  capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                return jsonify({
+                    'success': True,
+                    'message': f'Timezone set to {timezone}'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to set timezone: {result.stderr}'
+                }), 500
+        except subprocess.TimeoutExpired:
+            return jsonify({
+                'success': False,
+                'error': 'Timeout while setting timezone'
+            }), 500
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Error setting timezone: {str(e)}'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Timezone setting failed: {str(e)}'
+        }), 500
+
+@bp.route('/system/prerequisites', methods=['GET'])
+@login_required
+def check_prerequisites():
+    """Check system prerequisites."""
+    try:
+        import subprocess
+        import shutil
+        import os
+        
+        checks = []
+        all_passed = True
+        
+        # Check Python version
+        try:
+            import sys
+            python_version = sys.version_info
+            if python_version >= (3, 8):
+                checks.append({
+                    'name': 'Python Version',
+                    'message': f'Python {python_version.major}.{python_version.minor}.{python_version.micro} is compatible',
+                    'passed': True,
+                    'details': 'Minimum required: Python 3.8'
+                })
+            else:
+                checks.append({
+                    'name': 'Python Version',
+                    'message': f'Python {python_version.major}.{python_version.minor}.{python_version.micro} is too old',
+                    'passed': False,
+                    'details': 'Minimum required: Python 3.8'
+                })
+                all_passed = False
+        except Exception as e:
+            checks.append({
+                'name': 'Python Version',
+                'message': 'Unable to check Python version',
+                'passed': False,
+                'details': str(e)
+            })
+            all_passed = False
+        
+        # Check required commands
+        required_commands = ['ansible', 'ssh', 'git', 'systemctl']
+        for cmd in required_commands:
+            try:
+                if shutil.which(cmd):
+                    checks.append({
+                        'name': f'{cmd.title()} Command',
+                        'message': f'{cmd} is available',
+                        'passed': True
+                    })
+                else:
+                    checks.append({
+                        'name': f'{cmd.title()} Command',
+                        'message': f'{cmd} is not installed or not in PATH',
+                        'passed': False,
+                        'details': f'Install {cmd} to continue'
+                    })
+                    all_passed = False
+            except Exception as e:
+                checks.append({
+                    'name': f'{cmd.title()} Command',
+                    'message': f'Unable to check {cmd}',
+                    'passed': False,
+                    'details': str(e)
+                })
+                all_passed = False
+        
+        # Check disk space
+        try:
+            import shutil
+            total, used, free = shutil.disk_usage('/')
+            free_gb = free // (1024**3)
+            if free_gb >= 1:
+                checks.append({
+                    'name': 'Disk Space',
+                    'message': f'{free_gb} GB free space available',
+                    'passed': True,
+                    'details': f'Total: {total // (1024**3)} GB, Used: {used // (1024**3)} GB'
+                })
+            else:
+                checks.append({
+                    'name': 'Disk Space',
+                    'message': f'Only {free_gb} GB free space available',
+                    'passed': False,
+                    'details': 'Minimum 1 GB free space recommended'
+                })
+                all_passed = False
+        except Exception as e:
+            checks.append({
+                'name': 'Disk Space',
+                'message': 'Unable to check disk space',
+                'passed': False,
+                'details': str(e)
+            })
+            all_passed = False
+        
+        # Check write permissions
+        try:
+            test_file = 'test_write_permission.tmp'
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+            checks.append({
+                'name': 'Write Permissions',
+                'message': 'Write permissions are available',
+                'passed': True
+            })
+        except Exception as e:
+            checks.append({
+                'name': 'Write Permissions',
+                'message': 'No write permissions in current directory',
+                'passed': False,
+                'details': str(e)
+            })
+            all_passed = False
+        
+        return jsonify({
+            'checks': checks,
+            'all_passed': all_passed
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/system/logs/<log_type>', methods=['GET'])
+@login_required
+def get_system_logs(log_type):
+    """Get system logs."""
+    try:
+        import os
+        from pathlib import Path
+        
+        # Define log file paths
+        log_files = {
+            'orchestrator': 'logs/orchestrator.log',
+            'ansible': 'logs/ansible.log',
+            'system': '/var/log/syslog'
+        }
+        
+        if log_type not in log_files:
+            return jsonify({'error': 'Invalid log type'}), 400
+        
+        log_file = log_files[log_type]
+        
+        # Check if file exists
+        if not os.path.exists(log_file):
+            return jsonify({
+                'logs': [],
+                'message': f'Log file {log_file} not found'
+            })
+        
+        # Read last 100 lines of the log file
+        try:
+            with open(log_file, 'r') as f:
+                lines = f.readlines()
+                # Get last 100 lines
+                logs = [line.strip() for line in lines[-100:]]
+                
+                return jsonify({
+                    'logs': logs,
+                    'file': log_file,
+                    'total_lines': len(lines)
+                })
+        except PermissionError:
+            return jsonify({
+                'error': f'Permission denied reading {log_file}'
+            }), 403
+        except Exception as e:
+            return jsonify({
+                'error': f'Error reading log file: {str(e)}'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/system/logs/<log_type>', methods=['DELETE'])
+@login_required
+def clear_system_logs(log_type):
+    """Clear system logs."""
+    try:
+        import os
+        
+        # Define log file paths
+        log_files = {
+            'orchestrator': 'logs/orchestrator.log',
+            'ansible': 'logs/ansible.log',
+            'system': '/var/log/syslog'
+        }
+        
+        if log_type not in log_files:
+            return jsonify({'error': 'Invalid log type'}), 400
+        
+        log_file = log_files[log_type]
+        
+        # Check if file exists
+        if not os.path.exists(log_file):
+            return jsonify({
+                'success': True,
+                'message': f'Log file {log_file} does not exist'
+            })
+        
+        # Clear the log file (truncate to 0 bytes)
+        try:
+            with open(log_file, 'w') as f:
+                pass  # Truncate file
+            
+            return jsonify({
+                'success': True,
+                'message': f'Cleared {log_type} logs'
+            })
+        except PermissionError:
+            return jsonify({
+                'success': False,
+                'error': f'Permission denied clearing {log_file}'
+            }), 403
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Error clearing log file: {str(e)}'
+            }), 500
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Log clearing failed: {str(e)}'
+        }), 500

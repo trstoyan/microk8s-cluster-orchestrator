@@ -1,0 +1,163 @@
+# Local RAG System Configuration
+# Zero external dependencies - runs completely locally on Raspberry Pi 5
+
+local_rag:
+  # System configuration
+  enabled: true
+  data_dir: "data/local_rag"
+  
+  # Document storage
+  documents:
+    # Maximum documents to keep (0 = unlimited)
+    max_documents: 10000
+    
+    # Maximum document size (characters)
+    max_document_size: 50000
+    
+    # Document retention period (days)
+    retention_days: 365
+  
+  # Search configuration
+  search:
+    # Default number of results to return
+    default_top_k: 5
+    
+    # Minimum similarity threshold
+    min_similarity: 0.1
+    
+    # Maximum search results
+    max_results: 20
+  
+  # Pattern recognition
+  patterns:
+    # Enable pattern extraction
+    enabled: true
+    
+    # Minimum frequency to consider a pattern
+    min_frequency: 2
+    
+    # Maximum patterns to store
+    max_patterns: 1000
+    
+    # Pattern types to extract
+    types:
+      - "error"
+      - "solution"
+      - "warning"
+      - "info"
+  
+  # Text processing
+  text_processing:
+    # Stop words to ignore
+    stop_words:
+      - "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for"
+      - "of", "with", "by", "is", "are", "was", "were", "be", "been", "have"
+      - "has", "had", "do", "does", "did", "will", "would", "could", "should"
+      - "may", "might", "must", "can", "this", "that", "these", "those"
+    
+    # Minimum word length
+    min_word_length: 3
+    
+    # Maximum word length
+    max_word_length: 50
+  
+  # Performance settings
+  performance:
+    # Batch size for document processing
+    batch_size: 100
+    
+    # Cache size for frequent searches
+    cache_size: 1000
+    
+    # Enable performance logging
+    log_performance: false
+  
+  # Health monitoring integration
+  health_monitoring:
+    # Enable health insights
+    enabled: true
+    
+    # Analysis period (days)
+    analysis_period_days: 30
+    
+    # Minimum documents for analysis
+    min_documents_for_analysis: 5
+  
+  # Database settings
+  database:
+    # SQLite connection timeout (seconds)
+    timeout: 30
+    
+    # Enable WAL mode for better concurrency
+    wal_mode: true
+    
+    # Vacuum database periodically
+    auto_vacuum: true
+    
+    # Vacuum interval (days)
+    vacuum_interval_days: 7
+  
+  # Logging
+  logging:
+    # Log level
+    level: "INFO"
+    
+    # Log document additions
+    log_document_additions: false
+    
+    # Log searches
+    log_searches: false
+    
+    # Log performance metrics
+    log_performance: false
+
+# Raspberry Pi 5 specific optimizations
+raspberry_pi:
+  # Memory optimization
+  memory:
+    # Limit memory usage (MB)
+    max_memory_mb: 512
+    
+    # Enable memory monitoring
+    monitor_memory: true
+  
+  # CPU optimization
+  cpu:
+    # Use single-threaded processing for better performance
+    single_threaded: true
+    
+    # Limit CPU usage percentage
+    max_cpu_percent: 80
+  
+  # Storage optimization
+  storage:
+    # Use compressed storage
+    compression: true
+    
+    # Regular cleanup of old data
+    auto_cleanup: true
+    
+    # Cleanup interval (days)
+    cleanup_interval_days: 7
+
+# Development settings
+development:
+  # Enable debug mode
+  debug: false
+  
+  # Verbose logging
+  verbose: false
+  
+  # Test mode
+  test_mode: false
+
+# Production settings
+production:
+  # Enable production optimizations
+  optimized: true
+  
+  # Disable debug features
+  debug_disabled: true
+  
+  # Enable monitoring
+  monitoring_enabled: true

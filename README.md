@@ -4,6 +4,10 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
 
 📚 **Documentation**: See the [docs/](docs/) directory for detailed guides and documentation.
 
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd. or the MicroK8s project. MicroK8s is a trademark of Canonical Ltd. This tool is an independent management interface for MicroK8s clusters.
+
 ## Features
 
 - **Node Management**: Add, remove, and monitor cluster nodes
@@ -850,9 +854,17 @@ The system is designed to be:
 - **Modular**: Easy to extend with custom playbooks and operations
 - **Persistent**: All state and history stored in SQLite
 
+## Contributing
+
+We welcome contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on how to get started.
+
+- [Code of Conduct](CODE_OF_CONDUCT.md) - Our community standards
+- [Security Policy](SECURITY.md) - How to report security issues
+- [Contributors](CONTRIBUTORS.md) - Recognition for contributors
+
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
@@ -860,3 +872,4 @@ For support:
 - Check operation logs for detailed error information
 - Review the troubleshooting playbooks
 - Create issues in the repository for bugs or feature requests
+- See our [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines

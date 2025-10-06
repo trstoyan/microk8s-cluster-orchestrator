@@ -46,7 +46,7 @@
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> 
                         <strong>SSH Key Management:</strong> A unique SSH key pair will be automatically generated for this node. 
-                        You will receive setup instructions after adding the node.
+                        You will receive comprehensive setup instructions including SSH server configuration for secure key-based authentication.
                     </div>
 
                     <div class="mb-3">
@@ -96,9 +96,16 @@
                     <p class="mb-1"><strong>Note:</strong> After adding the node, you will receive:</p>
                     <ul class="mb-0">
                         <li>A unique SSH key pair generated automatically</li>
-                        <li>Step-by-step instructions to add the public key to the target node</li>
+                        <li>Step-by-step instructions including SSH server configuration</li>
+                        <li>Security hardening steps to disable password authentication</li>
                         <li>Connection testing to verify the setup</li>
                     </ul>
+                </div>
+                <div class="mt-3">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>SSH Server Configuration Required:</strong> The setup instructions will include steps to configure the SSH server on the target node for secure key-based authentication, including disabling password authentication for enhanced security.
+                    </div>
                 </div>
             </div>
         </div>
