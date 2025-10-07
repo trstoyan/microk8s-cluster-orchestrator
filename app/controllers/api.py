@@ -334,14 +334,22 @@ def check_longhorn_prerequisites(node_id):
         db.session.add(operation)
         db.session.commit()
         
-        # Run the operation
-        result = orchestrator.run_operation(operation.id)
+        # Execute the operation immediately
+        result = orchestrator.execute_pending_operation(operation.id)
         
-        return jsonify({
-            'success': True,
-            'operation_id': operation.id,
-            'message': 'Longhorn prerequisites check started'
-        })
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'operation_id': operation.id,
+                'message': 'Longhorn prerequisites check completed successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'operation_id': operation.id,
+                'error': result['error'],
+                'message': 'Longhorn prerequisites check failed'
+            }), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -364,14 +372,22 @@ def install_longhorn_prerequisites(node_id):
         db.session.add(operation)
         db.session.commit()
         
-        # Run the operation
-        result = orchestrator.run_operation(operation.id)
+        # Execute the operation immediately
+        result = orchestrator.execute_pending_operation(operation.id)
         
-        return jsonify({
-            'success': True,
-            'operation_id': operation.id,
-            'message': 'Longhorn prerequisites installation started'
-        })
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'operation_id': operation.id,
+                'message': 'Longhorn prerequisites installation completed successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'operation_id': operation.id,
+                'error': result['error'],
+                'message': 'Longhorn prerequisites installation failed'
+            }), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -394,14 +410,22 @@ def setup_new_node(node_id):
         db.session.add(operation)
         db.session.commit()
         
-        # Run the operation
-        result = orchestrator.run_operation(operation.id)
+        # Execute the operation immediately
+        result = orchestrator.execute_pending_operation(operation.id)
         
-        return jsonify({
-            'success': True,
-            'operation_id': operation.id,
-            'message': 'New node setup started'
-        })
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'operation_id': operation.id,
+                'message': 'New node setup completed successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'operation_id': operation.id,
+                'error': result['error'],
+                'message': 'New node setup failed'
+            }), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2344,5 +2368,24 @@ def init_system_templates():
         
         playbook_service.create_system_templates()
         return jsonify({'success': True, 'message': 'System templates initialized'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Operation endpoints
+@bp.route('/operations/<int:operation_id>/execute', methods=['POST'])
+@login_required
+def execute_operation(operation_id):
+    """Execute a pending operation."""
+    try:
+        result = orchestrator.execute_pending_operation(operation_id)
+        
+        if result['success']:
+            return jsonify({
+                'message': 'Operation executed successfully',
+                'operation_id': result['operation_id']
+            }), 200
+        else:
+            return jsonify({'error': result['error']}), 400
+            
     except Exception as e:
         return jsonify({'error': str(e)}), 500

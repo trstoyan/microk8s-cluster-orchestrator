@@ -34,6 +34,7 @@
                             <th style="min-width: 120px;">IP Address</th>
                             <th style="min-width: 80px;">Status</th>
                             <th style="min-width: 100px;">MicroK8s Status</th>
+                            <th style="min-width: 100px;">Longhorn</th>
                             <th style="min-width: 120px;">Cluster</th>
                             <th style="min-width: 100px;">Control Plane</th>
                             <th style="min-width: 120px;">SSH Key</th>
@@ -73,6 +74,18 @@
                                     <span class="badge bg-secondary">not installed</span>
                                 {% else %}
                                     <span class="badge bg-warning">{{ node.microk8s_status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set longhorn_status = node.get_longhorn_status() %}
+                                {% if longhorn_status.status == 'met' %}
+                                    <span class="badge bg-success" title="Prerequisites met">Ready</span>
+                                {% elif longhorn_status.status == 'failed' %}
+                                    <span class="badge bg-warning" title="Missing: {{ longhorn_status.missing_packages|join(', ') }}">Issues</span>
+                                {% elif longhorn_status.status == 'checking' %}
+                                    <span class="badge bg-info">Checking...</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Not checked</span>
                                 {% endif %}
                             </td>
                             <td>

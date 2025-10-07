@@ -1045,6 +1045,20 @@ class OrchestrationService:
             if not nodes:
                 return {'success': False, 'error': 'No nodes found'}
             
+            # Validate SSH connections before proceeding
+            ssh_ready_nodes = [node for node in nodes if node.ssh_connection_ready]
+            if not ssh_ready_nodes:
+                ssh_issues = []
+                for node in nodes:
+                    ssh_issues.append(f"Node '{node.hostname}': {node.get_ssh_status_description()}")
+                return {
+                    'success': False, 
+                    'error': f'No nodes with SSH connections ready. Issues: {"; ".join(ssh_issues)}'
+                }
+            
+            # Use only SSH-ready nodes
+            nodes = ssh_ready_nodes
+            
             # Create operation record
             operation = self._create_operation(
                 operation_type='monitoring',
@@ -1056,6 +1070,16 @@ class OrchestrationService:
             
             # Generate inventory
             inventory_file = self._generate_inventory(nodes)
+            
+            # Verify inventory has valid hosts
+            try:
+                with open(inventory_file, 'r') as f:
+                    inventory_data = json.load(f)
+                valid_hosts = inventory_data.get('all', {}).get('children', {}).get('microk8s_nodes', {}).get('hosts', {})
+                if not valid_hosts:
+                    return {'success': False, 'error': 'No valid hosts in inventory - all nodes have SSH connection issues'}
+            except Exception as e:
+                return {'success': False, 'error': f'Failed to validate inventory: {str(e)}'}
             
             # Run hardware collection playbook
             playbook_path = os.path.join(self.playbooks_dir, 'collect_hardware_report.yml')
@@ -1175,6 +1199,182 @@ class OrchestrationService:
             print(f"Error parsing hardware results: {e}")
         
         return hardware_data
+    
+    def execute_pending_operation(self, operation_id: int) -> Dict[str, Any]:
+        """Execute a pending operation."""
+        try:
+            operation = db.session.get(Operation, operation_id)
+            if not operation:
+                return {'success': False, 'error': 'Operation not found'}
+            
+            if operation.status != 'pending':
+                return {'success': False, 'error': f'Operation is not pending (status: {operation.status})'}
+            
+            # Update status to running
+            self._update_operation_status(operation, 'running')
+            
+            # Get the target node or cluster
+            if operation.node_id:
+                node = db.session.get(Node, operation.node_id)
+                if not node:
+                    self._update_operation_status(operation, 'failed', success=False, error_message='Target node not found')
+                    return {'success': False, 'error': 'Target node not found'}
+                nodes = [node]
+            elif operation.cluster_id:
+                cluster = db.session.get(Cluster, operation.cluster_id)
+                if not cluster:
+                    self._update_operation_status(operation, 'failed', success=False, error_message='Target cluster not found')
+                    return {'success': False, 'error': 'Target cluster not found'}
+                nodes = cluster.nodes
+            else:
+                self._update_operation_status(operation, 'failed', success=False, error_message='No target specified')
+                return {'success': False, 'error': 'No target specified'}
+            
+            # Check if playbook exists
+            if operation.playbook_path:
+                # operation.playbook_path already includes the ansible/ prefix, so use it directly
+                playbook_path = os.path.join(os.path.dirname(self.ansible_dir), operation.playbook_path)
+                if not os.path.exists(playbook_path):
+                    self._update_operation_status(operation, 'failed', success=False, error_message=f'Playbook not found: {playbook_path}')
+                    return {'success': False, 'error': f'Playbook not found: {playbook_path}'}
+                
+                # Generate inventory
+                inventory_file = self._generate_inventory(nodes)
+                
+                # Execute the playbook
+                success, output = self._run_ansible_playbook(playbook_path, inventory_file)
+                
+                if success:
+                    self._update_operation_status(operation, 'completed', success=True, output=output)
+                    
+                    # Parse and store Longhorn prerequisites results if this is a Longhorn operation
+                    if operation.operation_name in ['check_longhorn_prerequisites', 'install_longhorn_prerequisites']:
+                        self._parse_and_store_longhorn_results(output, nodes)
+                else:
+                    self._update_operation_status(operation, 'failed', success=False, output=output, error_message='Ansible playbook failed')
+                
+                return {'success': success, 'operation_id': operation.id, 'output': output}
+            else:
+                self._update_operation_status(operation, 'failed', success=False, error_message='No playbook specified')
+                return {'success': False, 'error': 'No playbook specified'}
+                
+        except Exception as e:
+            if 'operation' in locals():
+                self._update_operation_status(operation, 'failed', success=False, error_message=str(e))
+            return {'success': False, 'error': str(e)}
+    
+    def _parse_and_store_longhorn_results(self, ansible_output: str, nodes: list[Node]):
+        """Parse Longhorn prerequisites check results and update node records."""
+        try:
+            # Look for the longhorn report in the output (either check or install report)
+            lines = ansible_output.split('\n')
+            in_report = False
+            report_lines = []
+            
+            for line in lines:
+                if 'longhorn_check_report:' in line or 'longhorn_prerequisites_report:' in line:
+                    in_report = True
+                    continue
+                elif in_report and line.strip().startswith('hostname:'):
+                    # Start collecting the report
+                    report_lines.append(line)
+                elif in_report and line.strip() and not line.startswith('  ') and not line.startswith('-') and ':' in line and not line.startswith('    '):
+                    # End of report section - we hit a main key that's not indented
+                    if not line.startswith('hostname:') and not line.startswith('prerequisites_met:'):
+                        break
+                elif in_report:
+                    report_lines.append(line)
+            
+            if report_lines:
+                # Parse the YAML-like report
+                report_data = self._parse_yaml_like_report('\n'.join(report_lines))
+                
+                # Update each node with the results
+                for node in nodes:
+                    node.longhorn_prerequisites_met = report_data.get('prerequisites_met', False)
+                    node.longhorn_prerequisites_status = 'met' if report_data.get('prerequisites_met', False) else 'failed'
+                    
+                    # Handle different field names between check and install reports
+                    if 'packages_status' in report_data:
+                        # Check report format
+                        node.longhorn_missing_packages = json.dumps(report_data.get('packages_status', {}).get('missing', []))
+                        node.longhorn_missing_commands = json.dumps(report_data.get('commands_status', {}).get('missing', []))
+                        node.longhorn_services_status = json.dumps(report_data.get('services_status', {}))
+                        node.longhorn_storage_info = json.dumps(report_data.get('storage_info', {}))
+                    else:
+                        # Install report format
+                        node.longhorn_missing_packages = json.dumps(report_data.get('packages_installed', []))
+                        node.longhorn_missing_commands = json.dumps(report_data.get('commands_missing', []))
+                        node.longhorn_services_status = json.dumps(report_data.get('services_running', {}))
+                        node.longhorn_storage_info = json.dumps({
+                            'block_devices_count': report_data.get('block_devices_count', 0),
+                            'filesystem_types': report_data.get('filesystem_types', [])
+                        })
+                    
+                    node.longhorn_last_check = datetime.utcnow()
+                    
+                    db.session.commit()
+                    print(f"Updated Longhorn prerequisites status for {node.hostname}")
+                    
+        except Exception as e:
+            print(f"Error parsing Longhorn results: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _parse_yaml_like_report(self, report_text: str) -> Dict[str, Any]:
+        """Parse YAML-like report from Ansible output."""
+        result = {}
+        current_section = None
+        
+        for line in report_text.split('\n'):
+            line = line.strip()
+            if not line or line.startswith('-') or line.startswith('hostname:'):
+                continue
+                
+            if ':' in line and not line.startswith('  '):
+                # Main section
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key == 'prerequisites_met':
+                    result[key] = value.lower() == 'true'
+                elif key in ['packages_status', 'commands_status', 'services_status', 'storage_info', 'functionality_tests', 'configuration']:
+                    result[key] = {}
+                    current_section = result[key]
+                else:
+                    result[key] = value
+                    
+            elif line.startswith('  ') and current_section is not None:
+                # Sub-section item
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    if key in ['missing', 'available', 'installed']:
+                        # Parse list items
+                        if value.startswith('['):
+                            # Already a JSON list
+                            current_section[key] = json.loads(value)
+                        else:
+                            # Initialize empty list
+                            current_section[key] = []
+                    elif key in ['enabled', 'running']:
+                        # Boolean values
+                        current_section[key] = value.lower() == 'true'
+                    else:
+                        # Other values
+                        current_section[key] = value
+            elif line.startswith('- ') and current_section is not None:
+                # This is a list item, add it to the current list
+                item = line[2:].strip()
+                if 'available' in current_section:
+                    current_section['available'].append(item)
+                elif 'installed' in current_section:
+                    current_section['installed'].append(item)
+        
+        return result
     
     def _fetch_json_from_remote(self, hostname: str, remote_file_path: str, nodes: list[Node]) -> Dict[str, Any]:
         """Fetch JSON file from remote node using SCP."""

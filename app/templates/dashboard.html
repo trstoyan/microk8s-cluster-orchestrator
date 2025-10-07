@@ -211,6 +211,7 @@
                                     <th>Hostname</th>
                                     <th>Status</th>
                                     <th>MicroK8s</th>
+                                    <th>Longhorn</th>
                                     <th>Cluster</th>
                                 </tr>
                             </thead>
@@ -236,6 +237,18 @@
                                             <span class="badge bg-secondary status-badge">not installed</span>
                                         {% else %}
                                             <span class="badge bg-warning status-badge">{{ node.microk8s_status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% set longhorn_status = node.get_longhorn_status() %}
+                                        {% if longhorn_status.status == 'met' %}
+                                            <span class="badge bg-success status-badge" title="Prerequisites met">Ready</span>
+                                        {% elif longhorn_status.status == 'failed' %}
+                                            <span class="badge bg-warning status-badge" title="Missing: {{ longhorn_status.missing_packages|join(', ') }}">Issues</span>
+                                        {% elif longhorn_status.status == 'checking' %}
+                                            <span class="badge bg-info status-badge">Checking...</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary status-badge">Not checked</span>
                                         {% endif %}
                                     </td>
                                     <td>{{ node.cluster.name if node.cluster else '-' }}</td>
