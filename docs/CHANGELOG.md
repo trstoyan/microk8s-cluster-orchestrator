@@ -27,8 +27,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Security**: User isolation and permission-based access control
 
 ### Fixed
+- **Template Uptime Display Error**: Fixed TypeError in hardware_report.html and node_hardware_report.html when calculating node uptime
+  - Explicitly cast uptime_seconds to integer before division in Jinja2 templates
+  - Prevents "unsupported operand type(s) for /: 'str' and 'int'" error
+- **Ansible Callback Plugin Deprecation**: Fixed deprecated community.general.yaml callback plugin warnings
+  - Updated ansible.cfg to use ansible.builtin.yaml instead of deprecated community.general.yaml
+  - Resolved "community.general.yaml has been deprecated" warnings in Ansible output
+- **Longhorn Prerequisites Status Integration**: Implemented complete Longhorn prerequisites status display and management
+  - Added Longhorn prerequisites fields to Node model (prerequisites_met, status, missing_packages, etc.)
+  - Updated orchestrator service to parse and store Longhorn check results in database
+  - Added Longhorn status column to dashboard and nodes page with color-coded badges
+  - Fixed parsing logic to handle both check and install operation output formats
+  - Added support for missing wol_description property in Node model for WoL configuration
+- **Operation Execution Issues**: Fixed operations getting stuck in pending status
+  - Updated API endpoints to execute operations immediately instead of leaving them pending
+  - Fixed check-longhorn-prerequisites, install-longhorn-prerequisites, and setup-new-node endpoints
+  - Added proper error handling and success/failure responses
+- **Wake-on-LAN Configuration**: Fixed WoL configuration functionality
+  - Added missing wol_description property to Node model with human-readable descriptions
+  - Resolved "'Node' object has no attribute 'wol_description'" error in WoL status endpoint
+  - WoL configuration now works correctly in web interface
 - **SQLAlchemy Model Conflicts**: Resolved database schema conflicts between CLI and web interface models
-- **Wake-on-LAN Errors**: Fixed `'Node' object has no attribute 'wol_description'` error
 - **SSH Key Detection**: Improved SSH key scanning to properly detect existing keys
 - **Database Schema Issues**: Added missing database columns and improved model compatibility
 - **Web Interface Errors**: Fixed cluster page errors and improved error handling
