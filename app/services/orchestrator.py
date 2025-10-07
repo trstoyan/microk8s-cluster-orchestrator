@@ -1232,7 +1232,8 @@ class OrchestrationService:
             
             # Check if playbook exists
             if operation.playbook_path:
-                playbook_path = os.path.join(self.ansible_dir, operation.playbook_path)
+                # operation.playbook_path already includes the ansible/ prefix, so use it directly
+                playbook_path = os.path.join(os.path.dirname(self.ansible_dir), operation.playbook_path)
                 if not os.path.exists(playbook_path):
                     self._update_operation_status(operation, 'failed', success=False, error_message=f'Playbook not found: {playbook_path}')
                     return {'success': False, 'error': f'Playbook not found: {playbook_path}'}
