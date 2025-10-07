@@ -292,6 +292,24 @@ class Node(db.Model):
                 getattr(self, 'wol_mac_address', None) and 
                 getattr(self, 'wol_mac_address', '') != '')
     
+    @property
+    def wol_description(self):
+        """Get human-readable Wake-on-LAN description."""
+        if not getattr(self, 'wol_enabled', False):
+            return "Wake-on-LAN disabled"
+        
+        if self.is_virtual_node:
+            if getattr(self, 'proxmox_vm_id', None) and getattr(self, 'proxmox_host_id', None):
+                return f"Virtual node (Proxmox VM {self.proxmox_vm_id})"
+            else:
+                return "Virtual node (Proxmox configuration incomplete)"
+        else:
+            mac = getattr(self, 'wol_mac_address', None)
+            if mac:
+                return f"Physical node (MAC: {mac})"
+            else:
+                return "Physical node (MAC address not configured)"
+    
     @classmethod
     def sync_with_database(cls):
         """
