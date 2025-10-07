@@ -1247,8 +1247,8 @@ class OrchestrationService:
                 if success:
                     self._update_operation_status(operation, 'completed', success=True, output=output)
                     
-                    # Parse and store Longhorn prerequisites results if this is a Longhorn check
-                    if operation.operation_name == 'check_longhorn_prerequisites':
+                    # Parse and store Longhorn prerequisites results if this is a Longhorn operation
+                    if operation.operation_name in ['check_longhorn_prerequisites', 'install_longhorn_prerequisites']:
                         self._parse_and_store_longhorn_results(output, nodes)
                 else:
                     self._update_operation_status(operation, 'failed', success=False, output=output, error_message='Ansible playbook failed')
@@ -1266,13 +1266,13 @@ class OrchestrationService:
     def _parse_and_store_longhorn_results(self, ansible_output: str, nodes: list[Node]):
         """Parse Longhorn prerequisites check results and update node records."""
         try:
-            # Look for the longhorn_check_report in the output
+            # Look for the longhorn report in the output (either check or install report)
             lines = ansible_output.split('\n')
             in_report = False
             report_lines = []
             
             for line in lines:
-                if 'longhorn_check_report:' in line:
+                if 'longhorn_check_report:' in line or 'longhorn_prerequisites_report:' in line:
                     in_report = True
                     continue
                 elif in_report and line.strip().startswith('hostname:'):
@@ -1293,10 +1293,24 @@ class OrchestrationService:
                 for node in nodes:
                     node.longhorn_prerequisites_met = report_data.get('prerequisites_met', False)
                     node.longhorn_prerequisites_status = 'met' if report_data.get('prerequisites_met', False) else 'failed'
-                    node.longhorn_missing_packages = json.dumps(report_data.get('packages_status', {}).get('missing', []))
-                    node.longhorn_missing_commands = json.dumps(report_data.get('commands_status', {}).get('missing', []))
-                    node.longhorn_services_status = json.dumps(report_data.get('services_status', {}))
-                    node.longhorn_storage_info = json.dumps(report_data.get('storage_info', {}))
+                    
+                    # Handle different field names between check and install reports
+                    if 'packages_status' in report_data:
+                        # Check report format
+                        node.longhorn_missing_packages = json.dumps(report_data.get('packages_status', {}).get('missing', []))
+                        node.longhorn_missing_commands = json.dumps(report_data.get('commands_status', {}).get('missing', []))
+                        node.longhorn_services_status = json.dumps(report_data.get('services_status', {}))
+                        node.longhorn_storage_info = json.dumps(report_data.get('storage_info', {}))
+                    else:
+                        # Install report format
+                        node.longhorn_missing_packages = json.dumps(report_data.get('packages_installed', []))
+                        node.longhorn_missing_commands = json.dumps(report_data.get('commands_missing', []))
+                        node.longhorn_services_status = json.dumps(report_data.get('services_running', {}))
+                        node.longhorn_storage_info = json.dumps({
+                            'block_devices_count': report_data.get('block_devices_count', 0),
+                            'filesystem_types': report_data.get('filesystem_types', [])
+                        })
+                    
                     node.longhorn_last_check = datetime.utcnow()
                     
                     db.session.commit()
