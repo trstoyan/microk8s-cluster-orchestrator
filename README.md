@@ -557,7 +557,7 @@ This project showcases several technical accomplishments:
 
 - **Issues**: [GitHub Issues](https://github.com/trstoyan/microk8s-cluster-orchestrator/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/trstoyan/microk8s-cluster-orchestrator/discussions)
-- **Email**: [Your Email]
+- **Email**: stoyantr+fromgit@icloud.com
 
 ---
 
