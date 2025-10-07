@@ -200,12 +200,36 @@ class OrchestrationService:
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=self.ansible_dir)
             success = result.returncode == 0
             
-            # Provide more detailed output
+            # Provide more detailed output with filtering
             output_parts = []
             if result.stdout.strip():
-                output_parts.append(f"STDOUT:\n{result.stdout}")
+                # Filter out deprecated callback plugin warnings
+                filtered_stdout = []
+                for line in result.stdout.split('\n'):
+                    if not any(warning in line for warning in [
+                        'deprecated callback plugin',
+                        'community.general',
+                        'ansible.builtin.default'
+                    ]):
+                        filtered_stdout.append(line)
+                filtered_output = '\n'.join(filtered_stdout)
+                if filtered_output.strip():
+                    output_parts.append(f"STDOUT:\n{filtered_output}")
+            
             if result.stderr.strip():
-                output_parts.append(f"STDERR:\n{result.stderr}")
+                # Filter out deprecated callback plugin warnings from stderr too
+                filtered_stderr = []
+                for line in result.stderr.split('\n'):
+                    if not any(warning in line for warning in [
+                        'deprecated callback plugin',
+                        'community.general',
+                        'ansible.builtin.default'
+                    ]):
+                        filtered_stderr.append(line)
+                filtered_error = '\n'.join(filtered_stderr)
+                if filtered_error.strip():
+                    output_parts.append(f"STDERR:\n{filtered_error}")
+            
             if not output_parts:
                 output_parts.append("No output from ansible-playbook")
                 

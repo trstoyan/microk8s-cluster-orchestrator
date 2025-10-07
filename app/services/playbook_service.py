@@ -376,7 +376,13 @@ class PlaybookService:
                 if not line and process.poll() is not None:
                     break
                 if line:
-                    output_lines.append(line)
+                    # Filter out deprecated callback plugin warnings
+                    if not any(warning in line for warning in [
+                        'deprecated callback plugin',
+                        'community.general',
+                        'ansible.builtin.default'
+                    ]):
+                        output_lines.append(line)
                     # Update progress (simplified)
                     if 'PLAY' in line or 'TASK' in line:
                         execution.progress_percent = min(execution.progress_percent + 5, 95)

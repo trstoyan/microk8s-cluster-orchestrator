@@ -265,7 +265,7 @@
                                             <small>Load: {{ node.load_average }}</small><br>
                                         {% endif %}
                                         {% if node.uptime_seconds %}
-                                            <small>Uptime: {{ "%.1f"|format(node.uptime_seconds / 86400) }} days</small>
+                                            <small>Uptime: {{ "%.1f"|format(node.uptime_seconds|int / 86400) }} days</small>
                                         {% endif %}
                                     </td>
                                     <td>
