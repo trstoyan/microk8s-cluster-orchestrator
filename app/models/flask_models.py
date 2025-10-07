@@ -121,6 +121,15 @@ class Node(db.Model):
     ssh_connection_test_result = db.Column(db.Text)  # Last SSH connection test result (JSON)
     ssh_setup_instructions = db.Column(db.Text)  # Setup instructions for the user
     
+    # Longhorn Prerequisites Status
+    longhorn_prerequisites_met = db.Column(db.Boolean, default=False)  # Whether Longhorn prerequisites are met
+    longhorn_prerequisites_status = db.Column(db.String(50), default='not_checked')  # not_checked, checking, met, failed
+    longhorn_missing_packages = db.Column(db.Text)  # JSON list of missing packages
+    longhorn_missing_commands = db.Column(db.Text)  # JSON list of missing commands
+    longhorn_services_status = db.Column(db.Text)  # JSON status of required services
+    longhorn_storage_info = db.Column(db.Text)  # JSON storage information
+    longhorn_last_check = db.Column(db.DateTime)  # When prerequisites were last checked
+    
     # Wake-on-LAN (WoL) Configuration
     wol_enabled = db.Column(db.Boolean, default=False)  # Whether WoL is enabled on this node
     wol_mac_address = db.Column(db.String(17))  # MAC address for WoL (format: XX:XX:XX:XX:XX:XX)
@@ -236,6 +245,45 @@ class Node(db.Model):
         """Get human-readable SSH key status description."""
         status = self.get_ssh_key_status()
         return status['status_description']
+    
+    def get_longhorn_status(self):
+        """Get Longhorn prerequisites status information."""
+        try:
+            missing_packages = []
+            missing_commands = []
+            services_status = {}
+            
+            if self.longhorn_missing_packages:
+                import json
+                missing_packages = json.loads(self.longhorn_missing_packages)
+            
+            if self.longhorn_missing_commands:
+                import json
+                missing_commands = json.loads(self.longhorn_missing_commands)
+            
+            if self.longhorn_services_status:
+                import json
+                services_status = json.loads(self.longhorn_services_status)
+            
+            return {
+                'prerequisites_met': self.longhorn_prerequisites_met,
+                'status': self.longhorn_prerequisites_status,
+                'missing_packages': missing_packages,
+                'missing_commands': missing_commands,
+                'services_status': services_status,
+                'last_check': self.longhorn_last_check,
+                'needs_attention': not self.longhorn_prerequisites_met and self.longhorn_prerequisites_status == 'failed'
+            }
+        except Exception as e:
+            return {
+                'prerequisites_met': False,
+                'status': 'error',
+                'missing_packages': [],
+                'missing_commands': [],
+                'services_status': {},
+                'last_check': None,
+                'needs_attention': True
+            }
     
     @property
     def wol_configured(self):

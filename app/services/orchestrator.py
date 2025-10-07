@@ -1246,6 +1246,10 @@ class OrchestrationService:
                 
                 if success:
                     self._update_operation_status(operation, 'completed', success=True, output=output)
+                    
+                    # Parse and store Longhorn prerequisites results if this is a Longhorn check
+                    if operation.operation_name == 'check_longhorn_prerequisites':
+                        self._parse_and_store_longhorn_results(output, nodes)
                 else:
                     self._update_operation_status(operation, 'failed', success=False, output=output, error_message='Ansible playbook failed')
                 
@@ -1258,6 +1262,96 @@ class OrchestrationService:
             if 'operation' in locals():
                 self._update_operation_status(operation, 'failed', success=False, error_message=str(e))
             return {'success': False, 'error': str(e)}
+    
+    def _parse_and_store_longhorn_results(self, ansible_output: str, nodes: list[Node]):
+        """Parse Longhorn prerequisites check results and update node records."""
+        try:
+            # Look for the longhorn_check_report in the output
+            lines = ansible_output.split('\n')
+            in_report = False
+            report_lines = []
+            
+            for line in lines:
+                if 'longhorn_check_report:' in line:
+                    in_report = True
+                    continue
+                elif in_report and line.strip().startswith('hostname:'):
+                    # Start collecting the report
+                    report_lines.append(line)
+                elif in_report and line.strip() and not line.startswith('  ') and ':' in line:
+                    # End of report section
+                    break
+                elif in_report:
+                    report_lines.append(line)
+            
+            if report_lines:
+                # Parse the YAML-like report
+                report_data = self._parse_yaml_like_report('\n'.join(report_lines))
+                
+                # Update each node with the results
+                for node in nodes:
+                    node.longhorn_prerequisites_met = report_data.get('prerequisites_met', False)
+                    node.longhorn_prerequisites_status = 'met' if report_data.get('prerequisites_met', False) else 'failed'
+                    node.longhorn_missing_packages = json.dumps(report_data.get('packages_status', {}).get('missing', []))
+                    node.longhorn_missing_commands = json.dumps(report_data.get('commands_status', {}).get('missing', []))
+                    node.longhorn_services_status = json.dumps(report_data.get('services_status', {}))
+                    node.longhorn_storage_info = json.dumps(report_data.get('storage_info', {}))
+                    node.longhorn_last_check = datetime.utcnow()
+                    
+                    db.session.commit()
+                    print(f"Updated Longhorn prerequisites status for {node.hostname}")
+                    
+        except Exception as e:
+            print(f"Error parsing Longhorn results: {e}")
+    
+    def _parse_yaml_like_report(self, report_text: str) -> Dict[str, Any]:
+        """Parse YAML-like report from Ansible output."""
+        result = {}
+        current_section = None
+        
+        for line in report_text.split('\n'):
+            line = line.strip()
+            if not line or line.startswith('-') or line.startswith('hostname:'):
+                continue
+                
+            if ':' in line and not line.startswith('  '):
+                # Main section
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key == 'prerequisites_met':
+                    result[key] = value.lower() == 'true'
+                elif key in ['packages_status', 'commands_status', 'services_status', 'storage_info']:
+                    result[key] = {}
+                    current_section = result[key]
+                else:
+                    result[key] = value
+                    
+            elif line.startswith('  ') and current_section is not None:
+                # Sub-section item
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    if key == 'missing':
+                        # Parse list of missing items
+                        if value.startswith('['):
+                            # Already a list format
+                            current_section[key] = json.loads(value)
+                        else:
+                            current_section[key] = []
+                    elif key in ['available', 'installed']:
+                        # Parse list of available/installed items
+                        if value.startswith('['):
+                            current_section[key] = json.loads(value)
+                        else:
+                            current_section[key] = []
+                    else:
+                        current_section[key] = value
+        
+        return result
     
     def _fetch_json_from_remote(self, hostname: str, remote_file_path: str, nodes: list[Node]) -> Dict[str, Any]:
         """Fetch JSON file from remote node using SCP."""
