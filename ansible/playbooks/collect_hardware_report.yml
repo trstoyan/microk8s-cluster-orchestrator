@@ -210,7 +210,7 @@
 
     - name: Copy disk calculation script to remote host
       copy:
-        src: "{{ playbook_dir }}/../../calculate_disk_total.py"
+        src: "{{ playbook_dir }}/../../scripts/calculate_disk_total.py"
         dest: /tmp/calculate_disk_total.py
         mode: '0755'
 
