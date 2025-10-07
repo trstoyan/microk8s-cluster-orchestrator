@@ -1278,9 +1278,10 @@ class OrchestrationService:
                 elif in_report and line.strip().startswith('hostname:'):
                     # Start collecting the report
                     report_lines.append(line)
-                elif in_report and line.strip() and not line.startswith('  ') and ':' in line:
-                    # End of report section
-                    break
+                elif in_report and line.strip() and not line.startswith('  ') and not line.startswith('-') and ':' in line and not line.startswith('    '):
+                    # End of report section - we hit a main key that's not indented
+                    if not line.startswith('hostname:') and not line.startswith('prerequisites_met:'):
+                        break
                 elif in_report:
                     report_lines.append(line)
             
@@ -1303,6 +1304,8 @@ class OrchestrationService:
                     
         except Exception as e:
             print(f"Error parsing Longhorn results: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _parse_yaml_like_report(self, report_text: str) -> Dict[str, Any]:
         """Parse YAML-like report from Ansible output."""
@@ -1322,7 +1325,7 @@ class OrchestrationService:
                 
                 if key == 'prerequisites_met':
                     result[key] = value.lower() == 'true'
-                elif key in ['packages_status', 'commands_status', 'services_status', 'storage_info']:
+                elif key in ['packages_status', 'commands_status', 'services_status', 'storage_info', 'functionality_tests', 'configuration']:
                     result[key] = {}
                     current_section = result[key]
                 else:
@@ -1335,21 +1338,27 @@ class OrchestrationService:
                     key = key.strip()
                     value = value.strip()
                     
-                    if key == 'missing':
-                        # Parse list of missing items
+                    if key in ['missing', 'available', 'installed']:
+                        # Parse list items
                         if value.startswith('['):
-                            # Already a list format
+                            # Already a JSON list
                             current_section[key] = json.loads(value)
                         else:
+                            # Initialize empty list
                             current_section[key] = []
-                    elif key in ['available', 'installed']:
-                        # Parse list of available/installed items
-                        if value.startswith('['):
-                            current_section[key] = json.loads(value)
-                        else:
-                            current_section[key] = []
+                    elif key in ['enabled', 'running']:
+                        # Boolean values
+                        current_section[key] = value.lower() == 'true'
                     else:
+                        # Other values
                         current_section[key] = value
+            elif line.startswith('- ') and current_section is not None:
+                # This is a list item, add it to the current list
+                item = line[2:].strip()
+                if 'available' in current_section:
+                    current_section['available'].append(item)
+                elif 'installed' in current_section:
+                    current_section['installed'].append(item)
         
         return result
     
