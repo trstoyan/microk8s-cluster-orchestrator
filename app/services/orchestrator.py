@@ -1069,6 +1069,20 @@ class OrchestrationService:
             if not nodes:
                 return {'success': False, 'error': 'No nodes found'}
             
+            # Validate SSH connections before proceeding
+            ssh_ready_nodes = [node for node in nodes if node.ssh_connection_ready]
+            if not ssh_ready_nodes:
+                ssh_issues = []
+                for node in nodes:
+                    ssh_issues.append(f"Node '{node.hostname}': {node.get_ssh_status_description()}")
+                return {
+                    'success': False, 
+                    'error': f'No nodes with SSH connections ready. Issues: {"; ".join(ssh_issues)}'
+                }
+            
+            # Use only SSH-ready nodes
+            nodes = ssh_ready_nodes
+            
             # Create operation record
             operation = self._create_operation(
                 operation_type='monitoring',
@@ -1080,6 +1094,16 @@ class OrchestrationService:
             
             # Generate inventory
             inventory_file = self._generate_inventory(nodes)
+            
+            # Verify inventory has valid hosts
+            try:
+                with open(inventory_file, 'r') as f:
+                    inventory_data = json.load(f)
+                valid_hosts = inventory_data.get('all', {}).get('children', {}).get('microk8s_nodes', {}).get('hosts', {})
+                if not valid_hosts:
+                    return {'success': False, 'error': 'No valid hosts in inventory - all nodes have SSH connection issues'}
+            except Exception as e:
+                return {'success': False, 'error': f'Failed to validate inventory: {str(e)}'}
             
             # Run hardware collection playbook
             playbook_path = os.path.join(self.playbooks_dir, 'collect_hardware_report.yml')
