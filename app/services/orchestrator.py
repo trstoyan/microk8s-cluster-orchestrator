@@ -200,36 +200,12 @@ class OrchestrationService:
             result = subprocess.run(cmd, capture_output=True, text=True, cwd=self.ansible_dir)
             success = result.returncode == 0
             
-            # Provide more detailed output with filtering
+            # Provide more detailed output
             output_parts = []
             if result.stdout.strip():
-                # Filter out deprecated callback plugin warnings
-                filtered_stdout = []
-                for line in result.stdout.split('\n'):
-                    if not any(warning in line for warning in [
-                        'deprecated callback plugin',
-                        'community.general',
-                        'ansible.builtin.default'
-                    ]):
-                        filtered_stdout.append(line)
-                filtered_output = '\n'.join(filtered_stdout)
-                if filtered_output.strip():
-                    output_parts.append(f"STDOUT:\n{filtered_output}")
-            
+                output_parts.append(f"STDOUT:\n{result.stdout}")
             if result.stderr.strip():
-                # Filter out deprecated callback plugin warnings from stderr too
-                filtered_stderr = []
-                for line in result.stderr.split('\n'):
-                    if not any(warning in line for warning in [
-                        'deprecated callback plugin',
-                        'community.general',
-                        'ansible.builtin.default'
-                    ]):
-                        filtered_stderr.append(line)
-                filtered_error = '\n'.join(filtered_stderr)
-                if filtered_error.strip():
-                    output_parts.append(f"STDERR:\n{filtered_error}")
-            
+                output_parts.append(f"STDERR:\n{result.stderr}")
             if not output_parts:
                 output_parts.append("No output from ansible-playbook")
                 
@@ -1223,6 +1199,64 @@ class OrchestrationService:
             print(f"Error parsing hardware results: {e}")
         
         return hardware_data
+    
+    def execute_pending_operation(self, operation_id: int) -> Dict[str, Any]:
+        """Execute a pending operation."""
+        try:
+            operation = db.session.get(Operation, operation_id)
+            if not operation:
+                return {'success': False, 'error': 'Operation not found'}
+            
+            if operation.status != 'pending':
+                return {'success': False, 'error': f'Operation is not pending (status: {operation.status})'}
+            
+            # Update status to running
+            self._update_operation_status(operation, 'running')
+            
+            # Get the target node or cluster
+            if operation.node_id:
+                node = db.session.get(Node, operation.node_id)
+                if not node:
+                    self._update_operation_status(operation, 'failed', success=False, error_message='Target node not found')
+                    return {'success': False, 'error': 'Target node not found'}
+                nodes = [node]
+            elif operation.cluster_id:
+                cluster = db.session.get(Cluster, operation.cluster_id)
+                if not cluster:
+                    self._update_operation_status(operation, 'failed', success=False, error_message='Target cluster not found')
+                    return {'success': False, 'error': 'Target cluster not found'}
+                nodes = cluster.nodes
+            else:
+                self._update_operation_status(operation, 'failed', success=False, error_message='No target specified')
+                return {'success': False, 'error': 'No target specified'}
+            
+            # Check if playbook exists
+            if operation.playbook_path:
+                playbook_path = os.path.join(self.ansible_dir, operation.playbook_path)
+                if not os.path.exists(playbook_path):
+                    self._update_operation_status(operation, 'failed', success=False, error_message=f'Playbook not found: {playbook_path}')
+                    return {'success': False, 'error': f'Playbook not found: {playbook_path}'}
+                
+                # Generate inventory
+                inventory_file = self._generate_inventory(nodes)
+                
+                # Execute the playbook
+                success, output = self._run_ansible_playbook(playbook_path, inventory_file)
+                
+                if success:
+                    self._update_operation_status(operation, 'completed', success=True, output=output)
+                else:
+                    self._update_operation_status(operation, 'failed', success=False, output=output, error_message='Ansible playbook failed')
+                
+                return {'success': success, 'operation_id': operation.id, 'output': output}
+            else:
+                self._update_operation_status(operation, 'failed', success=False, error_message='No playbook specified')
+                return {'success': False, 'error': 'No playbook specified'}
+                
+        except Exception as e:
+            if 'operation' in locals():
+                self._update_operation_status(operation, 'failed', success=False, error_message=str(e))
+            return {'success': False, 'error': str(e)}
     
     def _fetch_json_from_remote(self, hostname: str, remote_file_path: str, nodes: list[Node]) -> Dict[str, Any]:
         """Fetch JSON file from remote node using SCP."""

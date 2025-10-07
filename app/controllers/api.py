@@ -2346,3 +2346,22 @@ def init_system_templates():
         return jsonify({'success': True, 'message': 'System templates initialized'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Operation endpoints
+@bp.route('/operations/<int:operation_id>/execute', methods=['POST'])
+@login_required
+def execute_operation(operation_id):
+    """Execute a pending operation."""
+    try:
+        result = orchestrator.execute_pending_operation(operation_id)
+        
+        if result['success']:
+            return jsonify({
+                'message': 'Operation executed successfully',
+                'operation_id': result['operation_id']
+            }), 200
+        else:
+            return jsonify({'error': result['error']}), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

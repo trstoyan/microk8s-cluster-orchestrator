@@ -99,17 +99,7 @@ class CLIOrchestrationService:
                 timeout=300  # 5 minute timeout
             )
             
-            # Filter out deprecated callback plugin warnings
-            filtered_output = []
-            for line in (result.stdout + result.stderr).split('\n'):
-                if not any(warning in line for warning in [
-                    'deprecated callback plugin',
-                    'community.general',
-                    'ansible.builtin.default'
-                ]):
-                    filtered_output.append(line)
-            
-            output = '\n'.join(filtered_output)
+            output = result.stdout + result.stderr
             success = result.returncode == 0
             
             return success, output

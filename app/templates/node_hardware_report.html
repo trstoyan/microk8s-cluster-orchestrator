@@ -79,7 +79,7 @@
                             <p><strong>Load Average:</strong> {{ node.load_average }}</p>
                             {% endif %}
                             {% if node.uptime_seconds %}
-                            <p><strong>Uptime:</strong> {{ "%.1f"|format(node.uptime_seconds / 86400) }} days</p>
+                            <p><strong>Uptime:</strong> {{ "%.1f"|format(node.uptime_seconds|int / 86400) }} days</p>
                             {% endif %}
                             {% else %}
                             <p class="text-muted">No usage data available. Click "Update Report" to collect current data.</p>
