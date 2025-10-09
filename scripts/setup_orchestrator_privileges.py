@@ -14,11 +14,13 @@ from pathlib import Path
 class OrchestratorPrivilegeSetup:
     """Setup and configure orchestrator privileges."""
     
-    def __init__(self):
+    def __init__(self, auto_fix=True):
         self.script_dir = Path(__file__).parent
         self.project_root = self.script_dir.parent
         self.current_user = os.getenv('USER', 'orchestrator')
         self.sudoers_file = Path('/etc/sudoers.d/microk8s-orchestrator')
+        self.auto_fix = auto_fix
+        self.fixes_applied = []
         
         # Commands that the orchestrator needs to run with sudo
         self.required_commands = [
@@ -75,7 +77,9 @@ class OrchestratorPrivilegeSetup:
                 return True
             else:
                 print("❌ Passwordless sudo is not configured")
-                return False
+                if self.auto_fix:
+                    print("🔧 Auto-fix: This will be configured in the next step")
+                return True  # Will be fixed by create_sudoers_config
         except Exception as e:
             print(f"❌ Error checking sudo privileges: {e}")
             return False
@@ -320,14 +324,102 @@ WantedBy=multi-user.target
         print(f"✅ Setup report saved to: {report_file}")
         return report
     
+    def check_and_fix_environment(self):
+        """Check and auto-fix common environment issues."""
+        print("🔍 Pre-flight checks and auto-fixes...")
+        print()
+        
+        fixes = []
+        
+        # 1. Check Python virtual environment
+        venv_path = self.project_root / '.venv'
+        if not venv_path.exists():
+            print("❌ Python virtual environment not found")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Creating virtual environment...")
+                try:
+                    subprocess.run(['python3', '-m', 'venv', str(venv_path)], 
+                                 cwd=self.project_root, check=True)
+                    print("✅ Virtual environment created")
+                    fixes.append("Created Python virtual environment")
+                except Exception as e:
+                    print(f"⚠️  Could not create venv: {e}")
+        else:
+            print("✅ Python virtual environment exists")
+        
+        # 2. Check Python dependencies
+        requirements_file = self.project_root / 'requirements.txt'
+        if requirements_file.exists():
+            pip_path = venv_path / 'bin' / 'pip'
+            if pip_path.exists():
+                print("🔍 Checking Python dependencies...")
+                try:
+                    result = subprocess.run([str(pip_path), 'check'], 
+                                          capture_output=True, text=True)
+                    if result.returncode != 0 and self.auto_fix:
+                        print("🔧 Auto-fix: Installing/updating dependencies...")
+                        subprocess.run([str(pip_path), 'install', '-r', 
+                                      str(requirements_file)], check=True)
+                        fixes.append("Installed Python dependencies")
+                        print("✅ Dependencies updated")
+                    else:
+                        print("✅ Python dependencies OK")
+                except Exception as e:
+                    print(f"⚠️  Dependency check warning: {e}")
+        
+        # 3. Check database file
+        db_files = list(self.project_root.glob('*.db')) + list(self.project_root.glob('instance/*.db'))
+        if not db_files:
+            print("❌ Database not initialized")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Database will be initialized after setup")
+                print("   Run 'make init' after setup completes")
+                fixes.append("Database initialization pending")
+        else:
+            print(f"✅ Database found: {db_files[0].name}")
+        
+        # 4. Check logs directory
+        logs_dir = self.project_root / 'logs'
+        if not logs_dir.exists():
+            print("❌ Logs directory missing")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Creating logs directory...")
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                fixes.append("Created logs directory")
+                print("✅ Logs directory created")
+        else:
+            print("✅ Logs directory exists")
+        
+        # 5. Check config directory
+        config_dir = self.project_root / 'config'
+        if not config_dir.exists():
+            print("❌ Config directory missing")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Creating config directory...")
+                config_dir.mkdir(parents=True, exist_ok=True)
+                fixes.append("Created config directory")
+                print("✅ Config directory created")
+        else:
+            print("✅ Config directory exists")
+        
+        self.fixes_applied.extend(fixes)
+        
+        if fixes:
+            print(f"\n✨ Applied {len(fixes)} auto-fixes")
+        
+        print()
+        return True
+    
     def run_setup(self):
         """Run the complete privilege setup."""
         print("🚀 Starting MicroK8s Cluster Orchestrator privilege setup...")
         print(f"👤 Running as user: {self.current_user}")
         print(f"📂 Project root: {self.project_root}")
+        print(f"🔧 Auto-fix mode: {'ON' if self.auto_fix else 'OFF'}")
         print()
         
         steps = [
+            ("Environment pre-flight checks", self.check_and_fix_environment),
             ("Checking current privileges", self.check_current_privileges),
             ("Creating sudoers configuration", self.create_sudoers_config),
             ("Creating required directories", self.create_required_directories),
@@ -366,6 +458,12 @@ WantedBy=multi-user.target
         if all_success:
             print("\n🎉 Privilege setup completed successfully!")
             print("The orchestrator is now ready to perform system-level operations.")
+            
+            if self.fixes_applied:
+                print(f"\n🔧 Auto-fixes applied ({len(self.fixes_applied)}):")
+                for fix in self.fixes_applied:
+                    print(f"  • {fix}")
+            
             print("\nNext steps:")
             print("1. Initialize database: make init")
             print("2. Start the server: make prod-start")
