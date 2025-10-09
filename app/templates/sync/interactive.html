@@ -176,7 +176,7 @@ let selectedItems = {
 };
 
 function connectToRemote() {
-    const remoteUrl = document.getElementById('remote_url').value;
+    const remoteUrl = document.getElementById('remote_url').value.trim();
     const password = document.getElementById('sync_password').value;
     
     if (!remoteUrl) {
@@ -184,16 +184,35 @@ function connectToRemote() {
         return;
     }
     
+    // Ensure URL has protocol
+    let fullUrl = remoteUrl;
+    if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+        fullUrl = 'http://' + fullUrl;
+    }
+    
     updateConnectionStatus('Connecting...', 'text-info');
     
-    // Test connection first
-    fetch(remoteUrl + '/api/v1/sync/test')
-        .then(response => response.json())
+    // Test connection first - use absolute URL
+    const testUrl = fullUrl + '/api/v1/sync/test';
+    console.log('Testing connection to:', testUrl);
+    
+    fetch(testUrl, {
+        mode: 'cors',
+        credentials: 'omit'
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
         .then(data => {
+            console.log('Connection successful:', data);
             updateConnectionStatus('Connected! Comparing...', 'text-success');
-            return compareInventories(remoteUrl, password);
+            return compareInventories(fullUrl, password);
         })
         .catch(error => {
+            console.error('Connection error:', error);
             updateConnectionStatus('Connection failed: ' + error.message, 'text-danger');
         });
 }
