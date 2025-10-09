@@ -1,7 +1,7 @@
 # MicroK8s Cluster Orchestrator - Makefile
 # Provides convenient commands for development, testing, and deployment
 
-.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update prod-start prod-stop prod-restart prod-status prod-logs logo
+.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update prod-start prod-stop prod-restart prod-status prod-logs logo sync-test sync-api sync-connect sync-compare sync-interactive
 
 # Default target
 help:
@@ -43,6 +43,13 @@ help:
 	@echo "  prod-restart     Restart production server"
 	@echo "  prod-status      Check production server status"
 	@echo "  prod-logs        View production server logs"
+	@echo ""
+	@echo "Live Sync Commands:"
+	@echo "  sync-test        Test sync API availability"
+	@echo "  sync-api         Start sync API server"
+	@echo "  sync-connect     Connect to remote server (requires URL=)"
+	@echo "  sync-compare     Compare with remote (requires URL=)"
+	@echo "  sync-interactive Open sync web interface"
 	@echo ""
 	@echo "System Commands:"
 	@echo "  init             Initialize the application"
@@ -301,3 +308,79 @@ prod-logs:
 # Display logo
 logo:
 	@.venv/bin/python app/utils/logo.py startup
+
+# Live Sync Commands
+sync-test:
+	@echo "🔄 Testing Sync API..."
+	@curl -s http://localhost:5000/api/v1/sync/test | python3 -m json.tool || echo "❌ Sync API not available. Make sure server is running."
+
+sync-api:
+	@echo "🚀 Starting Sync API Server..."
+	@echo "   The sync API is available when the web server is running."
+	@echo "   Use 'make prod-start' or 'make run' to start the server."
+	@echo ""
+	@echo "Sync API endpoints:"
+	@echo "  - POST /api/v1/sync/connect"
+	@echo "  - GET  /api/v1/sync/inventory"
+	@echo "  - POST /api/v1/sync/compare"
+	@echo "  - POST /api/v1/sync/transfer"
+	@echo "  - POST /api/v1/sync/receive"
+
+sync-connect:
+	@echo "🔗 Connecting to Remote Server..."
+	@if [ -z "$(URL)" ]; then \
+		echo "❌ Error: URL parameter is required"; \
+		echo "Usage: make sync-connect URL=https://remote-server:5000"; \
+		exit 1; \
+	fi
+	@echo "Testing connection to $(URL)..."
+	@curl -s $(URL)/api/v1/sync/test && echo "\n✅ Connection successful!" || echo "❌ Connection failed"
+
+sync-compare:
+	@echo "⚖️  Comparing with Remote Server..."
+	@if [ -z "$(URL)" ]; then \
+		echo "❌ Error: URL parameter is required"; \
+		echo "Usage: make sync-compare URL=https://remote-server:5000"; \
+		exit 1; \
+	fi
+	@echo "Fetching remote inventory from $(URL)..."
+	@echo "Use the web interface for detailed comparison."
+	@echo ""
+	@echo "Opening web interface..."
+	@echo "Navigate to: http://localhost:5000/sync/interactive"
+
+sync-interactive:
+	@echo "🌐 Opening Interactive Sync Interface..."
+	@echo ""
+	@echo "📋 Steps to use:"
+	@echo "1. Make sure both servers are running"
+	@echo "2. Navigate to: http://localhost:5000/sync/interactive"
+	@echo "3. Enter remote server URL"
+	@echo "4. Review differences"
+	@echo "5. Select items to sync"
+	@echo "6. Start sync"
+	@echo ""
+	@if command -v xdg-open > /dev/null 2>&1; then \
+		xdg-open http://localhost:5000/sync/interactive 2>/dev/null || true; \
+	elif command -v open > /dev/null 2>&1; then \
+		open http://localhost:5000/sync/interactive 2>/dev/null || true; \
+	else \
+		echo "Please open: http://localhost:5000/sync/interactive"; \
+	fi
+
+# Sync workflow helpers
+sync-full:
+	@echo "🔄 Starting Full Sync Workflow..."
+	@if [ -z "$(URL)" ]; then \
+		echo "❌ Error: URL parameter is required"; \
+		echo "Usage: make sync-full URL=https://remote-server:5000 [PASSWORD=secret]"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "Step 1: Testing connection..."
+	@$(MAKE) sync-connect URL=$(URL)
+	@echo ""
+	@echo "Step 2: Opening interactive interface..."
+	@$(MAKE) sync-interactive
+	@echo ""
+	@echo "✅ Ready to sync! Use the web interface to complete the process."

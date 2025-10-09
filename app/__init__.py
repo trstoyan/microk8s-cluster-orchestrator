@@ -71,8 +71,12 @@ def create_app():
     
     # Register blueprints
     from .controllers import api, web, auth
+    from .controllers.sync_api import sync_bp
+    from .controllers.sync_web import sync_web_bp
     app.register_blueprint(auth.bp, url_prefix='/auth')
     app.register_blueprint(api.bp, url_prefix='/api')
+    app.register_blueprint(sync_bp)  # Sync API has its own prefix
+    app.register_blueprint(sync_web_bp)  # Sync web UI
     app.register_blueprint(web.bp)
     
     return app

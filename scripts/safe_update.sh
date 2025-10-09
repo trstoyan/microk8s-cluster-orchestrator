@@ -168,44 +168,44 @@ BACKUP_TIMEOUT=600
 # Check if pv (pipe viewer) is available for progress bar
 if command -v pv >/dev/null 2>&1; then
     echo "📊 Creating backup with progress indicator..."
-    # Calculate directory size first
-    DIR_SIZE=$(du -sb "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo "0")
-    echo "   📁 Directory size: $(du -sh "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+    # Calculate directory size first (excluding .venv, .git)
+    DIR_SIZE=$(du -sb --exclude=.venv --exclude=.git --exclude=__pycache__ --exclude=node_modules "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo "0")
+    echo "   📁 Directory size (excluding .venv): $(du -sh --exclude=.venv --exclude=.git --exclude=__pycache__ "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
     echo "   📊 Starting backup..."
     
-    # Create backup with progress bar
-    tar -cf - -C "$CURRENT_DIR" . | pv -s "$DIR_SIZE" -p -t -e -r | tar -xf - -C "$BACKUP_DIR"
+    # Create backup with progress bar (excluding .venv, .git, __pycache__)
+    tar -cf - -C "$CURRENT_DIR" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' . | pv -s "$DIR_SIZE" -p -t -e -r | tar -xf - -C "$BACKUP_DIR"
     
     if [ $? -eq 0 ]; then
-        echo "✅ Backup created successfully"
+        echo "✅ Backup created successfully (excluded .venv for faster backup)"
     else
         echo "❌ Backup failed, trying alternative method..."
-        cp -r "$CURRENT_DIR" "$BACKUP_DIR"
+        rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc'
     fi
 else
     echo "📊 Creating backup (no progress bar available)..."
     echo "   Installing 'pv' package will show progress bars for file operations"
-    echo "   📁 Directory size: $(du -sh "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+    echo "   📁 Directory size (excluding .venv): $(du -sh --exclude=.venv --exclude=.git --exclude=__pycache__ "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
     echo "   📊 Starting backup..."
     
     # Use rsync for better progress indication even without pv
-    echo "   🔄 Using rsync for backup..."
-    timeout $BACKUP_TIMEOUT rsync -a --progress "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' 2>&1 | while read line; do
+    echo "   🔄 Using rsync for backup (excluding .venv, .git, __pycache__)..."
+    timeout $BACKUP_TIMEOUT rsync -a --progress "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' 2>&1 | while read line; do
         echo "   $line"
     done
     
     if [ ${PIPESTATUS[0]} -ne 0 ]; then
-        echo "❌ Rsync backup failed or timed out, trying cp..."
-        echo "   🔄 Using cp for backup..."
-        timeout $BACKUP_TIMEOUT cp -r "$CURRENT_DIR" "$BACKUP_DIR"
+        echo "❌ Rsync with progress failed or timed out, trying rsync without progress..."
+        echo "   🔄 Using basic rsync for backup..."
+        rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules'
         if [ $? -eq 0 ]; then
-            echo "✅ Backup completed with cp"
+            echo "✅ Backup completed with rsync (excluded .venv for faster backup)"
         else
             echo "❌ Backup failed completely"
             exit 1
         fi
     else
-        echo "✅ Backup completed with rsync"
+        echo "✅ Backup completed with rsync (excluded .venv for faster backup)"
     fi
 fi
 
@@ -375,6 +375,7 @@ echo ""
 echo "📈 Process Statistics:"
 echo "   📁 Files processed: $(find . -type f -not -path './.git/*' -not -path './.venv/*' -not -path './data/*' -not -path './logs/*' -not -path './backups/*' | wc -l)"
 echo "   💾 Backup size: $(du -sh "$BACKUP_PERMANENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+echo "   🚫 Excluded from backup: .venv, .git, __pycache__, *.pyc, node_modules"
 echo "   ⏱️  Total time: $((SECONDS/60))m $((SECONDS%60))s"
 echo ""
 echo "🔐 Git credential cache status:"

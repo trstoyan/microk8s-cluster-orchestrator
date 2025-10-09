@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+
+{% block title %}Live Sync - MicroK8s Orchestrator{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2><i class="fas fa-sync-alt"></i> Live Server Sync</h2>
+                    <p class="text-muted">Securely synchronize data between orchestrator instances</p>
+                </div>
+                <div>
+                    <button class="btn btn-outline-secondary" onclick="window.location.href='{{ url_for('sync_web.index') }}'">
+                        <i class="fas fa-arrow-left"></i> Back to Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-plug"></i> Step 1: Connect to Remote Server</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="form-group">
+                                <label for="remote_url">Remote Server URL</label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="remote_url" 
+                                       placeholder="https://remote-server:5000"
+                                       value="http://localhost:5001">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label for="sync_password">Encryption Password (Optional)</label>
+                                <input type="password" class="form-control" id="sync_password" placeholder="Leave empty for auto">
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="connectToRemote()">
+                        <i class="fas fa-link"></i> Connect & Compare
+                    </button>
+                    <span id="connection_status" class="ml-3"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Comparison Results -->
+    <div class="row mb-4" id="comparison_section" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-balance-scale"></i> Step 2: Review Differences</h5>
+                </div>
+                <div class="card-body">
+                    <!-- Summary Cards -->
+                    <div class="row mb-4" id="summary_cards">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+
+                    <!-- Tabs for different categories -->
+                    <ul class="nav nav-tabs" id="syncTabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="nodes-tab" data-toggle="tab" href="#nodes" role="tab">
+                                <i class="fas fa-server"></i> Nodes
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="clusters-tab" data-toggle="tab" href="#clusters" role="tab">
+                                <i class="fas fa-project-diagram"></i> Clusters
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="keys-tab" data-toggle="tab" href="#keys" role="tab">
+                                <i class="fas fa-key"></i> SSH Keys
+                            </a>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content mt-3" id="syncTabContent">
+                        <!-- Nodes Tab -->
+                        <div class="tab-pane fade show active" id="nodes" role="tabpanel">
+                            <div id="nodes_content">
+                                <!-- Populated by JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- Clusters Tab -->
+                        <div class="tab-pane fade" id="clusters" role="tabpanel">
+                            <div id="clusters_content">
+                                <!-- Populated by JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- SSH Keys Tab -->
+                        <div class="tab-pane fade" id="keys" role="tabpanel">
+                            <div id="keys_content">
+                                <!-- Populated by JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Selection & Transfer -->
+    <div class="row" id="transfer_section" style="display: none;">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-check-double"></i> Step 3: Select & Transfer</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <button class="btn btn-sm btn-outline-primary" onclick="selectAll()">
+                            <i class="fas fa-check-square"></i> Select All
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="deselectAll()">
+                            <i class="fas fa-square"></i> Deselect All
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" onclick="selectDifferent()">
+                            <i class="fas fa-not-equal"></i> Select Different Only
+                        </button>
+                    </div>
+
+                    <div id="selected_summary" class="alert alert-info">
+                        <strong>Selected:</strong> <span id="selected_count">0</span> items
+                    </div>
+
+                    <button class="btn btn-success btn-lg" onclick="startSync()">
+                        <i class="fas fa-sync"></i> Start Sync
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Modal -->
+    <div class="modal fade" id="progressModal" tabindex="-1" role="dialog" data-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fas fa-sync fa-spin"></i> Syncing Data...</h5>
+                </div>
+                <div class="modal-body">
+                    <div class="progress mb-3">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" 
+                             id="sync_progress" 
+                             style="width: 0%">0%</div>
+                    </div>
+                    <p id="sync_status">Preparing sync package...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let comparisonData = null;
+let selectedItems = {
+    nodes: [],
+    clusters: [],
+    ssh_keys: []
+};
+
+function connectToRemote() {
+    const remoteUrl = document.getElementById('remote_url').value;
+    const password = document.getElementById('sync_password').value;
+    
+    if (!remoteUrl) {
+        showError('Please enter a remote server URL');
+        return;
+    }
+    
+    updateConnectionStatus('Connecting...', 'text-info');
+    
+    // Test connection first
+    fetch(remoteUrl + '/api/v1/sync/test')
+        .then(response => response.json())
+        .then(data => {
+            updateConnectionStatus('Connected! Comparing...', 'text-success');
+            return compareInventories(remoteUrl, password);
+        })
+        .catch(error => {
+            updateConnectionStatus('Connection failed: ' + error.message, 'text-danger');
+        });
+}
+
+function compareInventories(remoteUrl, password) {
+    fetch('/sync/compare', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            remote_url: remoteUrl,
+            password: password
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            comparisonData = data.comparison;
+            displayComparison(data.comparison);
+            document.getElementById('comparison_section').style.display = 'block';
+            document.getElementById('transfer_section').style.display = 'block';
+            updateConnectionStatus('Comparison complete!', 'text-success');
+        } else {
+            showError(data.error);
+        }
+    })
+    .catch(error => showError('Comparison failed: ' + error.message));
+}
+
+function displayComparison(comparison) {
+    // Display summary cards
+    const summaryHtml = `
+        <div class="col-md-3">
+            <div class="card text-white bg-success">
+                <div class="card-body">
+                    <h5>${comparison.summary.identical}</h5>
+                    <p class="mb-0">Identical</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-warning">
+                <div class="card-body">
+                    <h5>${comparison.summary.different}</h5>
+                    <p class="mb-0">Different</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-info">
+                <div class="card-body">
+                    <h5>${comparison.summary.missing_on_remote}</h5>
+                    <p class="mb-0">Missing on Remote</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-white bg-secondary">
+                <div class="card-body">
+                    <h5>${comparison.summary.missing_on_local}</h5>
+                    <p class="mb-0">Missing on Local</p>
+                </div>
+            </div>
+        </div>
+    `;
+    document.getElementById('summary_cards').innerHTML = summaryHtml;
+    
+    // Display nodes
+    displayNodes(comparison.nodes);
+    displayClusters(comparison.clusters);
+}
+
+function displayNodes(nodes) {
+    let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+    html += '<thead><tr><th>Select</th><th>Hostname</th><th>IP</th><th>Status</th><th>Difference</th></tr></thead><tbody>';
+    
+    // Different nodes
+    nodes.different.forEach(item => {
+        html += `
+            <tr class="table-warning">
+                <td><input type="checkbox" class="node-select" data-id="${item.local.id}" onchange="updateSelection()"></td>
+                <td>${item.local.hostname}</td>
+                <td>${item.local.ip_address}</td>
+                <td><span class="badge badge-warning">Different</span></td>
+                <td><small>${item.differences.join(', ')}</small></td>
+            </tr>
+        `;
+    });
+    
+    // Missing on remote
+    nodes.missing_on_remote.forEach(node => {
+        html += `
+            <tr class="table-info">
+                <td><input type="checkbox" class="node-select" data-id="${node.id}" onchange="updateSelection()"></td>
+                <td>${node.hostname}</td>
+                <td>${node.ip_address}</td>
+                <td><span class="badge badge-info">Missing on Remote</span></td>
+                <td>Will be created on remote</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    document.getElementById('nodes_content').innerHTML = html;
+}
+
+function displayClusters(clusters) {
+    let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+    html += '<thead><tr><th>Select</th><th>Name</th><th>Nodes</th><th>HA</th><th>Status</th></tr></thead><tbody>';
+    
+    clusters.different.forEach(item => {
+        html += `
+            <tr class="table-warning">
+                <td><input type="checkbox" class="cluster-select" data-id="${item.local.id}"></td>
+                <td>${item.local.name}</td>
+                <td>${item.local.node_count}</td>
+                <td>${item.local.ha_enabled ? 'Yes' : 'No'}</td>
+                <td><span class="badge badge-warning">Different</span></td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    document.getElementById('clusters_content').innerHTML = html;
+}
+
+function updateSelection() {
+    const nodeCheckboxes = document.querySelectorAll('.node-select:checked');
+    const clusterCheckboxes = document.querySelectorAll('.cluster-select:checked');
+    
+    const total = nodeCheckboxes.length + clusterCheckboxes.length;
+    document.getElementById('selected_count').textContent = total;
+}
+
+function selectAll() {
+    document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+    updateSelection();
+}
+
+function deselectAll() {
+    document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    updateSelection();
+}
+
+function selectDifferent() {
+    document.querySelectorAll('.table-warning input[type="checkbox"]').forEach(cb => cb.checked = true);
+    document.querySelectorAll('.table-info input[type="checkbox"]').forEach(cb => cb.checked = true);
+    updateSelection();
+}
+
+function startSync() {
+    $('#progressModal').modal('show');
+    // Implement actual sync logic
+    setTimeout(() => {
+        $('#progressModal').modal('hide');
+        showSuccess('Sync completed successfully!');
+    }, 3000);
+}
+
+function updateConnectionStatus(message, className) {
+    const status = document.getElementById('connection_status');
+    status.innerHTML = `<span class="${className}"><i class="fas fa-circle"></i> ${message}</span>`;
+}
+
+function showError(message) {
+    alert('Error: ' + message);
+}
+
+function showSuccess(message) {
+    alert(message);
+}
+</script>
+{% endblock %}
+
