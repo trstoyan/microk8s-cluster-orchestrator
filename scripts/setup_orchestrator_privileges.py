@@ -346,6 +346,11 @@ class OrchestratorPrivilegeSetup:
         print("⚙️  Creating systemd service...")
         
         try:
+            # Ensure watchdog script exists and is executable
+            watchdog_script = self.project_root / 'scripts' / 'server_watchdog.sh'
+            if watchdog_script.exists():
+                subprocess.run(['chmod', '+x', str(watchdog_script)], check=True)
+            
             service_content = f"""[Unit]
 Description=MicroK8s Cluster Orchestrator
 After=network.target
@@ -359,14 +364,8 @@ Group={self.current_user}
 WorkingDirectory={self.project_root}
 Environment=PATH={self.project_root}/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
-# Wait for port to be free before starting
-ExecStartPre=/bin/bash -c 'for i in {{1..10}}; do if ! ss -tln | grep -q ":5000 "; then exit 0; fi; echo "Waiting for port 5000 to be free..."; sleep 1; done; exit 1'
-
-# Start the server
-ExecStart={self.project_root}/.venv/bin/python {self.project_root}/cli.py web --host 0.0.0.0 --port 5000
-
-# Give time for port to release after stop
-ExecStopPost=/bin/sleep 3
+# Use watchdog script to handle port conflicts and restarts
+ExecStart={self.project_root}/scripts/server_watchdog.sh
 
 # Restart configuration
 Restart=always
@@ -374,7 +373,7 @@ RestartSec=10
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=30
-TimeoutStartSec=60
+TimeoutStartSec=90
 
 # Logging
 StandardOutput=journal
