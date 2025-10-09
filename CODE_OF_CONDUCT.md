@@ -2,30 +2,26 @@
 
 ## Our Pledge
 
-We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
-
-We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
+Everyone who enjoys coding is welcome to contribute to this project. We are committed to providing a respectful and collaborative environment where contributors can focus on building great software together.
 
 ## Our Standards
 
-Examples of behavior that contributes to a positive environment for our community include:
+Examples of behavior that contributes to a positive environment include:
 
-* **Being respectful and inclusive** - Using welcoming and inclusive language
+* **Being respectful** - Treating others with courtesy and professionalism
 * **Being collaborative** - Working together toward common goals
 * **Being constructive** - Providing helpful feedback and suggestions
-* **Being patient** - Understanding that everyone learns at different paces
-* **Being empathetic** - Considering others' perspectives and experiences
-* **Being professional** - Maintaining appropriate boundaries and communication
+* **Being focused** - Keeping discussions relevant to the project
+* **Being professional** - Maintaining appropriate communication standards
 
 Examples of unacceptable behavior include:
 
-* **Harassment** - Any form of harassment, intimidation, or discrimination
-* **Inappropriate communication** - Trolling, insulting, or derogatory comments
-* **Personal attacks** - Attacking someone's character, background, or identity
-* **Unwelcome attention** - Unwanted sexual attention or advances
+* **Harassment or intimidation** - Any form of hostile or threatening behavior
+* **Disrespectful communication** - Trolling, insults, or derogatory comments
+* **Personal attacks** - Attacking contributors personally rather than addressing technical issues
 * **Disruptive behavior** - Spam, excessive self-promotion, or off-topic discussions
-* **Violation of privacy** - Publishing private information without permission
-* **Inappropriate content** - Sharing offensive, violent, or inappropriate material
+* **Privacy violations** - Publishing private information without permission
+* **Inappropriate content** - Sharing offensive or unprofessional material
 
 ## Our Responsibilities
 
@@ -44,7 +40,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at [INSERT_EMAIL_HERE]. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at stoyantr+fromgit@icloud.com. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 
@@ -68,7 +64,7 @@ Community leaders will follow these Community Impact Guidelines in determining t
 **Consequence**: A temporary ban from any sort of interaction or public communication with the community for a specified period of time. No public or private interaction with the people involved, including unsolicited interaction with those enforcing the Code of Conduct, is allowed during this period. Violating these terms may lead to a permanent ban.
 
 ### 4. Permanent Ban
-**Community Impact**: Demonstrating a pattern of violation of community standards, including sustained inappropriate behavior, harassment of an individual, or aggression toward or disparagement of classes of individuals.
+**Community Impact**: Demonstrating a pattern of violation of community standards, including sustained inappropriate behavior or harassment.
 
 **Consequence**: A permanent ban from any sort of public interaction within the community.
 
@@ -84,7 +80,7 @@ For answers to common questions about this code of conduct, see the FAQ at [http
 
 If you have questions or concerns about this Code of Conduct, or if you need to report a violation, please contact the project maintainers:
 
-* **Email**: [INSERT_EMAIL_HERE]
+* **Email**: stoyantr+fromgit@icloud.com
 * **GitHub**: Create a private issue or contact maintainers directly
 
-We are committed to providing a safe and welcoming environment for all contributors and users of the MicroK8s Cluster Orchestrator project.
+We are committed to maintaining a professional and productive environment for contributors to the MicroK8s Cluster Orchestrator project.
