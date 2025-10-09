@@ -1663,27 +1663,47 @@ def restart_system():
                     'error': f'Failed to send restart signal: {str(e)}'
                 }), 500
         
-        # Fallback: try to restart the application process
+        # Fallback: Use restart helper script for clean restart
         try:
-            # Schedule restart after response is sent
-            def delayed_restart():
-                import time
-                time.sleep(3)  # Give time for response to be sent
-                try:
-                    # Try to restart with the same command line
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
-                except Exception as e:
-                    print(f"Failed to restart: {e}")
+            from pathlib import Path
+            project_root = Path(__file__).parent.parent.parent
+            restart_script = project_root / 'scripts' / 'restart_server.sh'
             
-            import threading
-            restart_thread = threading.Thread(target=delayed_restart)
-            restart_thread.daemon = True
-            restart_thread.start()
-            
-            return jsonify({
-                'success': True,
-                'message': 'Application restart initiated (may take a few seconds)'
-            })
+            # Make sure script is executable
+            if restart_script.exists():
+                subprocess.run(['chmod', '+x', str(restart_script)], check=True)
+                
+                # Schedule restart after response is sent
+                def delayed_restart():
+                    import time
+                    time.sleep(2)  # Give time for response to be sent
+                    try:
+                        # Use restart helper script for clean restart
+                        subprocess.Popen([str(restart_script)], 
+                                       cwd=str(project_root),
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
+                        # Exit current process after spawning restart
+                        time.sleep(1)
+                        os._exit(0)
+                    except Exception as e:
+                        print(f"Failed to restart: {e}")
+                
+                import threading
+                restart_thread = threading.Thread(target=delayed_restart)
+                restart_thread.daemon = True
+                restart_thread.start()
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Server restart initiated. Please wait 5-10 seconds...'
+                })
+            else:
+                # Fallback to old method if script doesn't exist
+                return jsonify({
+                    'success': False,
+                    'error': 'Restart script not found. Use: make restart'
+                }), 500
             
         except Exception as e:
             return jsonify({
