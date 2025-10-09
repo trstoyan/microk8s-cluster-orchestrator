@@ -270,7 +270,7 @@ prod-start:
 		fi; \
 	fi
 	@echo "🔍 Checking if port 5000 is available..."
-	@PORT_CHECK=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || lsof -Pi :5000 -sTCP:LISTEN 2>/dev/null || echo ""); \
+	@PORT_CHECK=$$(sudo ss -tlnp 2>/dev/null | grep ':5000' || sudo netstat -tlnp 2>/dev/null | grep ':5000' || sudo lsof -Pi :5000 -sTCP:LISTEN 2>/dev/null || echo ""); \
 	if [ -n "$$PORT_CHECK" ]; then \
 		echo "⚠️  Port 5000 is already in use!"; \
 		echo ""; \
@@ -278,6 +278,11 @@ prod-start:
 		echo "$$PORT_CHECK" | head -1 | sed 's/^/   /'; \
 		echo ""; \
 		PID=$$(echo "$$PORT_CHECK" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_CHECK" | awk '{print $$NF}' | grep -oP '[0-9]+/[^/]+' | cut -d'/' -f1 | head -1 || echo ""); \
+		if [ -z "$$PID" ]; then \
+			echo "⚠️  Could not extract PID from process info"; \
+			echo "💡 Trying to find Python processes on port 5000..."; \
+			PID=$$(ps aux | grep '[c]li.py web' | awk '{print $$2}' | head -1 || echo ""); \
+		fi; \
 		if [ -n "$$PID" ]; then \
 			echo "💡 Solutions:"; \
 			echo "   1. Kill the process: sudo kill $$PID"; \
@@ -328,15 +333,27 @@ prod-stop:
 	@echo "🛑 Stopping production server..."
 	@if [ ! -f .prod-server.pid ]; then \
 		echo "⚠️  No PID file found. Checking for orphaned processes..."; \
-		PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+		PORT_INFO=$$(sudo ss -tlnp 2>/dev/null | grep ':5000' || sudo netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
 		if [ -n "$$PORT_INFO" ]; then \
-			PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
-			echo "⚠️  Found orphaned process on port 5000 (PID: $$PID)"; \
-			read -p "Kill this process? [Y/n]: " response; \
-			response=$${response:-y}; \
-			if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
-				kill $$PID 2>/dev/null || sudo kill $$PID; \
-				echo "✅ Orphaned process killed"; \
+			PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+/[^/]+' | cut -d'/' -f1 | head -1 || echo ""); \
+			if [ -z "$$PID" ]; then \
+				PID=$$(ps aux | grep '[c]li.py web' | awk '{print $$2}' | head -1 || echo ""); \
+			fi; \
+			if [ -n "$$PID" ]; then \
+				echo "⚠️  Found orphaned process on port 5000 (PID: $$PID)"; \
+				read -p "Kill this process? [Y/n]: " response; \
+				response=$${response:-y}; \
+				if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+					kill $$PID 2>/dev/null || sudo kill $$PID; \
+					echo "✅ Orphaned process killed"; \
+				fi; \
+			else \
+				echo "⚠️  Port in use but PID not found"; \
+				read -p "Try killing all 'cli.py web' processes? [Y/n]: " response; \
+				response=$${response:-y}; \
+				if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+					sudo pkill -f 'cli.py web' && echo "✅ Processes killed" || echo "⚠️  No processes found"; \
+				fi; \
 			fi; \
 		else \
 			echo "✅ No server running on port 5000"; \
@@ -351,12 +368,17 @@ prod-stop:
 		echo "⚠️  Process $$PID not found. Cleaning up PID file."; \
 		rm -f .prod-server.pid; \
 		echo "🔍 Checking for orphaned processes on port 5000..."; \
-		PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+		PORT_INFO=$$(sudo ss -tlnp 2>/dev/null | grep ':5000' || sudo netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
 		if [ -n "$$PORT_INFO" ]; then \
-			ORPHAN_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
-			echo "⚠️  Found orphaned process (PID: $$ORPHAN_PID)"; \
-			kill $$ORPHAN_PID 2>/dev/null || sudo kill $$ORPHAN_PID; \
-			echo "✅ Orphaned process killed"; \
+			ORPHAN_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+/[^/]+' | cut -d'/' -f1 | head -1 || echo ""); \
+			if [ -z "$$ORPHAN_PID" ]; then \
+				ORPHAN_PID=$$(ps aux | grep '[c]li.py web' | awk '{print $$2}' | head -1 || echo ""); \
+			fi; \
+			if [ -n "$$ORPHAN_PID" ]; then \
+				echo "⚠️  Found orphaned process (PID: $$ORPHAN_PID)"; \
+				kill $$ORPHAN_PID 2>/dev/null || sudo kill $$ORPHAN_PID; \
+				echo "✅ Orphaned process killed"; \
+			fi; \
 		fi; \
 	fi
 
@@ -388,15 +410,21 @@ prod-status:
 	fi; \
 	echo ""; \
 	echo "🔍 Port 5000 Status:"; \
-	PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+	PORT_INFO=$$(sudo ss -tlnp 2>/dev/null | grep ':5000' || sudo netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
 	if [ -n "$$PORT_INFO" ]; then \
-		PORT_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
+		PORT_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+/[^/]+' | cut -d'/' -f1 | head -1 || echo ""); \
+		if [ -z "$$PORT_PID" ]; then \
+			PORT_PID=$$(ps aux | grep '[c]li.py web' | awk '{print $$2}' | head -1 || echo ""); \
+		fi; \
 		if [ -f .prod-server.pid ] && [ "$$PORT_PID" = "$$(cat .prod-server.pid 2>/dev/null)" ]; then \
-			echo "   ✅ Port in use by our server"; \
-		else \
+			echo "   ✅ Port in use by our server (PID: $$PORT_PID)"; \
+		elif [ -n "$$PORT_PID" ]; then \
 			echo "   ⚠️  Port in use by another process (PID: $$PORT_PID)"; \
 			echo "$$PORT_INFO" | head -1 | sed 's/^/   /'; \
 			echo "   💡 Run 'make prod-cleanup' to fix"; \
+		else \
+			echo "   ⚠️  Port in use but PID not found"; \
+			echo "   💡 Try: sudo pkill -f 'cli.py web'"; \
 		fi; \
 	else \
 		echo "   ✅ Port 5000 is available"; \
@@ -432,24 +460,43 @@ prod-cleanup:
 		fi; \
 	fi; \
 	\
-	PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+	PORT_INFO=$$(sudo ss -tlnp 2>/dev/null | grep ':5000' || sudo netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
 	if [ -n "$$PORT_INFO" ]; then \
-		PORT_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
+		PORT_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+/[^/]+' | cut -d'/' -f1 | head -1 || echo ""); \
+		if [ -z "$$PORT_PID" ]; then \
+			echo "⚠️  Could not extract PID from port info, searching for Python process..."; \
+			PORT_PID=$$(ps aux | grep '[c]li.py web' | awk '{print $$2}' | head -1 || echo ""); \
+		fi; \
 		if [ -f .prod-server.pid ] && [ "$$PORT_PID" != "$$(cat .prod-server.pid 2>/dev/null)" ] || [ ! -f .prod-server.pid ]; then \
-			echo "🔍 Found orphaned process on port 5000 (PID: $$PORT_PID)"; \
-			echo "$$PORT_INFO" | head -1 | sed 's/^/   /'; \
-			read -p "Kill this process? [Y/n]: " response; \
-			response=$${response:-y}; \
-			if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
-				kill $$PORT_PID 2>/dev/null || sudo kill $$PORT_PID; \
-				sleep 1; \
-				if ! ps -p $$PORT_PID > /dev/null 2>&1; then \
-					echo "✅ Orphaned process killed"; \
-					CLEANED=$$((CLEANED + 1)); \
-				else \
-					echo "⚠️  Process still running, trying SIGKILL..."; \
-					kill -9 $$PORT_PID 2>/dev/null || sudo kill -9 $$PORT_PID; \
-					CLEANED=$$((CLEANED + 1)); \
+			if [ -n "$$PORT_PID" ]; then \
+				echo "🔍 Found orphaned process on port 5000 (PID: $$PORT_PID)"; \
+				echo "$$PORT_INFO" | head -1 | sed 's/^/   /'; \
+				read -p "Kill this process? [Y/n]: " response; \
+				response=$${response:-y}; \
+				if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+					kill $$PORT_PID 2>/dev/null || sudo kill $$PORT_PID; \
+					sleep 1; \
+					if ! ps -p $$PORT_PID > /dev/null 2>&1; then \
+						echo "✅ Orphaned process killed"; \
+						CLEANED=$$((CLEANED + 1)); \
+					else \
+						echo "⚠️  Process still running, trying SIGKILL..."; \
+						kill -9 $$PORT_PID 2>/dev/null || sudo kill -9 $$PORT_PID; \
+						sleep 1; \
+						if ! ps -p $$PORT_PID > /dev/null 2>&1; then \
+							echo "✅ Orphaned process killed with SIGKILL"; \
+							CLEANED=$$((CLEANED + 1)); \
+						else \
+							echo "❌ Failed to kill process"; \
+						fi; \
+					fi; \
+				fi; \
+			else \
+				echo "⚠️  Port in use but cannot determine PID"; \
+				read -p "Try killing all 'cli.py web' processes? [Y/n]: " response; \
+				response=$${response:-y}; \
+				if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+					sudo pkill -f 'cli.py web' && echo "✅ Processes killed" && CLEANED=$$((CLEANED + 1)) || echo "⚠️  No processes found"; \
 				fi; \
 			fi; \
 		fi; \
