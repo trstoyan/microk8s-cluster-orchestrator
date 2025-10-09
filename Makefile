@@ -1,7 +1,7 @@
 # MicroK8s Cluster Orchestrator - Makefile
 # Provides convenient commands for development, testing, and deployment
 
-.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update update-dry prod-start prod-stop prod-restart prod-status prod-logs prod-cleanup logo sync-test sync-api sync-connect sync-compare sync-interactive
+.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update update-dry prod-start prod-stop prod-restart prod-status prod-logs prod-cleanup service-start service-stop service-restart service-status service-enable service-disable logo sync-test sync-api sync-connect sync-compare sync-interactive
 
 # Default target
 help:
@@ -37,13 +37,21 @@ help:
 	@echo "  docker-run       Run with Docker Compose"
 	@echo "  docker-stop      Stop Docker containers"
 	@echo ""
-	@echo "Production Server Commands:"
+	@echo "Production Server Commands (Background Process):"
 	@echo "  prod-start       Start production server in background"
 	@echo "  prod-stop        Stop production server"
 	@echo "  prod-restart     Restart production server"
 	@echo "  prod-status      Check production server status"
 	@echo "  prod-logs        View production server logs"
 	@echo "  prod-cleanup     Clean up orphaned processes and stale files"
+	@echo ""
+	@echo "Systemd Service Commands:"
+	@echo "  service-start    Start orchestrator systemd service"
+	@echo "  service-stop     Stop orchestrator systemd service"
+	@echo "  service-restart  Restart orchestrator systemd service"
+	@echo "  service-status   Check systemd service status"
+	@echo "  service-enable   Enable service (auto-start on boot)"
+	@echo "  service-disable  Disable service (no auto-start)"
 	@echo ""
 	@echo "Live Sync Commands:"
 	@echo "  sync-test        Test sync API availability"
@@ -260,6 +268,26 @@ help-%:
 # Production server management commands
 prod-start:
 	@echo "🚀 Starting production server in background..."
+	@echo "🔍 Checking for conflicts..."
+	@if systemctl is-active --quiet microk8s-orchestrator 2>/dev/null; then \
+		echo "⚠️  Systemd service is already running!"; \
+		echo ""; \
+		echo "You have two options:"; \
+		echo "  1. Use the systemd service (recommended for production)"; \
+		echo "     → make service-status"; \
+		echo "     → make service-stop (to stop it)"; \
+		echo "  2. Stop systemd and use background process"; \
+		echo ""; \
+		read -p "Stop systemd service and use background process instead? [y/N]: " response; \
+		if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+			echo "🛑 Stopping systemd service..."; \
+			sudo systemctl stop microk8s-orchestrator; \
+			echo "✅ Systemd service stopped"; \
+		else \
+			echo "❌ Cannot start background process while systemd service is running"; \
+			exit 1; \
+		fi; \
+	fi
 	@if [ -f .prod-server.pid ]; then \
 		if ps -p $$(cat .prod-server.pid) > /dev/null 2>&1; then \
 			echo "⚠️  Production server is already running (PID: $$(cat .prod-server.pid))"; \
@@ -331,6 +359,16 @@ prod-start:
 
 prod-stop:
 	@echo "🛑 Stopping production server..."
+	@if systemctl is-active --quiet microk8s-orchestrator 2>/dev/null; then \
+		echo "⚠️  Systemd service is running!"; \
+		read -p "Stop systemd service? [Y/n]: " response; \
+		response=$${response:-y}; \
+		if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+			echo "🛑 Stopping systemd service..."; \
+			sudo systemctl stop microk8s-orchestrator; \
+			echo "✅ Systemd service stopped"; \
+		fi; \
+	fi
 	@if [ ! -f .prod-server.pid ]; then \
 		echo "⚠️  No PID file found. Checking for orphaned processes..."; \
 		PORT_INFO=$$(sudo ss -tlnp 2>/dev/null | grep ':5000' || sudo netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
@@ -390,6 +428,21 @@ prod-restart: prod-stop
 prod-status:
 	@echo "📊 Production Server Status:"
 	@echo "=============================="
+	@echo ""
+	@echo "🔧 Systemd Service:"
+	@if systemctl is-active --quiet microk8s-orchestrator 2>/dev/null; then \
+		echo "   ✅ Status: ACTIVE"; \
+		systemctl status microk8s-orchestrator --no-pager -l | grep -E 'Active:|Main PID:' | sed 's/^/   /'; \
+	else \
+		if systemctl list-unit-files | grep -q microk8s-orchestrator; then \
+			echo "   ⚪ Status: INACTIVE"; \
+			echo "   💡 Start with: make service-start"; \
+		else \
+			echo "   ⊘  Service not installed"; \
+		fi; \
+	fi
+	@echo ""
+	@echo "🔄 Background Process:"
 	@if [ -f .prod-server.pid ]; then \
 		PID=$$(cat .prod-server.pid); \
 		if ps -p $$PID > /dev/null 2>&1; then \
@@ -514,6 +567,69 @@ prod-cleanup:
 # Display logo
 logo:
 	@.venv/bin/python app/utils/logo.py startup
+
+# Systemd Service Management
+service-start:
+	@echo "🚀 Starting orchestrator systemd service..."
+	@if ! systemctl list-unit-files | grep -q microk8s-orchestrator; then \
+		echo "❌ Systemd service not installed"; \
+		echo "💡 Run 'sudo make setup' to create the service"; \
+		exit 1; \
+	fi
+	@sudo systemctl start microk8s-orchestrator
+	@sleep 2
+	@if systemctl is-active --quiet microk8s-orchestrator; then \
+		echo "✅ Service started successfully"; \
+		systemctl status microk8s-orchestrator --no-pager -l | head -10; \
+	else \
+		echo "❌ Service failed to start"; \
+		echo "Check logs: sudo journalctl -u microk8s-orchestrator -n 50"; \
+	fi
+
+service-stop:
+	@echo "🛑 Stopping orchestrator systemd service..."
+	@if ! systemctl is-active --quiet microk8s-orchestrator 2>/dev/null; then \
+		echo "⚠️  Service is not running"; \
+		exit 0; \
+	fi
+	@sudo systemctl stop microk8s-orchestrator
+	@echo "✅ Service stopped"
+
+service-restart:
+	@echo "🔄 Restarting orchestrator systemd service..."
+	@sudo systemctl restart microk8s-orchestrator
+	@sleep 2
+	@if systemctl is-active --quiet microk8s-orchestrator; then \
+		echo "✅ Service restarted successfully"; \
+	else \
+		echo "❌ Service failed to restart"; \
+		echo "Check logs: sudo journalctl -u microk8s-orchestrator -n 50"; \
+	fi
+
+service-status:
+	@echo "📊 Systemd Service Status:"
+	@echo "=============================="
+	@if systemctl list-unit-files | grep -q microk8s-orchestrator; then \
+		systemctl status microk8s-orchestrator --no-pager -l || true; \
+		echo ""; \
+		echo "📋 Recent logs:"; \
+		sudo journalctl -u microk8s-orchestrator -n 10 --no-pager || echo "No logs available"; \
+	else \
+		echo "❌ Service not installed"; \
+		echo "💡 Run 'sudo make setup' to create the service"; \
+	fi
+
+service-enable:
+	@echo "✅ Enabling orchestrator service (auto-start on boot)..."
+	@sudo systemctl enable microk8s-orchestrator
+	@echo "✅ Service enabled"
+	@echo "💡 Start now with: make service-start"
+
+service-disable:
+	@echo "🛑 Disabling orchestrator service (no auto-start on boot)..."
+	@sudo systemctl disable microk8s-orchestrator
+	@echo "✅ Service disabled"
+	@echo "💡 To stop it now: make service-stop"
 
 # Live Sync Commands
 sync-test:
