@@ -311,27 +311,27 @@ class OrchestratorPrivilegeSetup:
                     
                     # Interactive prompt for MicroK8s
                     if self.interactive and 'microk8s' in command:
-                        is_node = self.prompt_user(
-                            "Is this machine a MicroK8s cluster node (not just orchestrator)?",
+                        print("   ℹ️  MicroK8s is NOT needed on the orchestrator server")
+                        print("   ℹ️  The orchestrator manages MicroK8s on remote cluster nodes")
+                        print("   ℹ️  Only install if this machine will also be a cluster node")
+                        
+                        install_anyway = self.prompt_user(
+                            "Install MicroK8s anyway (this machine will be a cluster node)?",
                             default='n'
                         )
-                        if is_node:
-                            install_mk8s = self.prompt_user(
-                                "Install MicroK8s now?",
-                                default='y'
-                            )
-                            if install_mk8s:
-                                print("📦 Installing MicroK8s...")
-                                try:
-                                    subprocess.run(['sudo', 'snap', 'install', 'microk8s', '--classic'], check=True)
-                                    subprocess.run(['sudo', 'usermod', '-a', '-G', 'microk8s', self.current_user], check=True)
-                                    print("✅ MicroK8s installed successfully")
-                                    print("⚠️  You need to log out and back in for group changes to take effect")
-                                    self.fixes_applied.append("Installed MicroK8s")
-                                except Exception as e:
-                                    print(f"⚠️  MicroK8s installation failed: {e}")
+                        
+                        if install_anyway:
+                            print("📦 Installing MicroK8s...")
+                            try:
+                                subprocess.run(['sudo', 'snap', 'install', 'microk8s', '--classic'], check=True)
+                                subprocess.run(['sudo', 'usermod', '-a', '-G', 'microk8s', self.current_user], check=True)
+                                print("✅ MicroK8s installed successfully")
+                                print("⚠️  You need to log out and back in for group changes to take effect")
+                                self.fixes_applied.append("Installed MicroK8s (cluster node)")
+                            except Exception as e:
+                                print(f"⚠️  MicroK8s installation failed: {e}")
                         else:
-                            print("   ℹ️  MicroK8s not needed on orchestrator-only servers")
+                            print("   ✅ Skipped MicroK8s - orchestrator will manage remote nodes")
                             
             except Exception as e:
                 print(f"ℹ️  {description}: Not available (optional)")
