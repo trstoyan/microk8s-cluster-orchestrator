@@ -165,16 +165,18 @@ class OrchestratorPrivilegeSetup:
         """Create required directories with proper permissions."""
         print("📁 Creating required directories...")
         
-        # Check if nut user exists
-        nut_user_exists = False
-        try:
-            result = subprocess.run(['id', 'nut'], capture_output=True, text=True)
-            nut_user_exists = (result.returncode == 0)
-        except:
-            pass
+        # Track if we already asked about NUT installation
+        nut_install_asked = False
         
         try:
             for directory in self.required_directories:
+                # Check if nut user exists (check each time in case it was just installed)
+                nut_user_exists = False
+                try:
+                    result = subprocess.run(['id', 'nut'], capture_output=True, text=True)
+                    nut_user_exists = (result.returncode == 0)
+                except:
+                    pass
                 if not Path(directory).exists():
                     subprocess.run(['sudo', 'mkdir', '-p', directory], check=True)
                     print(f"✅ Created directory: {directory}")
@@ -188,31 +190,46 @@ class OrchestratorPrivilegeSetup:
                         subprocess.run(['sudo', 'chmod', '755', directory], check=True)
                         print(f"✅ Set NUT permissions for: {directory}")
                     else:
-                        print(f"ℹ️  NUT user not found - UPS support is optional")
-                        if self.interactive:
-                            install_nut = self.prompt_user(
-                                "Do you want to install NUT (Network UPS Tools) now?", 
-                                default='n'
-                            )
-                            if install_nut:
-                                print("📦 Installing NUT...")
-                                try:
-                                    subprocess.run(['sudo', 'apt', 'update'], check=True)
-                                    subprocess.run(['sudo', 'apt', 'install', '-y', 'nut', 'nut-client'], check=True)
-                                    print("✅ NUT installed successfully")
-                                    subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
-                                    subprocess.run(['sudo', 'chmod', '755', directory], check=True)
-                                    self.fixes_applied.append("Installed NUT (UPS support)")
-                                except Exception as e:
-                                    print(f"⚠️  NUT installation failed: {e}")
-                                    print("   You can install it manually later if needed")
+                        # Only ask once about NUT installation
+                        if not nut_install_asked:
+                            print(f"ℹ️  NUT user not found - UPS support is optional")
+                            if self.interactive:
+                                install_nut = self.prompt_user(
+                                    "Do you want to install NUT (Network UPS Tools) now?", 
+                                    default='n'
+                                )
+                                nut_install_asked = True  # Mark as asked
+                                
+                                if install_nut:
+                                    print("📦 Installing NUT...")
+                                    try:
+                                        subprocess.run(['sudo', 'apt', 'update'], check=True)
+                                        subprocess.run(['sudo', 'apt', 'install', '-y', 'nut', 'nut-client'], check=True)
+                                        print("✅ NUT installed successfully")
+                                        # Re-check if nut user exists now
+                                        result = subprocess.run(['id', 'nut'], capture_output=True, text=True)
+                                        if result.returncode == 0:
+                                            subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
+                                            subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                                            self.fixes_applied.append("Installed NUT (UPS support)")
+                                        else:
+                                            print("⚠️  NUT user still not found after installation")
+                                            subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                                    except Exception as e:
+                                        print(f"⚠️  NUT installation failed: {e}")
+                                        print("   You can install it manually later if needed")
+                                        subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                                else:
+                                    print("   Skipping NUT installation - UPS features will not be available")
                                     subprocess.run(['sudo', 'chmod', '755', directory], check=True)
                             else:
-                                print("   Skipping NUT installation - UPS features will not be available")
+                                nut_install_asked = True
+                                print(f"   💡 Install NUT later with: sudo apt install nut nut-client")
                                 subprocess.run(['sudo', 'chmod', '755', directory], check=True)
                         else:
-                            print(f"   💡 Install NUT later with: sudo apt install nut nut-client")
+                            # Already asked, just set permissions without nut user
                             subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                            print(f"✅ Set permissions for: {directory} (NUT user not available)")
                 else:
                     subprocess.run(['sudo', 'chown', f'{self.current_user}:{self.current_user}', directory], check=True)
                     subprocess.run(['sudo', 'chmod', '755', directory], check=True)
