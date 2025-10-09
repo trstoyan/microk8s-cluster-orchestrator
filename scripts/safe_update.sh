@@ -76,13 +76,17 @@ git config --global credential.helper 'cache --timeout=86400'
 git config --global credential.helper cache
 echo "   Git credentials will be cached for 24 hours"
 
+# Detect current branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "🌿 Current branch: $CURRENT_BRANCH"
+
 # Fetch latest changes from remote
 echo "📥 Fetching latest changes from remote..."
-git fetch origin main
+git fetch origin $CURRENT_BRANCH
 
 # Check if we're ahead of remote (have local commits)
-LOCAL_COMMITS=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo "0")
-REMOTE_COMMITS=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo "0")
+LOCAL_COMMITS=$(git rev-list --count origin/$CURRENT_BRANCH..HEAD 2>/dev/null || echo "0")
+REMOTE_COMMITS=$(git rev-list --count HEAD..origin/$CURRENT_BRANCH 2>/dev/null || echo "0")
 
 echo "📊 Update status:"
 echo "   Local commits ahead: $LOCAL_COMMITS"
@@ -95,7 +99,7 @@ if [ "$SAFE_UPDATE_SELF_UPDATE" = "true" ]; then
 else
     # Check if safe_update.sh itself has changed on remote
     CURRENT_SCRIPT_HASH=$(git hash-object "$0")
-    REMOTE_SCRIPT_HASH=$(git ls-tree origin/main:scripts/safe_update.sh 2>/dev/null | cut -d' ' -f3 || echo "")
+    REMOTE_SCRIPT_HASH=$(git ls-tree origin/$CURRENT_BRANCH:scripts/safe_update.sh 2>/dev/null | cut -d' ' -f3 || echo "")
 
     if [ "$REMOTE_SCRIPT_HASH" != "" ] && [ "$CURRENT_SCRIPT_HASH" != "$REMOTE_SCRIPT_HASH" ]; then
     echo "🔄 Newer version of safe_update.sh detected on remote"
@@ -107,7 +111,7 @@ else
     cp "$0" "$TMP_DIR/safe_update_backup.sh"
     
     # Download new version to temporary location
-    git show origin/main:scripts/safe_update.sh > "$TMP_DIR/safe_update_new.sh"
+    git show origin/$CURRENT_BRANCH:scripts/safe_update.sh > "$TMP_DIR/safe_update_new.sh"
     chmod +x "$TMP_DIR/safe_update_new.sh"
     
     # First, update the current script file with the new version
@@ -243,7 +247,7 @@ if [ "$REMOTE_COMMITS" -gt 0 ]; then
     
     # Check if there are any conflicts before merging
     echo "🔍 Checking for potential merge conflicts..."
-    git merge-tree $(git merge-base HEAD origin/main) HEAD origin/main > /tmp/merge-check.txt 2>/dev/null || true
+    git merge-tree $(git merge-base HEAD origin/$CURRENT_BRANCH) HEAD origin/$CURRENT_BRANCH > /tmp/merge-check.txt 2>/dev/null || true
     
     if grep -q "<<<<<<< " /tmp/merge-check.txt; then
         echo "⚠️  Potential merge conflicts detected:"
@@ -260,7 +264,7 @@ if [ "$REMOTE_COMMITS" -gt 0 ]; then
     
     # Perform the merge
     echo "🔄 Merging remote changes..."
-    if git merge origin/main --no-edit; then
+    if git merge origin/$CURRENT_BRANCH --no-edit; then
         echo "✅ Merge completed successfully"
     else
         echo "❌ Merge failed due to conflicts"
