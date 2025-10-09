@@ -64,7 +64,13 @@ install:
 	python3 -m venv .venv
 	.venv/bin/pip install --upgrade pip
 	.venv/bin/pip install -r requirements.txt
-	ansible-galaxy install -r ansible/requirements.yml
+	@echo "📦 Installing Ansible collections..."
+	@ansible-galaxy install -r ansible/requirements.yml || { \
+		echo "⚠️  Some Ansible collections failed to install (non-critical)"; \
+		echo "💡 You can ignore collection errors if you're not using those specific roles"; \
+		echo "💡 To retry: ansible-galaxy install -r ansible/requirements.yml --force"; \
+		true; \
+	}
 	@echo "✅ Installation complete!"
 
 dev-install: install

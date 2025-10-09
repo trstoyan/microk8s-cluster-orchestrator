@@ -147,6 +147,14 @@ class OrchestratorPrivilegeSetup:
         """Create required directories with proper permissions."""
         print("📁 Creating required directories...")
         
+        # Check if nut user exists
+        nut_user_exists = False
+        try:
+            result = subprocess.run(['id', 'nut'], capture_output=True, text=True)
+            nut_user_exists = (result.returncode == 0)
+        except:
+            pass
+        
         try:
             for directory in self.required_directories:
                 if not Path(directory).exists():
@@ -157,8 +165,14 @@ class OrchestratorPrivilegeSetup:
                 
                 # Set proper ownership and permissions
                 if 'nut' in directory:
-                    subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
-                    subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                    if nut_user_exists:
+                        subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
+                        subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                        print(f"✅ Set NUT permissions for: {directory}")
+                    else:
+                        print(f"ℹ️  Skipping NUT permissions for {directory} (NUT not installed)")
+                        print(f"   💡 Install NUT later with: sudo apt install nut nut-client")
+                        subprocess.run(['sudo', 'chmod', '755', directory], check=True)
                 else:
                     subprocess.run(['sudo', 'chown', f'{self.current_user}:{self.current_user}', directory], check=True)
                     subprocess.run(['sudo', 'chmod', '755', directory], check=True)
@@ -168,6 +182,7 @@ class OrchestratorPrivilegeSetup:
             
         except Exception as e:
             print(f"❌ Error creating directories: {e}")
+            print(f"💡 Solution: Check permissions and try: sudo mkdir -p /etc/nut /var/lib/nut")
             return False
     
     def add_user_to_groups(self):
@@ -197,28 +212,50 @@ class OrchestratorPrivilegeSetup:
         """Test that all required privileges are working."""
         print("🧪 Testing privileges...")
         
-        test_commands = [
-            ('sudo -n systemctl status ssh', 'systemctl'),
-            ('sudo -n apt --version', 'apt'),
-            ('sudo -n chown --version', 'chown'),
-            ('sudo -n ls /etc/nut', 'nut directory access'),
-            ('sudo -n microk8s version', 'microk8s'),
+        # Required tests (must pass)
+        required_tests = [
+            ('sudo -n systemctl status ssh', 'systemctl', 'sudo systemctl is required for service management'),
+            ('sudo -n apt --version', 'apt', 'sudo apt is required for package management'),
+            ('sudo -n chown --version', 'chown', 'sudo chown is required for file permissions'),
         ]
         
-        all_passed = True
-        for command, description in test_commands:
+        # Optional tests (nice to have)
+        optional_tests = [
+            ('sudo -n ls /etc/nut', 'nut directory access', 'NUT (UPS) - optional, install with: sudo apt install nut'),
+            ('sudo -n microk8s version', 'microk8s', 'MicroK8s - optional on orchestrator, install with: sudo snap install microk8s --classic'),
+        ]
+        
+        all_required_passed = True
+        
+        # Test required commands
+        for command, description, solution in required_tests:
             try:
                 result = subprocess.run(command.split(), capture_output=True, text=True)
                 if result.returncode == 0:
                     print(f"✅ {description}: OK")
                 else:
                     print(f"❌ {description}: FAILED")
-                    all_passed = False
+                    print(f"   💡 Solution: {solution}")
+                    all_required_passed = False
             except Exception as e:
                 print(f"❌ {description}: ERROR - {e}")
-                all_passed = False
+                print(f"   💡 Solution: {solution}")
+                all_required_passed = False
         
-        return all_passed
+        # Test optional commands (don't fail on these)
+        for command, description, solution in optional_tests:
+            try:
+                result = subprocess.run(command.split(), capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"✅ {description}: OK")
+                else:
+                    print(f"ℹ️  {description}: Not installed (optional)")
+                    print(f"   💡 {solution}")
+            except Exception as e:
+                print(f"ℹ️  {description}: Not available (optional)")
+                print(f"   💡 {solution}")
+        
+        return all_required_passed
     
     def create_systemd_service(self):
         """Create systemd service for the orchestrator."""
@@ -330,12 +367,37 @@ WantedBy=multi-user.target
             print("\n🎉 Privilege setup completed successfully!")
             print("The orchestrator is now ready to perform system-level operations.")
             print("\nNext steps:")
-            print("1. Test the orchestrator: python cli.py system check-prerequisites 1")
-            print("2. Start the web interface: python cli.py web")
-            print("3. Or start as a service: sudo systemctl start microk8s-orchestrator")
+            print("1. Initialize database: make init")
+            print("2. Start the server: make prod-start")
+            print("3. Access web interface: http://localhost:5000")
         else:
             print("\n⚠️  Setup completed with some failures.")
-            print("Please review the failed steps and run the setup again if needed.")
+            print("\n📋 Troubleshooting Common Issues:")
+            print("=" * 50)
+            
+            # Check which steps failed and provide specific solutions
+            if not results.get("Creating required directories", True):
+                print("\n🔧 Directory Creation Failed:")
+                print("  • NUT user not found - this is OPTIONAL")
+                print("  • Install NUT only if you use UPS: sudo apt install nut nut-client")
+                print("  • Otherwise, ignore this warning - the orchestrator works without UPS support")
+            
+            if not results.get("Testing privileges", True):
+                print("\n🔧 Privilege Testing Failed:")
+                print("  • MicroK8s test failed - this is OPTIONAL on orchestrator server")
+                print("  • Install only on cluster nodes, not on the orchestrator itself")
+                print("  • Required tests: systemctl, apt, chown - these MUST pass")
+            
+            print("\n💡 Quick Fixes:")
+            print("  • Database not initialized: make init")
+            print("  • Server won't start: Check logs/production.log for errors")
+            print("  • Missing dependencies: .venv/bin/pip install -r requirements.txt")
+            print("  • Permission issues: Ensure you ran with sudo")
+            
+            print("\n📚 For more help:")
+            print("  • Check logs: cat logs/production.log")
+            print("  • View setup report: cat setup_report.json")
+            print("  • Documentation: docs/README.md")
         
         return all_success
 
