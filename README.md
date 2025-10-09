@@ -251,6 +251,29 @@ cd microk8s-cluster-orchestrator
    ```
    Then open http://localhost:5000 in your browser.
 
+### Production Server Management
+
+Run the web interface as a background service with convenient make commands:
+
+```bash
+# Start production server in background
+make prod-start
+
+# Check server status
+make prod-status
+
+# View server logs in real-time
+make prod-logs
+
+# Stop the server
+make prod-stop
+
+# Restart the server
+make prod-restart
+```
+
+The server will run in the background and continue even after you log out. All output is logged to `logs/production.log`. See [docs/PRODUCTION_SERVER_MANAGEMENT.md](docs/PRODUCTION_SERVER_MANAGEMENT.md) for detailed documentation.
+
 ## 📖 CLI Reference
 
 ### Node Management

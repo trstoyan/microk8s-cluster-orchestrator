@@ -171,6 +171,7 @@ backups/
 logs/
 temp/
 tmp/
+.prod-server.pid
 
 # SSH Keys (keep structure but ignore actual keys)
 ssh_keys/

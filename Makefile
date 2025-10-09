@@ -1,7 +1,7 @@
 # MicroK8s Cluster Orchestrator - Makefile
 # Provides convenient commands for development, testing, and deployment
 
-.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update
+.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update prod-start prod-stop prod-restart prod-status prod-logs logo
 
 # Default target
 help:
@@ -37,11 +37,19 @@ help:
 	@echo "  docker-run       Run with Docker Compose"
 	@echo "  docker-stop      Stop Docker containers"
 	@echo ""
+	@echo "Production Server Commands:"
+	@echo "  prod-start       Start production server in background"
+	@echo "  prod-stop        Stop production server"
+	@echo "  prod-restart     Restart production server"
+	@echo "  prod-status      Check production server status"
+	@echo "  prod-logs        View production server logs"
+	@echo ""
 	@echo "System Commands:"
 	@echo "  init             Initialize the application"
 	@echo "  update           Pull latest code and run migrations"
 	@echo "  backup           Create database backup"
 	@echo "  restore          Restore from backup"
+	@echo "  logo             Display the project logo"
 
 # Setup commands
 install:
@@ -205,3 +213,91 @@ playbook-executions:
 help-%:
 	@echo "Help for command: $*"
 	@grep -A 5 "^$*:" Makefile || echo "No help available for $*"
+
+# Production server management commands
+prod-start:
+	@echo "🚀 Starting production server in background..."
+	@if [ -f .prod-server.pid ]; then \
+		if ps -p $$(cat .prod-server.pid) > /dev/null 2>&1; then \
+			echo "⚠️  Production server is already running (PID: $$(cat .prod-server.pid))"; \
+			echo "Use 'make prod-stop' to stop it first, or 'make prod-restart' to restart."; \
+			exit 1; \
+		else \
+			rm -f .prod-server.pid; \
+		fi; \
+	fi
+	@mkdir -p logs
+	@nohup .venv/bin/python cli.py web --host 0.0.0.0 --port 5000 > logs/production.log 2>&1 & echo $$! > .prod-server.pid
+	@sleep 2
+	@if ps -p $$(cat .prod-server.pid) > /dev/null 2>&1; then \
+		echo "✅ Production server started successfully!"; \
+		echo "   PID: $$(cat .prod-server.pid)"; \
+		echo "   Access at: http://0.0.0.0:5000"; \
+		echo "   Logs: logs/production.log"; \
+		echo ""; \
+		echo "Use 'make prod-stop' to stop the server"; \
+		echo "Use 'make prod-logs' to view logs"; \
+	else \
+		echo "❌ Failed to start production server"; \
+		echo "Check logs/production.log for details"; \
+		rm -f .prod-server.pid; \
+		exit 1; \
+	fi
+
+prod-stop:
+	@echo "🛑 Stopping production server..."
+	@if [ ! -f .prod-server.pid ]; then \
+		echo "⚠️  No PID file found. Server may not be running."; \
+		exit 1; \
+	fi
+	@PID=$$(cat .prod-server.pid); \
+	if ps -p $$PID > /dev/null 2>&1; then \
+		kill $$PID && echo "✅ Production server stopped (PID: $$PID)"; \
+		rm -f .prod-server.pid; \
+	else \
+		echo "⚠️  Process $$PID not found. Cleaning up PID file."; \
+		rm -f .prod-server.pid; \
+	fi
+
+prod-restart: prod-stop
+	@echo "🔄 Restarting production server..."
+	@sleep 1
+	@$(MAKE) prod-start
+
+prod-status:
+	@echo "📊 Production Server Status:"
+	@echo "=============================="
+	@if [ -f .prod-server.pid ]; then \
+		PID=$$(cat .prod-server.pid); \
+		if ps -p $$PID > /dev/null 2>&1; then \
+			echo "✅ Status: RUNNING"; \
+			echo "   PID: $$PID"; \
+			echo "   URL: http://0.0.0.0:5000"; \
+			echo ""; \
+			ps -p $$PID -o pid,ppid,cmd,%mem,%cpu,etime; \
+		else \
+			echo "❌ Status: STOPPED"; \
+			echo "   PID file exists but process not running"; \
+			echo "   Cleaning up stale PID file..."; \
+			rm -f .prod-server.pid; \
+		fi; \
+	else \
+		echo "❌ Status: STOPPED"; \
+		echo "   No PID file found"; \
+		echo ""; \
+		echo "Use 'make prod-start' to start the server"; \
+	fi
+
+prod-logs:
+	@echo "📋 Production Server Logs:"
+	@echo "=============================="
+	@if [ -f logs/production.log ]; then \
+		tail -f logs/production.log; \
+	else \
+		echo "⚠️  No log file found at logs/production.log"; \
+		echo "Server may not have been started yet."; \
+	fi
+
+# Display logo
+logo:
+	@.venv/bin/python app/utils/logo.py startup
