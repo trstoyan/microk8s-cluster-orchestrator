@@ -296,6 +296,13 @@
                         </li>
                         {% endif %}
                         <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ['sync_web.index', 'sync_web.interactive', 'sync_web.connect'] %}active{% endif %}" href="{{ url_for('sync_web.index') }}">
+                                <i class="fas fa-sync-alt"></i>
+                                <span class="d-none d-lg-inline">Sync</span>
+                                <span class="d-lg-none">Sync</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'web.system_management' %}active{% endif %}" href="{{ url_for('web.system_management') }}">
                                 <i class="bi bi-gear-fill"></i>
                                 System
