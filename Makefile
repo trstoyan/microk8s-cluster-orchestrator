@@ -1,7 +1,7 @@
 # MicroK8s Cluster Orchestrator - Makefile
 # Provides convenient commands for development, testing, and deployment
 
-.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update update-dry prod-start prod-stop prod-restart prod-status prod-logs logo sync-test sync-api sync-connect sync-compare sync-interactive
+.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update update-dry prod-start prod-stop prod-restart prod-status prod-logs prod-cleanup logo sync-test sync-api sync-connect sync-compare sync-interactive
 
 # Default target
 help:
@@ -43,6 +43,7 @@ help:
 	@echo "  prod-restart     Restart production server"
 	@echo "  prod-status      Check production server status"
 	@echo "  prod-logs        View production server logs"
+	@echo "  prod-cleanup     Clean up orphaned processes and stale files"
 	@echo ""
 	@echo "Live Sync Commands:"
 	@echo "  sync-test        Test sync API availability"
@@ -268,6 +269,43 @@ prod-start:
 			rm -f .prod-server.pid; \
 		fi; \
 	fi
+	@echo "🔍 Checking if port 5000 is available..."
+	@PORT_CHECK=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || lsof -Pi :5000 -sTCP:LISTEN 2>/dev/null || echo ""); \
+	if [ -n "$$PORT_CHECK" ]; then \
+		echo "⚠️  Port 5000 is already in use!"; \
+		echo ""; \
+		echo "Process using port 5000:"; \
+		echo "$$PORT_CHECK" | head -1 | sed 's/^/   /'; \
+		echo ""; \
+		PID=$$(echo "$$PORT_CHECK" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_CHECK" | awk '{print $$NF}' | grep -oP '[0-9]+/[^/]+' | cut -d'/' -f1 | head -1 || echo ""); \
+		if [ -n "$$PID" ]; then \
+			echo "💡 Solutions:"; \
+			echo "   1. Kill the process: sudo kill $$PID"; \
+			echo "   2. Kill all Python on port 5000: sudo pkill -f 'cli.py web'"; \
+			echo "   3. Use different port: .venv/bin/python cli.py web --port 5001"; \
+			echo "   4. Run cleanup: make prod-cleanup"; \
+			echo ""; \
+			read -p "Do you want to kill process $$PID now? [y/N]: " response; \
+			if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+				echo "🔪 Killing process $$PID..."; \
+				kill $$PID 2>/dev/null || sudo kill $$PID; \
+				sleep 2; \
+				echo "✅ Process killed"; \
+			else \
+				echo "❌ Cannot start - port 5000 is in use"; \
+				exit 1; \
+			fi; \
+		else \
+			echo "⚠️  Could not determine PID, trying pkill..."; \
+			read -p "Kill all 'cli.py web' processes? [y/N]: " response; \
+			if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+				sudo pkill -f 'cli.py web' && echo "✅ Processes killed" || echo "⚠️  No processes found"; \
+				sleep 2; \
+			else \
+				exit 1; \
+			fi; \
+		fi; \
+	fi
 	@mkdir -p logs
 	@nohup .venv/bin/python cli.py web --host 0.0.0.0 --port 5000 > logs/production.log 2>&1 & echo $$! > .prod-server.pid
 	@sleep 2
@@ -289,8 +327,21 @@ prod-start:
 prod-stop:
 	@echo "🛑 Stopping production server..."
 	@if [ ! -f .prod-server.pid ]; then \
-		echo "⚠️  No PID file found. Server may not be running."; \
-		exit 1; \
+		echo "⚠️  No PID file found. Checking for orphaned processes..."; \
+		PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+		if [ -n "$$PORT_INFO" ]; then \
+			PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
+			echo "⚠️  Found orphaned process on port 5000 (PID: $$PID)"; \
+			read -p "Kill this process? [Y/n]: " response; \
+			response=$${response:-y}; \
+			if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+				kill $$PID 2>/dev/null || sudo kill $$PID; \
+				echo "✅ Orphaned process killed"; \
+			fi; \
+		else \
+			echo "✅ No server running on port 5000"; \
+		fi; \
+		exit 0; \
 	fi
 	@PID=$$(cat .prod-server.pid); \
 	if ps -p $$PID > /dev/null 2>&1; then \
@@ -299,6 +350,14 @@ prod-stop:
 	else \
 		echo "⚠️  Process $$PID not found. Cleaning up PID file."; \
 		rm -f .prod-server.pid; \
+		echo "🔍 Checking for orphaned processes on port 5000..."; \
+		PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+		if [ -n "$$PORT_INFO" ]; then \
+			ORPHAN_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
+			echo "⚠️  Found orphaned process (PID: $$ORPHAN_PID)"; \
+			kill $$ORPHAN_PID 2>/dev/null || sudo kill $$ORPHAN_PID; \
+			echo "✅ Orphaned process killed"; \
+		fi; \
 	fi
 
 prod-restart: prod-stop
@@ -326,8 +385,25 @@ prod-status:
 	else \
 		echo "❌ Status: STOPPED"; \
 		echo "   No PID file found"; \
-		echo ""; \
-		echo "Use 'make prod-start' to start the server"; \
+	fi; \
+	echo ""; \
+	echo "🔍 Port 5000 Status:"; \
+	PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+	if [ -n "$$PORT_INFO" ]; then \
+		PORT_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
+		if [ -f .prod-server.pid ] && [ "$$PORT_PID" = "$$(cat .prod-server.pid 2>/dev/null)" ]; then \
+			echo "   ✅ Port in use by our server"; \
+		else \
+			echo "   ⚠️  Port in use by another process (PID: $$PORT_PID)"; \
+			echo "$$PORT_INFO" | head -1 | sed 's/^/   /'; \
+			echo "   💡 Run 'make prod-cleanup' to fix"; \
+		fi; \
+	else \
+		echo "   ✅ Port 5000 is available"; \
+		if [ ! -f .prod-server.pid ]; then \
+			echo ""; \
+			echo "💡 Use 'make prod-start' to start the server"; \
+		fi; \
 	fi
 
 prod-logs:
@@ -339,6 +415,54 @@ prod-logs:
 		echo "⚠️  No log file found at logs/production.log"; \
 		echo "Server may not have been started yet."; \
 	fi
+
+prod-cleanup:
+	@echo "🧹 Cleaning up production server artifacts..."
+	@echo ""
+	@CLEANED=0; \
+	\
+	if [ -f .prod-server.pid ]; then \
+		PID=$$(cat .prod-server.pid); \
+		if ! ps -p $$PID > /dev/null 2>&1; then \
+			echo "🗑️  Removing stale PID file (.prod-server.pid)"; \
+			rm -f .prod-server.pid; \
+			CLEANED=$$((CLEANED + 1)); \
+		else \
+			echo "⚠️  Server is running (PID: $$PID) - use 'make prod-stop' first"; \
+		fi; \
+	fi; \
+	\
+	PORT_INFO=$$(ss -tlnp 2>/dev/null | grep ':5000' || netstat -tlnp 2>/dev/null | grep ':5000' || echo ""); \
+	if [ -n "$$PORT_INFO" ]; then \
+		PORT_PID=$$(echo "$$PORT_INFO" | grep -oP 'pid=\K[0-9]+' | head -1 || echo "$$PORT_INFO" | awk '{print $$NF}' | grep -oP '[0-9]+' | head -1); \
+		if [ -f .prod-server.pid ] && [ "$$PORT_PID" != "$$(cat .prod-server.pid 2>/dev/null)" ] || [ ! -f .prod-server.pid ]; then \
+			echo "🔍 Found orphaned process on port 5000 (PID: $$PORT_PID)"; \
+			echo "$$PORT_INFO" | head -1 | sed 's/^/   /'; \
+			read -p "Kill this process? [Y/n]: " response; \
+			response=$${response:-y}; \
+			if [ "$$response" = "y" ] || [ "$$response" = "Y" ]; then \
+				kill $$PORT_PID 2>/dev/null || sudo kill $$PORT_PID; \
+				sleep 1; \
+				if ! ps -p $$PORT_PID > /dev/null 2>&1; then \
+					echo "✅ Orphaned process killed"; \
+					CLEANED=$$((CLEANED + 1)); \
+				else \
+					echo "⚠️  Process still running, trying SIGKILL..."; \
+					kill -9 $$PORT_PID 2>/dev/null || sudo kill -9 $$PORT_PID; \
+					CLEANED=$$((CLEANED + 1)); \
+				fi; \
+			fi; \
+		fi; \
+	fi; \
+	\
+	echo ""; \
+	if [ $$CLEANED -gt 0 ]; then \
+		echo "✅ Cleanup complete: $$CLEANED item(s) cleaned"; \
+	else \
+		echo "✅ No cleanup needed - everything is clean!"; \
+	fi; \
+	echo ""; \
+	echo "💡 Tip: Run 'make prod-status' to verify"
 
 # Display logo
 logo:
