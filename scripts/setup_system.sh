@@ -271,6 +271,9 @@ configure_firewall() {
     # Allow SSH
     sudo ufw allow ssh
     
+    # Allow Orchestrator Web Interface (CRITICAL!)
+    sudo ufw allow 5000/tcp comment 'MicroK8s Orchestrator Web Interface'
+    
     # Allow MicroK8s ports
     sudo ufw allow 16443/tcp  # API server
     sudo ufw allow 10250:10259/tcp  # Kubelet and other services

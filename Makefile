@@ -1,7 +1,7 @@
 # MicroK8s Cluster Orchestrator - Makefile
 # Provides convenient commands for development, testing, and deployment
 
-.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update update-dry start stop restart status logs enable disable cleanup prod-start prod-stop prod-restart prod-status prod-logs prod-cleanup service-start service-stop service-restart service-status service-enable service-disable logo sync-test sync-api sync-connect sync-compare sync-interactive
+.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update update-dry start stop restart status logs enable disable cleanup firewall-check firewall-open firewall-status prod-start prod-stop prod-restart prod-status prod-logs prod-cleanup service-start service-stop service-restart service-status service-enable service-disable logo sync-test sync-api sync-connect sync-compare sync-interactive
 
 # Default target
 help:
@@ -65,6 +65,11 @@ help:
 	@echo "  backup           Create database backup"
 	@echo "  restore          Restore from backup"
 	@echo "  logo             Display the project logo"
+	@echo ""
+	@echo "Firewall Commands:"
+	@echo "  firewall-check   Check if port 5000 is open"
+	@echo "  firewall-open    Open port 5000 in firewall"
+	@echo "  firewall-status  Show complete firewall status"
 
 # Setup commands
 install:
@@ -691,6 +696,50 @@ disable:
 
 cleanup:
 	@$(MAKE) prod-cleanup
+
+# Firewall Management
+firewall-check:
+	@echo "🔍 Checking if port 5000 is open in firewall..."
+	@if sudo ufw status | grep -q "5000.*ALLOW"; then \
+		echo "✅ Port 5000 is open"; \
+		sudo ufw status | grep 5000; \
+	else \
+		echo "❌ Port 5000 is NOT open in firewall"; \
+		echo ""; \
+		echo "💡 This is why you can't connect from other machines!"; \
+		echo ""; \
+		echo "To fix, run:"; \
+		echo "  make firewall-open"; \
+		echo "  OR manually:"; \
+		echo "  sudo ufw allow 5000/tcp"; \
+	fi
+
+firewall-open:
+	@echo "🔓 Opening port 5000 in firewall..."
+	@if sudo ufw status | grep -q "5000.*ALLOW"; then \
+		echo "ℹ️  Port 5000 is already open"; \
+	else \
+		sudo ufw allow 5000/tcp; \
+		sudo ufw allow 5000/tcp comment 'MicroK8s Orchestrator Web Interface'; \
+		echo "✅ Port 5000 opened successfully"; \
+		echo ""; \
+		echo "🌐 You can now access the web interface from:"; \
+		echo "   http://10.25.8.14:5000 (from other machines)"; \
+		echo "   http://localhost:5000 (from this machine)"; \
+	fi
+
+firewall-status:
+	@echo "🔥 Firewall Status:"
+	@echo "=============================="
+	@sudo ufw status verbose
+	@echo ""
+	@echo "🔍 Port 5000 Status:"
+	@if sudo ufw status | grep -q "5000.*ALLOW"; then \
+		echo "   ✅ Port 5000 is OPEN"; \
+	else \
+		echo "   ❌ Port 5000 is CLOSED"; \
+		echo "   💡 Run 'make firewall-open' to fix"; \
+	fi
 
 # Live Sync Commands
 sync-test:
