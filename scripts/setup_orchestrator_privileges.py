@@ -14,12 +14,13 @@ from pathlib import Path
 class OrchestratorPrivilegeSetup:
     """Setup and configure orchestrator privileges."""
     
-    def __init__(self, auto_fix=True):
+    def __init__(self, auto_fix=True, interactive=True):
         self.script_dir = Path(__file__).parent
         self.project_root = self.script_dir.parent
         self.current_user = os.getenv('USER', 'orchestrator')
         self.sudoers_file = Path('/etc/sudoers.d/microk8s-orchestrator')
         self.auto_fix = auto_fix
+        self.interactive = interactive
         self.fixes_applied = []
         
         # Commands that the orchestrator needs to run with sudo
@@ -63,6 +64,19 @@ class OrchestratorPrivilegeSetup:
             '/opt/microk8s-orchestrator',
             '/var/log/microk8s-orchestrator',
         ]
+    
+    def prompt_user(self, question, default='y'):
+        """Prompt user for yes/no input in interactive mode."""
+        if not self.interactive:
+            return default.lower() == 'y'
+        
+        choices = 'Y/n' if default.lower() == 'y' else 'y/N'
+        response = input(f"{question} [{choices}]: ").strip().lower()
+        
+        if not response:
+            return default.lower() == 'y'
+        
+        return response in ['y', 'yes']
     
     def check_current_privileges(self):
         """Check current sudo privileges."""
@@ -174,9 +188,31 @@ class OrchestratorPrivilegeSetup:
                         subprocess.run(['sudo', 'chmod', '755', directory], check=True)
                         print(f"✅ Set NUT permissions for: {directory}")
                     else:
-                        print(f"ℹ️  Skipping NUT permissions for {directory} (NUT not installed)")
-                        print(f"   💡 Install NUT later with: sudo apt install nut nut-client")
-                        subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                        print(f"ℹ️  NUT user not found - UPS support is optional")
+                        if self.interactive:
+                            install_nut = self.prompt_user(
+                                "Do you want to install NUT (Network UPS Tools) now?", 
+                                default='n'
+                            )
+                            if install_nut:
+                                print("📦 Installing NUT...")
+                                try:
+                                    subprocess.run(['sudo', 'apt', 'update'], check=True)
+                                    subprocess.run(['sudo', 'apt', 'install', '-y', 'nut', 'nut-client'], check=True)
+                                    print("✅ NUT installed successfully")
+                                    subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
+                                    subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                                    self.fixes_applied.append("Installed NUT (UPS support)")
+                                except Exception as e:
+                                    print(f"⚠️  NUT installation failed: {e}")
+                                    print("   You can install it manually later if needed")
+                                    subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                            else:
+                                print("   Skipping NUT installation - UPS features will not be available")
+                                subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                        else:
+                            print(f"   💡 Install NUT later with: sudo apt install nut nut-client")
+                            subprocess.run(['sudo', 'chmod', '755', directory], check=True)
                 else:
                     subprocess.run(['sudo', 'chown', f'{self.current_user}:{self.current_user}', directory], check=True)
                     subprocess.run(['sudo', 'chmod', '755', directory], check=True)
@@ -255,6 +291,31 @@ class OrchestratorPrivilegeSetup:
                 else:
                     print(f"ℹ️  {description}: Not installed (optional)")
                     print(f"   💡 {solution}")
+                    
+                    # Interactive prompt for MicroK8s
+                    if self.interactive and 'microk8s' in command:
+                        is_node = self.prompt_user(
+                            "Is this machine a MicroK8s cluster node (not just orchestrator)?",
+                            default='n'
+                        )
+                        if is_node:
+                            install_mk8s = self.prompt_user(
+                                "Install MicroK8s now?",
+                                default='y'
+                            )
+                            if install_mk8s:
+                                print("📦 Installing MicroK8s...")
+                                try:
+                                    subprocess.run(['sudo', 'snap', 'install', 'microk8s', '--classic'], check=True)
+                                    subprocess.run(['sudo', 'usermod', '-a', '-G', 'microk8s', self.current_user], check=True)
+                                    print("✅ MicroK8s installed successfully")
+                                    print("⚠️  You need to log out and back in for group changes to take effect")
+                                    self.fixes_applied.append("Installed MicroK8s")
+                                except Exception as e:
+                                    print(f"⚠️  MicroK8s installation failed: {e}")
+                        else:
+                            print("   ℹ️  MicroK8s not needed on orchestrator-only servers")
+                            
             except Exception as e:
                 print(f"ℹ️  {description}: Not available (optional)")
                 print(f"   💡 {solution}")
