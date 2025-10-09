@@ -546,8 +546,10 @@ WantedBy=multi-user.target
             
             print("\nNext steps:")
             print("1. Initialize database: make init")
-            print("2. Start the server: make prod-start")
+            print("2. Start the server: make start")
             print("3. Access web interface: http://localhost:5000")
+            print("")
+            print("💡 Tip: Server will use systemd service (auto-restart enabled)")
         else:
             print("\n⚠️  Setup completed with some failures.")
             print("\n📋 Troubleshooting Common Issues:")
