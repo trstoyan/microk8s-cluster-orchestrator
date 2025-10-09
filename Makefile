@@ -1,7 +1,7 @@
 # MicroK8s Cluster Orchestrator - Makefile
 # Provides convenient commands for development, testing, and deployment
 
-.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update prod-start prod-stop prod-restart prod-status prod-logs logo sync-test sync-api sync-connect sync-compare sync-interactive
+.PHONY: help install dev-install test lint format clean build run docker-build docker-run docker-stop setup quick-setup system-setup health-check migrate validate-models update update-dry prod-start prod-stop prod-restart prod-status prod-logs logo sync-test sync-api sync-connect sync-compare sync-interactive
 
 # Default target
 help:
@@ -54,6 +54,7 @@ help:
 	@echo "System Commands:"
 	@echo "  init             Initialize the application"
 	@echo "  update           Pull latest code and run migrations"
+	@echo "  update-dry       Check for updates without applying"
 	@echo "  backup           Create database backup"
 	@echo "  restore          Restore from backup"
 	@echo "  logo             Display the project logo"
@@ -157,6 +158,34 @@ init:
 update:
 	@echo "🔄 Running safe codebase update..."
 	./scripts/safe_update.sh
+
+update-dry:
+	@echo "🔍 Checking for available updates (dry-run)..."
+	@CURRENT_BRANCH=$$(git rev-parse --abbrev-ref HEAD); \
+	echo "🌿 Current branch: $$CURRENT_BRANCH"; \
+	echo "📥 Fetching remote changes..."; \
+	git fetch origin $$CURRENT_BRANCH 2>/dev/null || git fetch origin; \
+	LOCAL_COMMITS=$$(git rev-list --count origin/$$CURRENT_BRANCH..HEAD 2>/dev/null || echo "0"); \
+	REMOTE_COMMITS=$$(git rev-list --count HEAD..origin/$$CURRENT_BRANCH 2>/dev/null || echo "0"); \
+	echo ""; \
+	echo "📊 Update Status:"; \
+	echo "   Local commits ahead: $$LOCAL_COMMITS"; \
+	echo "   Remote commits ahead: $$REMOTE_COMMITS"; \
+	echo ""; \
+	if [ "$$REMOTE_COMMITS" -eq 0 ]; then \
+		echo "✅ Already up to date!"; \
+		echo "   No updates available."; \
+	else \
+		echo "🔄 Updates available: $$REMOTE_COMMITS new commit(s)"; \
+		echo ""; \
+		echo "📋 Recent commits on remote:"; \
+		git log --oneline HEAD..origin/$$CURRENT_BRANCH 2>/dev/null | head -10 | sed 's/^/   /'; \
+		echo ""; \
+		echo "📝 Files that will be updated:"; \
+		git diff --name-status HEAD origin/$$CURRENT_BRANCH 2>/dev/null | sed 's/^/   /'; \
+		echo ""; \
+		echo "💡 To apply updates, run: make update"; \
+	fi
 
 backup:
 	@echo "💾 Creating database backup..."

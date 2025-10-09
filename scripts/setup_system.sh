@@ -366,28 +366,64 @@ test_installation() {
 }
 
 show_completion_message() {
-    print_header "Setup Complete!"
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║          🎉 SETUP COMPLETE - SUMMARY                      ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "✅ What Was Installed/Configured:"
+    echo "   ✓ Python $(python3 --version 2>&1 | cut -d' ' -f2)"
+    echo "   ✓ Virtual environment (.venv)"
+    echo "   ✓ Python dependencies ($(pip list 2>/dev/null | wc -l) packages)"
+    echo "   ✓ Ansible $(ansible --version 2>&1 | head -1 | cut -d' ' -f3 || echo 'installed')"
     
-    echo -e "${GREEN}🎉 MicroK8s Cluster Orchestrator setup completed successfully!${NC}"
-    echo
-    echo -e "${BLUE}Next steps:${NC}"
-    echo -e "1. ${YELLOW}Start the web interface:${NC}"
-    echo -e "   ${BLUE}cd $PROJECT_DIR${NC}"
-    echo -e "   ${BLUE}source .venv/bin/activate${NC}"
-    echo -e "   ${BLUE}python cli.py web${NC}"
-    echo
-    echo -e "2. ${YELLOW}Or start as a service:${NC}"
-    echo -e "   ${BLUE}sudo systemctl start microk8s-orchestrator${NC}"
-    echo
-    echo -e "3. ${YELLOW}Access the web interface:${NC}"
-    echo -e "   ${BLUE}http://localhost:5000${NC}"
-    echo
-    echo -e "4. ${YELLOW}Add your first node:${NC}"
-    echo -e "   ${BLUE}python cli.py node add --hostname node1 --ip 192.168.1.10 --user ubuntu${NC}"
-    echo
-    echo -e "5. ${YELLOW}Check system prerequisites:${NC}"
-    echo -e "   ${BLUE}python cli.py system check-prerequisites 1${NC}"
-    echo
+    # Check what's actually installed
+    if id nut &>/dev/null; then
+        echo "   ✓ NUT (Network UPS Tools) - UPS support enabled"
+    else
+        echo "   ⊘ NUT not installed - UPS features disabled (optional)"
+    fi
+    
+    if command -v microk8s &>/dev/null; then
+        echo "   ✓ MicroK8s - This machine is a cluster node"
+    else
+        echo "   ⊘ MicroK8s not installed - Orchestrator will manage remote nodes"
+    fi
+    
+    echo "   ✓ Sudo privileges configured"
+    echo "   ✓ Systemd service created"
+    echo "   ✓ Firewall rules configured"
+    echo "   ✓ Database initialized"
+    echo ""
+    echo "📊 System Status:"
+    echo "   📁 Project: $PROJECT_DIR"
+    echo "   👤 User: $USER"
+    if systemctl is-enabled microk8s-orchestrator &>/dev/null; then
+        echo "   🔧 Service: Enabled (starts on boot)"
+    fi
+    if [ -f "$PROJECT_DIR/.prod-server.pid" ]; then
+        echo "   🟢 Server: Running"
+    else
+        echo "   🔴 Server: Stopped"
+    fi
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════╗"
+    echo "║              ✨ NEXT STEPS                                ║"
+    echo "╚════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "🚀 Quick Start:"
+    echo "   make prod-start       # Start server in background"
+    echo "   make prod-status      # Check server status"
+    echo ""
+    echo "🌐 Access Web Interface:"
+    echo "   http://localhost:5000"
+    echo ""
+    echo "📋 Useful Commands:"
+    echo "   make logo            # Show project logo"
+    echo "   make help            # See all available commands"
+    echo "   make prod-logs       # View server logs"
+    echo "   make update-dry      # Check for updates"
+    echo ""
     echo -e "${GREEN}For more information, see the README.md file.${NC}"
 }
 

@@ -211,7 +211,9 @@ class OrchestratorPrivilegeSetup:
                                         if result.returncode == 0:
                                             subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
                                             subprocess.run(['sudo', 'chmod', '755', directory], check=True)
-                                            self.fixes_applied.append("Installed NUT (UPS support)")
+                                            # Only add to fixes once
+                                            if "Installed NUT (UPS support)" not in self.fixes_applied:
+                                                self.fixes_applied.append("Installed NUT (UPS support)")
                                         else:
                                             print("⚠️  NUT user still not found after installation")
                                             subprocess.run(['sudo', 'chmod', '755', directory], check=True)
