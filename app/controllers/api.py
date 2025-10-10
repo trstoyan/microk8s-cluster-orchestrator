@@ -3,6 +3,8 @@
 import os
 import subprocess
 import json
+import logging
+from datetime import datetime
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,6 +19,7 @@ bp = Blueprint('api', __name__)
 orchestrator = OrchestrationService()
 wol_service = WakeOnLANService()
 playbook_service = PlaybookService()
+logger = logging.getLogger(__name__)
 
 @bp.route('/health', methods=['GET'])
 def health_check():
@@ -339,7 +342,6 @@ def check_longhorn_prerequisites(node_id):
         
         if result['success']:
             # Parse and save the Longhorn check results to the node
-            from datetime import datetime
             try:
                 output = result.get('output', '')
                 # Look for the JSON report in the output
