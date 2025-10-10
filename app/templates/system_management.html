@@ -8,101 +8,169 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h1><i class="bi bi-gear-fill"></i> System Management</h1>
-                <button class="btn btn-outline-primary" onclick="refreshStatus()">
+                <button class="btn btn-outline-primary" onclick="refreshCurrentTab()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
             </div>
-        </div>
-    </div>
 
-    <!-- System Update Section -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="bi bi-arrow-up-circle"></i> System Updates
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div id="update-status">
-                        <div class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
+            <!-- Tabs Navigation -->
+            <ul class="nav nav-tabs mb-4" id="systemTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">
+                        <i class="bi bi-speedometer2"></i> Overview
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="updates-tab" data-bs-toggle="tab" data-bs-target="#updates" type="button" role="tab">
+                        <i class="bi bi-arrow-up-circle"></i> Updates
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="sync-tab" data-bs-toggle="tab" data-bs-target="#sync" type="button" role="tab">
+                        <i class="fas fa-sync-alt"></i> Live Sync
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab">
+                        <i class="bi bi-file-text"></i> Logs
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="timezone-tab" data-bs-toggle="tab" data-bs-target="#timezone" type="button" role="tab">
+                        <i class="bi bi-globe"></i> Timezone
+                    </button>
+                </li>
+            </ul>
+
+            <!-- Tabs Content -->
+            <div class="tab-content" id="systemTabsContent">
+                
+                <!-- Overview Tab -->
+                <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="card-title mb-0">
+                                        <i class="bi bi-info-circle"></i> System Information
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="system-info">
+                                        <div class="text-center">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <p class="mt-2">Checking for updates...</p>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- System Information Section -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="bi bi-info-circle"></i> System Information
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div id="system-info">
-                        <div class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="bi bi-activity"></i> System Actions
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div class="d-grid gap-2">
-                        <button class="btn btn-warning" onclick="restartSystem()">
-                            <i class="bi bi-arrow-clockwise"></i> Restart System
-                        </button>
-                        <button class="btn btn-info" onclick="checkPrerequisites()">
-                            <i class="bi bi-check-circle"></i> Check Prerequisites
-                        </button>
-                        <button class="btn btn-secondary" onclick="viewLogs()">
-                            <i class="bi bi-file-text"></i> View Logs
-                        </button>
-                        <button class="btn btn-primary" onclick="showTimezoneSetup()">
-                            <i class="bi bi-globe"></i> Configure Timezone
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Timezone Configuration Section -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="bi bi-globe"></i> Timezone Configuration
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div id="timezone-info">
-                        <div class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
+                        <div class="col-md-6 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="card-title mb-0">
+                                        <i class="bi bi-activity"></i> System Actions
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="d-grid gap-2">
+                                        <button class="btn btn-success" onclick="upgradeSystem()">
+                                            <i class="bi bi-arrow-up-circle-fill"></i> Upgrade System
+                                        </button>
+                                        <button class="btn btn-warning" onclick="restartSystem()">
+                                            <i class="bi bi-arrow-clockwise"></i> Restart System
+                                        </button>
+                                        <button class="btn btn-info" onclick="checkPrerequisites()">
+                                            <i class="bi bi-check-circle"></i> Check Prerequisites
+                                        </button>
+                                        <button class="btn btn-primary" onclick="showTimezoneSetup()">
+                                            <i class="bi bi-globe"></i> Configure Timezone
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- Updates Tab -->
+                <div class="tab-pane fade" id="updates" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-arrow-up-circle"></i> System Updates
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="update-status">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <p class="mt-2">Checking for updates...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sync Tab -->
+                <div class="tab-pane fade" id="sync" role="tabpanel">
+                    <div id="sync-content-container"></div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div class="tab-pane fade" id="logs" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-file-text"></i> System Logs
+                                </h5>
+                                <div>
+                                    <select class="form-select form-select-sm d-inline-block" id="log-file-select" style="width: auto;" onchange="refreshLogsTab()">
+                                        <option value="orchestrator">Orchestrator Logs</option>
+                                        <option value="ansible">Ansible Logs</option>
+                                        <option value="system">System Logs</option>
+                                    </select>
+                                    <button class="btn btn-sm btn-outline-primary ms-2" onclick="refreshLogsTab()">
+                                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger ms-2" onclick="clearLogsTab()">
+                                        <i class="bi bi-trash"></i> Clear
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="logs-content" class="bg-dark text-light p-3" style="height: 500px; overflow-y: auto; font-family: monospace;">
+                                <div class="text-muted">Select a log file above</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timezone Tab -->
+                <div class="tab-pane fade" id="timezone" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="bi bi-globe"></i> Timezone Configuration
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="timezone-info">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -202,53 +270,70 @@
     </div>
 </div>
 
-<!-- Log Viewer Modal -->
-<div class="modal fade" id="logsModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="bi bi-file-text"></i> System Logs
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <select class="form-select" id="log-file-select">
-                            <option value="orchestrator">Orchestrator Logs</option>
-                            <option value="ansible">Ansible Logs</option>
-                            <option value="system">System Logs</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <button class="btn btn-outline-primary" onclick="refreshLogs()">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh
-                        </button>
-                    </div>
-                </div>
-                <div id="logs-content" class="bg-dark text-light p-3 rounded" style="height: 400px; overflow-y: auto; font-family: monospace;">
-                    <!-- Logs content will be loaded here -->
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-outline-danger" onclick="clearLogs()">
-                    <i class="bi bi-trash"></i> Clear Logs
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <script>
 let currentUpdateStrategy = 'stash';
+let syncContentLoaded = false;
 
 // Load initial status
 document.addEventListener('DOMContentLoaded', function() {
     refreshStatus();
     loadTimezoneInfo();
+    
+    // Load content when tabs are switched
+    const tabEl = document.querySelectorAll('button[data-bs-toggle="tab"]');
+    tabEl.forEach(tab => {
+        tab.addEventListener('shown.bs.tab', function (event) {
+            const targetId = event.target.getAttribute('data-bs-target');
+            if (targetId === '#sync' && !syncContentLoaded) {
+                loadSyncContent();
+            } else if (targetId === '#logs') {
+                refreshLogsTab();
+            } else if (targetId === '#updates') {
+                refreshStatus();
+            } else if (targetId === '#timezone') {
+                loadTimezoneInfo();
+            }
+        });
+    });
 });
+
+function refreshCurrentTab() {
+    const activeTab = document.querySelector('#systemTabs button.active');
+    const targetId = activeTab.getAttribute('data-bs-target');
+    
+    if (targetId === '#overview') {
+        refreshStatus();
+        loadTimezoneInfo();
+    } else if (targetId === '#updates') {
+        refreshStatus();
+    } else if (targetId === '#sync' && syncContentLoaded) {
+        // Reload sync iframe
+        const iframe = document.querySelector('#sync-content-container iframe');
+        if (iframe) {
+            iframe.src = iframe.src;
+        }
+    } else if (targetId === '#logs') {
+        refreshLogsTab();
+    } else if (targetId === '#timezone') {
+        loadTimezoneInfo();
+    }
+}
+
+function loadSyncContent() {
+    // Load sync interface in iframe
+    const syncContainer = document.getElementById('sync-content-container');
+    syncContainer.innerHTML = `
+        <div class="card border-0">
+            <div class="card-body p-0">
+                <iframe src="${window.location.origin}/sync/interactive" 
+                        style="width: 100%; height: 800px; border: none;"
+                        title="Live Server Sync">
+                </iframe>
+            </div>
+        </div>
+    `;
+    syncContentLoaded = true;
+}
 
 function refreshStatus() {
     fetch('/api/system/update/status')
@@ -318,7 +403,7 @@ function displayUpdateStatus(data) {
                 <strong>${data.updates_available} update(s) available!</strong>
                 <div class="mt-2">
                     <button class="btn btn-primary" onclick="showUpdateOptions()">
-                        <i class="bi bi-arrow-up"></i> Update Now
+                        <i class="bi bi-arrow-up"></i> Upgrade Now
                     </button>
                 </div>
             </div>
@@ -370,6 +455,10 @@ function displaySystemInfo(data) {
             </div>
         </div>
     `;
+}
+
+function upgradeSystem() {
+    showUpdateOptions();
 }
 
 function showUpdateOptions() {
@@ -589,6 +678,9 @@ function displayTimezoneInfo(data) {
                     <small>The system timezone affects logging timestamps and scheduled operations. 
                     Ensure all cluster nodes use the same timezone for consistency.</small>
                 </div>
+                <button class="btn btn-primary" onclick="showTimezoneSetup()">
+                    <i class="bi bi-globe"></i> Change Timezone
+                </button>
             </div>
         </div>
     `;
@@ -742,13 +834,7 @@ function checkPrerequisites() {
         });
 }
 
-function viewLogs() {
-    const modal = new bootstrap.Modal(document.getElementById('logsModal'));
-    modal.show();
-    refreshLogs();
-}
-
-function refreshLogs() {
+function refreshLogsTab() {
     const logType = document.getElementById('log-file-select').value;
     
     fetch(`/api/system/logs/${logType}`)
@@ -779,7 +865,7 @@ function refreshLogs() {
         });
 }
 
-function clearLogs() {
+function clearLogsTab() {
     const logType = document.getElementById('log-file-select').value;
     
     if (confirm(`Are you sure you want to clear ${logType} logs?`)) {
@@ -790,7 +876,7 @@ function clearLogs() {
         .then(data => {
             if (data.success) {
                 alert('Logs cleared successfully');
-                refreshLogs();
+                refreshLogsTab();
             } else {
                 alert('Failed to clear logs: ' + data.error);
             }

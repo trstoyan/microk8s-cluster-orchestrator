@@ -3,11 +3,14 @@ Sync Web Controller
 Web interface for interactive sync operations
 """
 
-from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
+from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for, Response, stream_with_context
 from flask_login import login_required
 import requests
+import json
+import time
 
 from app.services.sync_service import SyncService
+from app.utils.progress_logger import get_progress_logger
 
 sync_web_bp = Blueprint('sync_web', __name__, url_prefix='/sync')
 
@@ -229,4 +232,177 @@ def transfer():
 def interactive():
     """Interactive sync page with comparison and selection"""
     return render_template('sync/interactive.html')
+
+
+@sync_web_bp.route('/api/transfer', methods=['POST'])
+@login_required
+def api_transfer():
+    """
+    Transfer selected items to remote server with progress logging
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    progress = get_progress_logger()
+    
+    data = request.get_json()
+    remote_url = data.get('remote_url', '').strip()
+    remote_username = data.get('remote_username')
+    remote_password = data.get('remote_password')
+    selected_items = data.get('selected_items', {})
+    
+    if not remote_url:
+        return jsonify({'success': False, 'error': 'Remote URL required'}), 400
+    
+    # Start operation with unique ID
+    import uuid
+    operation_id = str(uuid.uuid4())[:8]
+    progress.start_operation(operation_id)
+    
+    try:
+        # Ensure URL has protocol
+        if not remote_url.startswith('http://') and not remote_url.startswith('https://'):
+            remote_url = 'http://' + remote_url
+        remote_url = remote_url.rstrip('/')
+        
+        progress.info(f'📦 Preparing to transfer {len(selected_items.get("nodes", []))} nodes, {len(selected_items.get("clusters", []))} clusters')
+        
+        # Login to remote server
+        progress.info(f'🔐 Connecting to {remote_url}...')
+        session = requests.Session()
+        
+        login_response = session.post(
+            f"{remote_url}/auth/login",
+            data={'username': remote_username, 'password': remote_password},
+            timeout=10,
+            allow_redirects=False
+        )
+        
+        if login_response.status_code not in [200, 302]:
+            progress.error(f'❌ Login failed (status {login_response.status_code})')
+            return jsonify({'success': False, 'error': 'Authentication failed'}), 401
+        
+        progress.success('✅ Connected and authenticated')
+        
+        # Get selected items from local database
+        from app.models.flask_models import Node, Cluster
+        
+        sync_data = {
+            'nodes': [],
+            'clusters': []
+        }
+        
+        # Fetch selected nodes
+        if selected_items.get('nodes'):
+            progress.info(f'📤 Fetching {len(selected_items["nodes"])} nodes from local database...')
+            for node_id in selected_items['nodes']:
+                node = Node.query.get(int(node_id))
+                if node:
+                    sync_data['nodes'].append({
+                        'hostname': node.hostname,
+                        'ip_address': node.ip_address,
+                        'ssh_user': node.ssh_user,
+                        'ssh_port': node.ssh_port,
+                        'cluster_id': node.cluster_id,
+                        'notes': node.notes,
+                        'tags': node.tags
+                    })
+            progress.success(f'✅ Prepared {len(sync_data["nodes"])} nodes for transfer')
+        
+        # Fetch selected clusters
+        if selected_items.get('clusters'):
+            progress.info(f'📤 Fetching {len(selected_items["clusters"])} clusters from local database...')
+            for cluster_id in selected_items['clusters']:
+                cluster = Cluster.query.get(int(cluster_id))
+                if cluster:
+                    sync_data['clusters'].append({
+                        'name': cluster.name,
+                        'description': cluster.description,
+                        'ha_enabled': cluster.ha_enabled,
+                        'network_cidr': cluster.network_cidr,
+                        'service_cidr': cluster.service_cidr
+                    })
+            progress.success(f'✅ Prepared {len(sync_data["clusters"])} clusters for transfer')
+        
+        # Transfer nodes to remote
+        if sync_data['nodes']:
+            progress.info(f'⬆️ Transferring {len(sync_data["nodes"])} nodes to remote server...')
+            for idx, node_data in enumerate(sync_data['nodes'], 1):
+                progress.info(f'  └─ [{idx}/{len(sync_data["nodes"])}] Transferring node: {node_data["hostname"]}')
+                try:
+                    response = session.post(
+                        f"{remote_url}/api/nodes",
+                        json=node_data,
+                        timeout=30
+                    )
+                    if response.status_code in [200, 201]:
+                        progress.success(f'    ✅ {node_data["hostname"]} transferred')
+                    else:
+                        progress.warning(f'    ⚠️ {node_data["hostname"]} may already exist (status {response.status_code})')
+                except Exception as e:
+                    progress.error(f'    ❌ Failed to transfer {node_data["hostname"]}: {str(e)}')
+        
+        # Transfer clusters to remote
+        if sync_data['clusters']:
+            progress.info(f'⬆️ Transferring {len(sync_data["clusters"])} clusters to remote server...')
+            for idx, cluster_data in enumerate(sync_data['clusters'], 1):
+                progress.info(f'  └─ [{idx}/{len(sync_data["clusters"])}] Transferring cluster: {cluster_data["name"]}')
+                try:
+                    response = session.post(
+                        f"{remote_url}/api/clusters",
+                        json=cluster_data,
+                        timeout=30
+                    )
+                    if response.status_code in [200, 201]:
+                        progress.success(f'    ✅ {cluster_data["name"]} transferred')
+                    else:
+                        progress.warning(f'    ⚠️ {cluster_data["name"]} may already exist (status {response.status_code})')
+                except Exception as e:
+                    progress.error(f'    ❌ Failed to transfer {cluster_data["name"]}: {str(e)}')
+        
+        progress.complete(f'Transfer completed! {len(sync_data["nodes"])} nodes, {len(sync_data["clusters"])} clusters')
+        
+        return jsonify({
+            'success': True,
+            'transferred': {
+                'nodes': len(sync_data['nodes']),
+                'clusters': len(sync_data['clusters'])
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"[SYNC] Transfer error: {str(e)}")
+        progress.error(f'❌ Transfer failed: {str(e)}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@sync_web_bp.route('/api/progress-stream')
+@login_required
+def progress_stream():
+    """
+    Server-Sent Events endpoint for live progress updates
+    """
+    def generate():
+        progress = get_progress_logger()
+        client_queue = progress.subscribe()
+        
+        try:
+            while True:
+                # Wait for new log entry (with timeout)
+                try:
+                    log_entry = client_queue.get(timeout=30)
+                    yield f"data: {json.dumps(log_entry)}\n\n"
+                except:
+                    # Send keepalive
+                    yield f": keepalive\n\n"
+        finally:
+            progress.unsubscribe(client_queue)
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    )
 
