@@ -338,10 +338,40 @@ def check_longhorn_prerequisites(node_id):
         result = orchestrator.execute_pending_operation(operation.id)
         
         if result['success']:
+            # Parse and save the Longhorn check results to the node
+            from datetime import datetime
+            try:
+                output = result.get('output', '')
+                # Look for the JSON report in the output
+                import re
+                json_match = re.search(r'"longhorn_check_report":\s*({.*?})\s*}', output, re.DOTALL)
+                if json_match:
+                    report_str = json_match.group(1) + '}'
+                    # Clean up the JSON string
+                    report_str = report_str.replace('\\"', '"').replace('\\n', '').replace('\n', '')
+                    report = json.loads(report_str)
+                    
+                    # Update node with results
+                    node.longhorn_prerequisites_met = report.get('prerequisites_met', False)
+                    node.longhorn_prerequisites_status = 'met' if report.get('prerequisites_met') else 'failed'
+                    node.longhorn_missing_packages = json.dumps(report.get('packages_status', {}).get('missing', []))
+                    node.longhorn_missing_commands = json.dumps(report.get('commands_status', {}).get('missing', []))
+                    node.longhorn_services_status = json.dumps(report.get('services_status', {}))
+                    node.longhorn_storage_info = json.dumps(report.get('storage_info', {}))
+                    node.longhorn_last_check = datetime.utcnow()
+                    
+                    db.session.commit()
+                    logger.info(f"[LONGHORN] Updated node {node.hostname} prerequisites status: {node.longhorn_prerequisites_status}")
+            except Exception as e:
+                logger.error(f"[LONGHORN] Failed to parse check results: {str(e)}")
+                # Don't fail the whole operation, just log the error
+                pass
+            
             return jsonify({
                 'success': True,
                 'operation_id': operation.id,
-                'message': 'Longhorn prerequisites check completed successfully'
+                'message': 'Longhorn prerequisites check completed successfully',
+                'prerequisites_met': node.longhorn_prerequisites_met
             })
         else:
             return jsonify({
@@ -2410,3 +2440,129 @@ def execute_operation(operation_id):
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/operations/<int:operation_id>/add-discovered-nodes', methods=['POST'])
+@login_required
+def add_discovered_nodes(operation_id):
+    """
+    Add nodes that were discovered during a cluster scan.
+    This automatically creates node entries for all nodes found in the Kubernetes cluster
+    that aren't yet in the orchestrator.
+    """
+    try:
+        operation = Operation.query.get_or_404(operation_id)
+        
+        # Verify this is a scan operation
+        if operation.operation_type != 'scan':
+            return jsonify({
+                'success': False,
+                'error': 'This operation is not a cluster scan'
+            }), 400
+        
+        # Parse metadata to get discovered nodes
+        if not operation.metadata:
+            return jsonify({
+                'success': False,
+                'error': 'No discovered nodes found in this scan'
+            }), 404
+        
+        metadata = json.loads(operation.metadata)
+        new_nodes = metadata.get('new_nodes', [])
+        
+        if not new_nodes:
+            return jsonify({
+                'success': False,
+                'error': 'No new nodes to add'
+            }), 404
+        
+        # Get the cluster from the operation
+        if not operation.cluster_id:
+            return jsonify({
+                'success': False,
+                'error': 'Operation is not associated with a cluster'
+            }), 400
+        
+        cluster = Cluster.query.get(operation.cluster_id)
+        
+        # Add each discovered node
+        from ..services.ssh_key_manager import SSHKeyManager
+        ssh_manager = SSHKeyManager()
+        
+        added_nodes = []
+        errors = []
+        
+        for discovered in new_nodes:
+            try:
+                # Create node entry
+                node = Node(
+                    hostname=discovered['hostname'],
+                    ip_address=discovered['ip_address'],
+                    ssh_user='ubuntu',  # Default, user can change later
+                    ssh_port=22,
+                    cluster_id=cluster.id,
+                    status='active',  # Already in cluster, so active
+                    microk8s_status='installed',  # Already running MicroK8s
+                    is_control_plane='control-plane' in discovered.get('roles', []) or 'master' in discovered.get('roles', []),
+                    notes=f"Auto-discovered from cluster scan on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                db.session.add(node)
+                db.session.flush()  # Get the node ID
+                
+                # Generate SSH key
+                try:
+                    key_info = ssh_manager.generate_key_pair(node.id, node.hostname)
+                    
+                    node.ssh_key_path = key_info['private_key_path']
+                    node.ssh_public_key = key_info['public_key']
+                    node.ssh_key_fingerprint = key_info['fingerprint']
+                    node.ssh_key_generated = True
+                    node.ssh_key_status = 'generated'
+                    
+                    # Generate setup instructions
+                    instructions = ssh_manager.get_setup_instructions(
+                        node.hostname,
+                        key_info['public_key'],
+                        node.ssh_user
+                    )
+                    node.ssh_setup_instructions = instructions
+                    
+                    db.session.commit()
+                    
+                    added_nodes.append({
+                        'id': node.id,
+                        'hostname': node.hostname,
+                        'ip_address': node.ip_address
+                    })
+                    
+                except Exception as key_error:
+                    logger.error(f"[NODE-DISCOVERY] Failed to generate SSH key for {node.hostname}: {str(key_error)}")
+                    errors.append(f"{node.hostname}: SSH key generation failed - {str(key_error)}")
+                    # Still add the node, just without SSH key
+                    db.session.commit()
+                    added_nodes.append({
+                        'id': node.id,
+                        'hostname': node.hostname,
+                        'ip_address': node.ip_address,
+                        'warning': 'SSH key generation failed'
+                    })
+                    
+            except Exception as e:
+                logger.error(f"[NODE-DISCOVERY] Failed to add node {discovered.get('hostname')}: {str(e)}")
+                errors.append(f"{discovered.get('hostname', 'Unknown')}: {str(e)}")
+                db.session.rollback()
+        
+        return jsonify({
+            'success': True,
+            'added_count': len(added_nodes),
+            'added_nodes': added_nodes,
+            'errors': errors,
+            'message': f'Successfully added {len(added_nodes)} node(s) to the orchestrator'
+        })
+        
+    except Exception as e:
+        logger.error(f"[NODE-DISCOVERY] Error adding discovered nodes: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

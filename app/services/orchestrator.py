@@ -918,11 +918,38 @@ class OrchestrationService:
                 
                 # Extract discovered nodes for auto-add feature
                 discovered_nodes = self._extract_discovered_nodes(output)
+                
+                # Compare discovered nodes with existing nodes in orchestrator
+                new_nodes = []
                 if discovered_nodes:
+                    # Get all existing node hostnames and IPs in this cluster
+                    existing_hostnames = {node.hostname.lower() for node in cluster.nodes}
+                    existing_ips = {node.ip_address for node in cluster.nodes if node.ip_address}
+                    
+                    # Find nodes that exist in cluster but not in orchestrator
+                    for discovered in discovered_nodes:
+                        hostname_lower = discovered['hostname'].lower()
+                        ip = discovered['ip_address']
+                        
+                        # Check if this node is NOT already in orchestrator
+                        if hostname_lower not in existing_hostnames and ip not in existing_ips:
+                            new_nodes.append(discovered)
+                    
+                    # Store in operation metadata for display
                     operation.metadata = json.dumps({
                         'scan_results': scan_results,
-                        'discovered_nodes': discovered_nodes
+                        'discovered_nodes': discovered_nodes,
+                        'new_nodes': new_nodes,  # Nodes that need to be added
+                        'new_nodes_count': len(new_nodes)
                     })
+                    
+                    # Add a note in the output if new nodes were discovered
+                    if new_nodes:
+                        output += f"\n\n=== DISCOVERED NEW NODES ===\n"
+                        output += f"Found {len(new_nodes)} node(s) in the cluster that are not yet in the orchestrator:\n"
+                        for node in new_nodes:
+                            output += f"  - {node['hostname']} ({node['ip_address']}) - Roles: {', '.join(node['roles'])}\n"
+                        output += "\nThese nodes can be automatically added to the orchestrator.\n"
                 
                 db.session.commit()
                 self._update_operation_status(operation, 'completed', success=True, output=output)
