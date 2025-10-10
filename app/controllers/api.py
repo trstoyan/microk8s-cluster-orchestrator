@@ -344,14 +344,28 @@ def check_longhorn_prerequisites(node_id):
             # Parse and save the Longhorn check results to the node
             try:
                 output = result.get('output', '')
-                # Look for the JSON report in the output
+                
+                # Parse the YAML-formatted report from Ansible debug output
+                # Look for "longhorn_check_report:" section
                 import re
-                json_match = re.search(r'"longhorn_check_report":\s*({.*?})\s*}', output, re.DOTALL)
-                if json_match:
-                    report_str = json_match.group(1) + '}'
-                    # Clean up the JSON string
-                    report_str = report_str.replace('\\"', '"').replace('\\n', '').replace('\n', '')
-                    report = json.loads(report_str)
+                import yaml
+                
+                # Try to extract the YAML block after "longhorn_check_report:"
+                yaml_match = re.search(
+                    r'longhorn_check_report:\s*\n((?:[ ]{4,}.*\n)+)',
+                    output,
+                    re.MULTILINE
+                )
+                
+                if yaml_match:
+                    yaml_content = yaml_match.group(1)
+                    # Remove the indentation (4 spaces)
+                    yaml_content = '\n'.join(line[4:] if len(line) > 4 else line for line in yaml_content.split('\n'))
+                    
+                    # Parse YAML
+                    report = yaml.safe_load(yaml_content)
+                    
+                    logger.info(f"[LONGHORN] Parsed report for {node.hostname}: prerequisites_met={report.get('prerequisites_met')}")
                     
                     # Update node with results
                     node.longhorn_prerequisites_met = report.get('prerequisites_met', False)
@@ -363,9 +377,14 @@ def check_longhorn_prerequisites(node_id):
                     node.longhorn_last_check = datetime.utcnow()
                     
                     db.session.commit()
-                    logger.info(f"[LONGHORN] Updated node {node.hostname} prerequisites status: {node.longhorn_prerequisites_status}")
+                    logger.info(f"[LONGHORN] ✅ Updated node {node.hostname} - Status: {node.longhorn_prerequisites_status}")
+                else:
+                    logger.warning(f"[LONGHORN] Could not find longhorn_check_report in output")
+                    logger.debug(f"[LONGHORN] Output preview: {output[:500]}")
+                    
             except Exception as e:
                 logger.error(f"[LONGHORN] Failed to parse check results: {str(e)}")
+                logger.error(f"[LONGHORN] Traceback:", exc_info=True)
                 # Don't fail the whole operation, just log the error
                 pass
             
@@ -476,29 +495,96 @@ def setup_cluster(cluster_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@bp.route('/clusters/<int:cluster_id>/configure-hosts', methods=['POST'])
+@bp.route('/clusters/<int:cluster_id>/configure-hosts/preview', methods=['GET'])
 @login_required
-def configure_hosts_file(cluster_id):
-    """Configure /etc/hosts file on all cluster nodes for proper hostname resolution."""
+def preview_hosts_configuration(cluster_id):
+    """Preview what will be added to /etc/hosts files."""
     try:
         cluster = Cluster.query.get_or_404(cluster_id)
         
         if not cluster.nodes:
             return jsonify({'error': 'Cluster has no nodes assigned'}), 400
         
-        operation = orchestrator.configure_hosts_file(cluster)
+        # Build the proposed hosts entries
+        entries = []
+        for node in cluster.nodes:
+            entries.append({
+                'id': node.id,
+                'hostname': node.hostname,
+                'ip_address': node.ip_address,
+                'status': node.status,
+                'is_control_plane': node.is_control_plane,
+                'ssh_ready': node.ssh_connection_tested and node.ssh_key_generated,
+                'entry': f"{node.ip_address}    {node.hostname}"
+            })
+        
+        return jsonify({
+            'success': True,
+            'cluster_name': cluster.name,
+            'total_nodes': len(entries),
+            'entries': entries,
+            'preview_text': '\n'.join([e['entry'] for e in entries]),
+            'message': f'This will add {len(entries)} entries to /etc/hosts on each selected node'
+        })
+        
+    except Exception as e:
+        logger.error(f"[HOSTS-CONFIG] Error previewing configuration: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/clusters/<int:cluster_id>/configure-hosts', methods=['POST'])
+@login_required
+def configure_hosts_file(cluster_id):
+    """Configure /etc/hosts file on selected cluster nodes."""
+    try:
+        cluster = Cluster.query.get_or_404(cluster_id)
+        data = request.get_json() or {}
+        selected_node_ids = data.get('selected_nodes', [])
+        
+        if not cluster.nodes:
+            return jsonify({'error': 'Cluster has no nodes assigned'}), 400
+        
+        # If no selection provided, use all nodes (backward compatibility)
+        if not selected_node_ids:
+            selected_nodes = list(cluster.nodes)
+        else:
+            # Filter to only selected nodes
+            selected_nodes = [node for node in cluster.nodes if node.id in selected_node_ids]
+        
+        if not selected_nodes:
+            return jsonify({'error': 'No nodes selected for configuration'}), 400
+        
+        # Create a temporary cluster object for the operation
+        class TempCluster:
+            def __init__(self, original_cluster, nodes):
+                self.id = original_cluster.id
+                self.name = original_cluster.name
+                self.nodes = nodes
+        
+        temp_cluster = TempCluster(cluster, selected_nodes)
+        
+        operation = orchestrator.configure_hosts_file(temp_cluster)
         # Set the user who initiated the operation
         operation.user_id = current_user.id
         operation.created_by = current_user.full_name
+        
+        # Store selected nodes in metadata
+        operation.operation_metadata = json.dumps({
+            'selected_node_ids': selected_node_ids,
+            'selected_count': len(selected_nodes),
+            'total_cluster_nodes': len(cluster.nodes)
+        })
+        
         db.session.commit()
         
         return jsonify({
             'operation': operation.to_dict(),
-            'message': f'Hosts file configuration started for cluster {cluster.name}',
-            'nodes_count': len(cluster.nodes),
-            'nodes': [{'hostname': node.hostname, 'ip_address': node.ip_address} for node in cluster.nodes]
+            'message': f'Hosts file configuration started for {len(selected_nodes)} node(s) in cluster {cluster.name}',
+            'nodes_count': len(selected_nodes),
+            'nodes': [{'hostname': node.hostname, 'ip_address': node.ip_address} for node in selected_nodes]
         }), 202
     except Exception as e:
+        logger.error(f"[HOSTS-CONFIG] Error configuring hosts: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/nodes/configure-hosts', methods=['POST'])
