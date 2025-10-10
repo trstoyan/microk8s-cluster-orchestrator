@@ -190,6 +190,42 @@ echo ""
 print_success "SSH setup completed successfully!"
 echo ""
 
+# Configure passwordless sudo for the orchestrator
+print_status "Configuring passwordless sudo for orchestrator operations..."
+echo ""
+
+# Check if user already has passwordless sudo
+if sudo -n true 2>/dev/null; then
+    print_success "User already has passwordless sudo configured"
+else
+    print_warning "Passwordless sudo is not configured"
+    print_status "The orchestrator needs passwordless sudo to manage this node"
+    echo ""
+    print_status "To enable it, run this command:"
+    echo -e "${GREEN}echo \"$CURRENT_USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/orchestrator-$CURRENT_USER${NC}"
+    echo ""
+    read -p "Would you like to configure passwordless sudo now? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        print_status "Configuring passwordless sudo..."
+        echo "$CURRENT_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/orchestrator-$CURRENT_USER > /dev/null
+        sudo chmod 440 /etc/sudoers.d/orchestrator-$CURRENT_USER
+        
+        # Test it
+        if sudo -n true 2>/dev/null; then
+            print_success "✅ Passwordless sudo configured successfully!"
+        else
+            print_error "Failed to configure passwordless sudo"
+            print_status "You may need to configure it manually"
+        fi
+    else
+        print_warning "Skipped passwordless sudo configuration"
+        print_status "Note: Some orchestrator operations may fail without passwordless sudo"
+    fi
+fi
+
+echo ""
+
 # Print summary
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}✓ Setup Summary:${NC}"
@@ -197,11 +233,18 @@ echo -e "  • SSH directory: $SSH_DIR"
 echo -e "  • Authorized keys: $AUTH_KEYS"
 echo -e "  • Key comment: $KEY_COMMENT"
 echo -e "  • Orchestrator IP: $ORCHESTRATOR_IP"
+if sudo -n true 2>/dev/null; then
+    echo -e "  • Passwordless sudo: ${GREEN}✓ Configured${NC}"
+else
+    echo -e "  • Passwordless sudo: ${YELLOW}⚠ Not configured${NC}"
+fi
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}"
 echo ""
 
 print_status "The orchestrator can now connect to this node via SSH"
-print_status "Test the connection from the orchestrator dashboard"
+if ! sudo -n true 2>/dev/null; then
+    print_warning "Note: Configure passwordless sudo for full orchestrator functionality"
+fi
 echo ""
 
 # Optional: Test SSH connection back (if SSH server is running)
