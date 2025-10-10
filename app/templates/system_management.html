@@ -16,27 +16,27 @@
             <!-- Tabs Navigation -->
             <ul class="nav nav-tabs mb-4" id="systemTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">
+                    <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab" aria-selected="true" aria-controls="overview">
                         <i class="bi bi-speedometer2"></i> Overview
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="updates-tab" data-bs-toggle="tab" data-bs-target="#updates" type="button" role="tab">
+                    <button class="nav-link" id="updates-tab" data-bs-toggle="tab" data-bs-target="#updates" type="button" role="tab" aria-selected="false" aria-controls="updates">
                         <i class="bi bi-arrow-up-circle"></i> Updates
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="sync-tab" data-bs-toggle="tab" data-bs-target="#sync" type="button" role="tab">
+                    <button class="nav-link" id="sync-tab" data-bs-toggle="tab" data-bs-target="#sync" type="button" role="tab" aria-selected="false" aria-controls="sync">
                         <i class="fas fa-sync-alt"></i> Live Sync
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab">
+                    <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab" aria-selected="false" aria-controls="logs">
                         <i class="bi bi-file-text"></i> Logs
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="timezone-tab" data-bs-toggle="tab" data-bs-target="#timezone" type="button" role="tab">
+                    <button class="nav-link" id="timezone-tab" data-bs-toggle="tab" data-bs-target="#timezone" type="button" role="tab" aria-selected="false" aria-controls="timezone">
                         <i class="bi bi-globe"></i> Timezone
                     </button>
                 </li>
@@ -320,12 +320,12 @@ function refreshCurrentTab() {
 }
 
 function loadSyncContent() {
-    // Load sync interface in iframe
+    // Load sync interface in iframe (bare version without sidebar)
     const syncContainer = document.getElementById('sync-content-container');
     syncContainer.innerHTML = `
         <div class="card border-0">
             <div class="card-body p-0">
-                <iframe src="${window.location.origin}/sync/interactive" 
+                <iframe src="${window.location.origin}/sync/interactive-bare" 
                         style="width: 100%; height: 800px; border: none;"
                         title="Live Server Sync">
                 </iframe>

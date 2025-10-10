@@ -234,6 +234,13 @@ def interactive():
     return render_template('sync/interactive.html')
 
 
+@sync_web_bp.route('/interactive-bare')
+@login_required
+def interactive_bare():
+    """Interactive sync page without base layout (for iframe embedding)"""
+    return render_template('sync/interactive_bare.html')
+
+
 @sync_web_bp.route('/api/transfer', methods=['POST'])
 @login_required
 def api_transfer():
