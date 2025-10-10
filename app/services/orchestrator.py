@@ -1076,53 +1076,54 @@ class OrchestrationService:
         try:
             import re
             
-            # Look for kubectl get nodes JSON output in the Ansible output
-            # The scan playbook stores cluster nodes in a variable
-            json_match = re.search(r'"cluster_nodes".*?"stdout":\s*"({.*?})"', ansible_output, re.DOTALL)
-            if json_match:
-                # Clean up the JSON string (remove escape characters)
-                nodes_json_str = json_match.group(1).replace('\\"', '"').replace('\\n', '')
+            # Look for the cluster_info data which contains total_nodes count
+            # Then extract node hostnames and IPs from simpler patterns
+            
+            # Pattern 1: Extract from node status lines showing addresses
+            # Format: 'addresses': [{'address': '10.25.8.68', 'type': 'InternalIP'}, {'address': 'devmod-02', 'type': 'Hostname'}]
+            address_pattern = r"'addresses':\s*\[.*?'address':\s*'([\d.]+)',\s*'type':\s*'InternalIP'.*?'address':\s*'([\w-]+)',\s*'type':\s*'Hostname'"
+            
+            matches = re.finditer(address_pattern, ansible_output)
+            
+            for match in matches:
+                ip_address = match.group(1)
+                hostname = match.group(2)
                 
-                try:
-                    nodes_data = json.loads(nodes_json_str)
-                    
-                    # Parse each node from the kubectl output
-                    for item in nodes_data.get('items', []):
-                        metadata = item.get('metadata', {})
-                        status = item.get('status', {})
-                        
-                        node_name = metadata.get('name', '')
-                        
-                        # Get IP address from node status addresses
-                        ip_address = None
-                        for addr in status.get('addresses', []):
-                            if addr.get('type') == 'InternalIP':
-                                ip_address = addr.get('address')
-                                break
-                        
-                        # Check if node is ready
-                        is_ready = False
-                        for condition in status.get('conditions', []):
-                            if condition.get('type') == 'Ready' and condition.get('status') == 'True':
-                                is_ready = True
-                                break
-                        
-                        if node_name and ip_address:
-                            discovered.append({
-                                'hostname': node_name,
-                                'ip_address': ip_address,
-                                'labels': metadata.get('labels', {}),
-                                'ready': is_ready,
-                                'roles': self._extract_node_roles(metadata.get('labels', {}))
-                            })
-                    
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse cluster nodes JSON: {e}")
+                # Look for the labels section for this hostname to determine roles
+                # Pattern: 'name': 'devmod-02', ... 'labels': {...}
+                label_pattern = rf"'name':\s*'{re.escape(hostname)}'.*?'labels':\s*(\{{[^}}]*?microk8s[^}}]*?\}})"
+                label_match = re.search(label_pattern, ansible_output, re.DOTALL)
+                
+                labels = {}
+                roles = ['worker']  # Default
+                
+                if label_match:
+                    # Check if it's a control plane node
+                    if 'microk8s-controlplane' in label_match.group(1):
+                        roles = ['control-plane']
+                
+                # Check if ready (look for Ready condition near this hostname)
+                ready_pattern = rf"'name':\s*'{re.escape(hostname)}'.*?'type':\s*'Ready'.*?'status':\s*'(True|False)'"
+                ready_match = re.search(ready_pattern, ansible_output, re.DOTALL)
+                is_ready = ready_match and ready_match.group(1) == 'True'
+                
+                if hostname and ip_address:
+                    # Avoid duplicates
+                    if not any(d['hostname'] == hostname for d in discovered):
+                        discovered.append({
+                            'hostname': hostname,
+                            'ip_address': ip_address,
+                            'labels': labels,
+                            'ready': is_ready,
+                            'roles': roles
+                        })
                     
             return discovered
             
         except Exception as e:
             print(f"Error extracting discovered nodes: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _extract_node_roles(self, labels: dict) -> list:
