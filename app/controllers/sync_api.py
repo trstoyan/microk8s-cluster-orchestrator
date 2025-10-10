@@ -113,9 +113,15 @@ def get_inventory():
     
     Returns all nodes, clusters, and configurations
     """
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+    
     try:
+        logger.info("[SYNC-API] Getting local inventory...")
         sync_service = SyncService()
         inventory = sync_service.get_local_inventory()
+        logger.info(f"[SYNC-API] Inventory generated: {inventory.get('stats', {})}")
         
         return jsonify({
             'success': True,
@@ -123,9 +129,12 @@ def get_inventory():
         })
     
     except Exception as e:
+        logger.error(f"[SYNC-API] Error getting inventory: {str(e)}")
+        logger.error(f"[SYNC-API] Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'details': traceback.format_exc() if current_app.debug else None
         }), 500
 
 

@@ -29,27 +29,46 @@
                 </div>
                 <div class="card-body">
                     <div class="row">
-                        <div class="col-md-8">
+                        <div class="col-md-12 mb-3">
                             <div class="form-group">
                                 <label for="remote_url">Remote Server URL</label>
                                 <input type="text" 
                                        class="form-control" 
                                        id="remote_url" 
-                                       placeholder="https://remote-server:5000"
-                                       value="http://localhost:5001">
+                                       placeholder="http://10.25.8.14:5000"
+                                       value="">
+                                <small class="form-text text-muted">Enter the URL of the remote orchestrator server</small>
                             </div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <div class="form-group">
-                                <label for="sync_password">Encryption Password (Optional)</label>
-                                <input type="password" class="form-control" id="sync_password" placeholder="Leave empty for auto">
+                                <label for="remote_username">Remote Server Username</label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="remote_username" 
+                                       placeholder="admin"
+                                       required>
+                                <small class="form-text text-muted">Login username for the remote server</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="remote_password">Remote Server Password</label>
+                                <input type="password" 
+                                       class="form-control" 
+                                       id="remote_password" 
+                                       placeholder="Password"
+                                       required>
+                                <small class="form-text text-muted">Login password for the remote server</small>
                             </div>
                         </div>
                     </div>
-                    <button class="btn btn-primary" onclick="connectToRemote()">
-                        <i class="fas fa-link"></i> Connect & Compare
-                    </button>
-                    <span id="connection_status" class="ml-3"></span>
+                    <div class="mt-3">
+                        <button class="btn btn-primary btn-lg" onclick="connectToRemote()">
+                            <i class="fas fa-link"></i> Connect & Compare
+                        </button>
+                        <span id="connection_status" class="ml-3"></span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -177,10 +196,16 @@ let selectedItems = {
 
 function connectToRemote() {
     const remoteUrl = document.getElementById('remote_url').value.trim();
-    const password = document.getElementById('sync_password').value;
+    const username = document.getElementById('remote_username').value.trim();
+    const password = document.getElementById('remote_password').value;
     
     if (!remoteUrl) {
         showError('Please enter a remote server URL');
+        return;
+    }
+    
+    if (!username || !password) {
+        showError('Please enter remote server credentials');
         return;
     }
     
@@ -190,11 +215,11 @@ function connectToRemote() {
         fullUrl = 'http://' + fullUrl;
     }
     
-    updateConnectionStatus('Connecting...', 'text-info');
+    updateConnectionStatus('Testing connection...', 'text-info');
     
     // Test connection first - use absolute URL
     const testUrl = fullUrl + '/api/v1/sync/test';
-    console.log('Testing connection to:', testUrl);
+    console.log('[SYNC] Testing connection to:', testUrl);
     
     fetch(testUrl, {
         mode: 'cors',
@@ -207,38 +232,60 @@ function connectToRemote() {
             return response.json();
         })
         .then(data => {
-            console.log('Connection successful:', data);
-            updateConnectionStatus('Connected! Comparing...', 'text-success');
-            return compareInventories(fullUrl, password);
+            console.log('[SYNC] ✅ Connection test successful:', data);
+            updateConnectionStatus('Authenticating...', 'text-info');
+            return compareInventories(fullUrl, username, password);
         })
         .catch(error => {
-            console.error('Connection error:', error);
+            console.error('[SYNC] Connection error:', error);
             updateConnectionStatus('Connection failed: ' + error.message, 'text-danger');
         });
 }
 
-function compareInventories(remoteUrl, password) {
+function compareInventories(remoteUrl, username, password) {
+    console.log('[SYNC] Starting comparison...');
+    console.log('[SYNC] Remote URL:', remoteUrl);
+    console.log('[SYNC] Username:', username);
+    
     fetch('/sync/compare', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             remote_url: remoteUrl,
+            username: username,
             password: password
         })
     })
     .then(response => response.json())
     .then(data => {
+        console.log('[SYNC] Response:', data);
+        
         if (data.success) {
+            // Show verbose logs if available
+            if (data.logs && data.logs.length > 0) {
+                console.log('[SYNC] Verbose logs:');
+                data.logs.forEach(log => console.log('[SYNC]', log));
+            }
+            
             comparisonData = data.comparison;
             displayComparison(data.comparison);
             document.getElementById('comparison_section').style.display = 'block';
             document.getElementById('transfer_section').style.display = 'block';
             updateConnectionStatus('Comparison complete!', 'text-success');
+            
+            // Show success message with details
+            if (data.logs) {
+                showInfo(data.logs.join('<br>'));
+            }
         } else {
+            console.error('[SYNC] Error:', data.error);
             showError(data.error);
         }
     })
-    .catch(error => showError('Comparison failed: ' + error.message));
+    .catch(error => {
+        console.error('[SYNC] Comparison failed:', error);
+        showError('Comparison failed: ' + error.message);
+    });
 }
 
 function displayComparison(comparison) {
@@ -377,11 +424,18 @@ function updateConnectionStatus(message, className) {
 }
 
 function showError(message) {
+    console.error('[SYNC] Error:', message);
     alert('Error: ' + message);
 }
 
 function showSuccess(message) {
+    console.log('[SYNC] Success:', message);
     alert(message);
+}
+
+function showInfo(message) {
+    console.log('[SYNC] Info:', message);
+    // Could use a toast notification here instead of alert
 }
 </script>
 {% endblock %}
