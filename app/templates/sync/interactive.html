@@ -209,10 +209,23 @@ function connectToRemote() {
         return;
     }
     
-    // Ensure URL has protocol
+    // Ensure URL has protocol and remove trailing slash
     let fullUrl = remoteUrl;
     if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
         fullUrl = 'http://' + fullUrl;
+    }
+    // Remove trailing slash if present
+    fullUrl = fullUrl.replace(/\/+$/, '');
+    
+    // Ensure port is specified (default to 5000 if missing)
+    try {
+        const url = new URL(fullUrl);
+        if (!url.port) {
+            fullUrl = `${url.protocol}//${url.hostname}:5000${url.pathname}`;
+        }
+    } catch (e) {
+        showError('Invalid URL format');
+        return;
     }
     
     updateConnectionStatus('Testing connection...', 'text-info');
