@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Add metadata column to operations table
+Add operation_metadata column to operations table
 For storing discovered nodes and other scan results
 """
 
@@ -12,7 +12,7 @@ from pathlib import Path
 DB_PATH = Path(__file__).parent.parent / 'cluster_data.db'
 
 def migrate():
-    """Add metadata column to operations table"""
+    """Add operation_metadata column to operations table"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -21,20 +21,24 @@ def migrate():
         cursor.execute("PRAGMA table_info(operations)")
         columns = [col[1] for col in cursor.fetchall()]
         
-        if 'metadata' in columns:
-            print("✅ Column 'metadata' already exists in operations table")
+        if 'operation_metadata' in columns:
+            print("✅ Column 'operation_metadata' already exists in operations table")
             return
         
-        print("🔄 Adding 'metadata' column to operations table...")
+        # Check if old 'metadata' column exists and rename it
+        if 'metadata' in columns:
+            print("⚠️  Found old 'metadata' column (reserved name), will be handled by SQLAlchemy")
+        
+        print("🔄 Adding 'operation_metadata' column to operations table...")
         
         # Add the column
         cursor.execute("""
             ALTER TABLE operations 
-            ADD COLUMN metadata TEXT
+            ADD COLUMN operation_metadata TEXT
         """)
         
         conn.commit()
-        print("✅ Successfully added 'metadata' column to operations table")
+        print("✅ Successfully added 'operation_metadata' column to operations table")
         print("   This column stores discovered nodes and other scan results")
         
     except sqlite3.Error as e:

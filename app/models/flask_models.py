@@ -451,7 +451,7 @@ class Operation(db.Model):
     success = db.Column(db.Boolean, default=False)
     output = db.Column(db.Text)
     error_message = db.Column(db.Text)
-    metadata = db.Column(db.Text)  # JSON metadata (e.g., discovered nodes from scans)
+    operation_metadata = db.Column(db.Text)  # JSON metadata (e.g., discovered nodes from scans)
     
     # Relationships
     node_id = db.Column(db.Integer, db.ForeignKey('nodes.id'))

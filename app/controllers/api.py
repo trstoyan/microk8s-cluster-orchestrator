@@ -2461,13 +2461,13 @@ def add_discovered_nodes(operation_id):
             }), 400
         
         # Parse metadata to get discovered nodes
-        if not operation.metadata:
+        if not operation.operation_metadata:
             return jsonify({
                 'success': False,
                 'error': 'No discovered nodes found in this scan'
             }), 404
         
-        metadata = json.loads(operation.metadata)
+        metadata = json.loads(operation.operation_metadata)
         new_nodes = metadata.get('new_nodes', [])
         
         if not new_nodes:

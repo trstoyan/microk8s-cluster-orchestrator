@@ -142,8 +142,8 @@
         {% endif %}
 
         <!-- Discovered Nodes Section (for scan operations) -->
-        {% if operation.operation_type == 'scan' and operation.metadata %}
-            {% set metadata = operation.metadata | from_json %}
+        {% if operation.operation_type == 'scan' and operation.operation_metadata %}
+            {% set metadata = operation.operation_metadata | from_json %}
             {% if metadata.new_nodes and metadata.new_nodes|length > 0 %}
             <div class="card mt-4 border-success">
                 <div class="card-header bg-success text-white">

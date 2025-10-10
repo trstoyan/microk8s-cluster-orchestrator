@@ -936,7 +936,7 @@ class OrchestrationService:
                             new_nodes.append(discovered)
                     
                     # Store in operation metadata for display
-                    operation.metadata = json.dumps({
+                    operation.operation_metadata = json.dumps({
                         'scan_results': scan_results,
                         'discovered_nodes': discovered_nodes,
                         'new_nodes': new_nodes,  # Nodes that need to be added
