@@ -1514,17 +1514,18 @@ def get_update_status():
         has_local_changes = bool(result.stdout.strip())
         local_changes = result.stdout.strip().split('\n') if result.stdout.strip() else []
         
-        # Fetch latest from remote
-        subprocess.run(['git', 'fetch', 'origin'], 
+        # Fetch latest from remote (for current branch)
+        subprocess.run(['git', 'fetch', 'origin', current_branch], 
                       capture_output=True, text=True, cwd=os.getcwd())
         
-        # Check if there are updates available
-        result = subprocess.run(['git', 'rev-list', 'HEAD..origin/main', '--count'], 
+        # Check if there are updates available (compare to origin/current_branch, not origin/main)
+        remote_branch = f'origin/{current_branch}'
+        result = subprocess.run(['git', 'rev-list', f'HEAD..{remote_branch}', '--count'], 
                               capture_output=True, text=True, cwd=os.getcwd())
         updates_available = int(result.stdout.strip()) if result.returncode == 0 else 0
         
-        # Get latest commit info
-        result = subprocess.run(['git', 'log', 'origin/main', '-1', '--format=%H|%s|%an|%ad', '--date=iso'], 
+        # Get latest commit info from current branch
+        result = subprocess.run(['git', 'log', remote_branch, '-1', '--format=%H|%s|%an|%ad', '--date=iso'], 
                               capture_output=True, text=True, cwd=os.getcwd())
         latest_commit_info = None
         if result.returncode == 0 and result.stdout.strip():
