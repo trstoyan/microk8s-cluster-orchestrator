@@ -8,6 +8,7 @@ from flask_login import login_required
 import requests
 import json
 import time
+import traceback
 
 from app.services.sync_service import SyncService
 from app.utils.progress_logger import get_progress_logger
@@ -117,35 +118,50 @@ def compare():
         # Fetch nodes from remote
         nodes_response = session.get(f"{remote_url}/api/nodes", timeout=30)
         logger.info(f"[SYNC] Nodes response: {nodes_response.status_code}")
+        logger.info(f"[SYNC] Nodes response headers: {dict(nodes_response.headers)}")
         
         # Fetch clusters from remote  
         clusters_response = session.get(f"{remote_url}/api/clusters", timeout=30)
         logger.info(f"[SYNC] Clusters response: {clusters_response.status_code}")
         
         if nodes_response.status_code == 200 and clusters_response.status_code == 200:
-            remote_nodes = nodes_response.json()
-            remote_clusters = clusters_response.json()
-            
-            remote_inv = {
-                'metadata': {
-                    'server_url': remote_url,
-                    'timestamp': None
-                },
-                'nodes': remote_nodes if isinstance(remote_nodes, list) else [],
-                'clusters': remote_clusters if isinstance(remote_clusters, list) else [],
-                'ssh_keys': [],
-                'stats': {
-                    'total_nodes': len(remote_nodes) if isinstance(remote_nodes, list) else 0,
-                    'total_clusters': len(remote_clusters) if isinstance(remote_clusters, list) else 0,
-                    'total_ssh_keys': 0
+            try:
+                # Log response content for debugging
+                logger.info(f"[SYNC] Nodes response content length: {len(nodes_response.content)}")
+                logger.info(f"[SYNC] Nodes response first 200 chars: {nodes_response.text[:200]}")
+                
+                remote_nodes = nodes_response.json()
+                remote_clusters = clusters_response.json()
+                
+                remote_inv = {
+                    'metadata': {
+                        'server_url': remote_url,
+                        'timestamp': None
+                    },
+                    'nodes': remote_nodes if isinstance(remote_nodes, list) else [],
+                    'clusters': remote_clusters if isinstance(remote_clusters, list) else [],
+                    'ssh_keys': [],
+                    'stats': {
+                        'total_nodes': len(remote_nodes) if isinstance(remote_nodes, list) else 0,
+                        'total_clusters': len(remote_clusters) if isinstance(remote_clusters, list) else 0,
+                        'total_ssh_keys': 0
+                    }
                 }
-            }
-            logger.info(f"[SYNC] Remote inventory: {remote_inv.get('stats', {})}")
+                logger.info(f"[SYNC] Remote inventory: {remote_inv.get('stats', {})}")
+            except ValueError as e:
+                logger.error(f"[SYNC] JSON parsing error: {str(e)}")
+                logger.error(f"[SYNC] Response content: {nodes_response.text[:500]}")
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to parse remote data: {str(e)}'
+                }), 500
         else:
-            logger.error(f"[SYNC] Failed to fetch inventory")
+            logger.error(f"[SYNC] Failed to fetch inventory. Nodes: {nodes_response.status_code}, Clusters: {clusters_response.status_code}")
+            logger.error(f"[SYNC] Nodes response: {nodes_response.text[:200]}")
+            logger.error(f"[SYNC] Clusters response: {clusters_response.text[:200]}")
             return jsonify({
                 'success': False,
-                'error': f'Failed to fetch remote data'
+                'error': f'Failed to fetch remote data (Nodes: {nodes_response.status_code}, Clusters: {clusters_response.status_code})'
             }), 500
         
         # Step 3: Get local inventory
@@ -171,14 +187,18 @@ def compare():
         })
     
     except requests.RequestException as e:
+        logger.error(f"[SYNC] Connection error: {str(e)}")
+        logger.error(f"[SYNC] Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'error': f'Connection error: {str(e)}'
         }), 500
     except Exception as e:
+        logger.error(f"[SYNC] Unexpected error: {str(e)}")
+        logger.error(f"[SYNC] Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': f'Connection error: {str(e)}'
         }), 500
 
 

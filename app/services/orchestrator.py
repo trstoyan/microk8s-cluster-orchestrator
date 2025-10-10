@@ -916,6 +916,14 @@ class OrchestrationService:
                     cluster.status = 'degraded'
                     cluster.health_score = scan_results.get('health_score', 50)
                 
+                # Extract discovered nodes for auto-add feature
+                discovered_nodes = self._extract_discovered_nodes(output)
+                if discovered_nodes:
+                    operation.metadata = json.dumps({
+                        'scan_results': scan_results,
+                        'discovered_nodes': discovered_nodes
+                    })
+                
                 db.session.commit()
                 self._update_operation_status(operation, 'completed', success=True, output=output)
             else:
