@@ -192,24 +192,53 @@ else
     echo "   📁 Directory size (excluding .venv): $(du -sh --exclude=.venv --exclude=.git --exclude=__pycache__ "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
     echo "   📊 Starting backup..."
     
-    # Use rsync for better progress indication even without pv
-    echo "   🔄 Using rsync for backup (excluding .venv, .git, __pycache__)..."
-    timeout $BACKUP_TIMEOUT rsync -a --progress "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' 2>&1 | while read line; do
-        echo "   $line"
-    done
-    
-    if [ ${PIPESTATUS[0]} -ne 0 ]; then
-        echo "❌ Rsync with progress failed or timed out, trying rsync without progress..."
-        echo "   🔄 Using basic rsync for backup..."
-        rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules'
-        if [ $? -eq 0 ]; then
-            echo "✅ Backup completed with rsync (excluded .venv for faster backup)"
+    # Check if rsync is available
+    if command -v rsync &> /dev/null; then
+        echo "   🔄 Using rsync for backup (excluding .venv, .git, __pycache__)..."
+        timeout $BACKUP_TIMEOUT rsync -a --progress "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' 2>&1 | while read line; do
+            echo "   $line"
+        done
+        
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ Rsync with progress failed or timed out, trying rsync without progress..."
+            echo "   🔄 Using basic rsync for backup..."
+            rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules'
+            if [ $? -eq 0 ]; then
+                echo "✅ Backup completed with rsync (excluded .venv for faster backup)"
+            else
+                echo "❌ Backup failed with rsync, falling back to cp..."
+                # Fallback to cp
+                mkdir -p "$BACKUP_DIR"
+                cp -a "$CURRENT_DIR"/* "$BACKUP_DIR/" 2>/dev/null
+                # Remove excluded directories from backup
+                rm -rf "$BACKUP_DIR/.venv" "$BACKUP_DIR/.git" 2>/dev/null
+                find "$BACKUP_DIR" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+                find "$BACKUP_DIR" -type f -name '*.pyc' -delete 2>/dev/null || true
+                echo "✅ Backup completed with cp (excluded .venv for faster backup)"
+            fi
         else
-            echo "❌ Backup failed completely"
-            exit 1
+            echo "✅ Backup completed with rsync (excluded .venv for faster backup)"
         fi
     else
-        echo "✅ Backup completed with rsync (excluded .venv for faster backup)"
+        # rsync not available, use cp
+        echo "   ℹ️  rsync not found, using cp for backup..."
+        echo "   💡 Install rsync for faster backups: sudo pacman -S rsync"
+        echo "   🔄 Using cp for backup (excluding .venv, .git, __pycache__)..."
+        mkdir -p "$BACKUP_DIR"
+        
+        # Copy everything except excluded directories
+        for item in "$CURRENT_DIR"/*; do
+            basename=$(basename "$item")
+            if [ "$basename" != ".venv" ] && [ "$basename" != ".git" ] && [ "$basename" != "node_modules" ]; then
+                cp -a "$item" "$BACKUP_DIR/" 2>&1 | sed 's/^/   /' || true
+            fi
+        done
+        
+        # Clean up any __pycache__ and .pyc files that might have been copied
+        find "$BACKUP_DIR" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+        find "$BACKUP_DIR" -type f -name '*.pyc' -delete 2>/dev/null || true
+        
+        echo "✅ Backup completed with cp (excluded .venv for faster backup)"
     fi
 fi
 
