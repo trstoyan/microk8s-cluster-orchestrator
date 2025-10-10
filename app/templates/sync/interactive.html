@@ -166,20 +166,43 @@
     </div>
 
     <!-- Progress Modal -->
-    <div class="modal fade" id="progressModal" tabindex="-1" role="dialog" data-backdrop="static">
-        <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal fade" id="progressModal" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title"><i class="fas fa-sync fa-spin"></i> Syncing Data...</h5>
+                    <h5 class="modal-title"><i class="fas fa-sync fa-spin"></i> Live Sync Progress</h5>
                 </div>
                 <div class="modal-body">
-                    <div class="progress mb-3">
+                    <div class="progress mb-3" style="height: 25px;">
                         <div class="progress-bar progress-bar-striped progress-bar-animated" 
                              role="progressbar" 
                              id="sync_progress" 
-                             style="width: 0%">0%</div>
+                             style="width: 0%">
+                             <span id="sync_progress_text">0%</span>
+                        </div>
                     </div>
-                    <p id="sync_status">Preparing sync package...</p>
+                    
+                    <!-- Current Status -->
+                    <div class="alert alert-info mb-3" id="sync_status_alert">
+                        <strong id="sync_status">🚀 Starting sync operation...</strong>
+                    </div>
+                    
+                    <!-- Live Log Console (like Ubuntu installer) -->
+                    <div class="card bg-dark text-light mb-0">
+                        <div class="card-header py-2">
+                            <small><i class="fas fa-terminal"></i> Live Logs</small>
+                        </div>
+                        <div class="card-body p-2" style="max-height: 400px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px;" id="sync_log_container">
+                            <div id="sync_logs" class="text-light">
+                                <div class="text-muted">Waiting for sync to start...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="sync_close_btn" disabled>
+                        <i class="fas fa-times"></i> Close
+                    </button>
                 </div>
             </div>
         </div>
@@ -543,46 +566,120 @@ async function startSync() {
         
         if (result.success) {
             updateSyncProgress(100, '✅ Sync completed successfully!');
-            setTimeout(() => {
-                modal.hide();
-                showSuccess('Sync completed! Items transferred successfully.');
-                // Refresh the comparison
-                compareServers();
-            }, 2000);
+            
+            // Enable close button
+            const closeBtn = document.getElementById('sync_close_btn');
+            if (closeBtn) {
+                closeBtn.disabled = false;
+                closeBtn.onclick = function() {
+                    // Close stream if still open
+                    if (window.syncProgressStream) {
+                        window.syncProgressStream.close();
+                    }
+                    modal.hide();
+                    showSuccess('Sync completed! Items transferred successfully.');
+                    // Refresh the comparison
+                    compareServers();
+                };
+            }
         } else {
             updateSyncProgress(0, '❌ Sync failed: ' + result.error);
-            setTimeout(() => {
-                modal.hide();
-                showError('Sync failed: ' + result.error);
-            }, 2000);
+            addLogEntry({
+                timestamp: new Date().toLocaleTimeString(),
+                level: 'error',
+                message: 'Sync failed: ' + result.error
+            });
+            
+            // Enable close button
+            const closeBtn = document.getElementById('sync_close_btn');
+            if (closeBtn) {
+                closeBtn.disabled = false;
+                closeBtn.onclick = function() {
+                    if (window.syncProgressStream) {
+                        window.syncProgressStream.close();
+                    }
+                    modal.hide();
+                    showError('Sync failed: ' + result.error);
+                };
+            }
         }
     } catch (error) {
         console.error('[SYNC] Error during sync:', error);
         updateSyncProgress(0, '❌ Error: ' + error.message);
-        setTimeout(() => {
-            modal.hide();
-            showError('Sync error: ' + error.message);
-        }, 2000);
+        addLogEntry({
+            timestamp: new Date().toLocaleTimeString(),
+            level: 'error',
+            message: 'Sync error: ' + error.message
+        });
+        
+        // Enable close button on error
+        const closeBtn = document.getElementById('sync_close_btn');
+        if (closeBtn) {
+            closeBtn.disabled = false;
+            closeBtn.onclick = function() {
+                if (window.syncProgressStream) {
+                    window.syncProgressStream.close();
+                }
+                modal.hide();
+                showError('Sync error: ' + error.message);
+            };
+        }
     }
 }
 
 function updateSyncProgress(percent, message) {
     const progressBar = document.getElementById('sync_progress');
+    const progressText = document.getElementById('sync_progress_text');
     const statusText = document.getElementById('sync_status');
     
     if (progressBar) {
         progressBar.style.width = percent + '%';
-        progressBar.textContent = percent + '%';
+    }
+    
+    if (progressText) {
+        progressText.textContent = percent + '%';
     }
     
     if (statusText) {
-        statusText.textContent = message;
+        statusText.innerHTML = message;
     }
+}
+
+function addLogEntry(log) {
+    const logsContainer = document.getElementById('sync_logs');
+    
+    // Create log entry
+    const logEntry = document.createElement('div');
+    logEntry.className = 'log-entry mb-1';
+    
+    // Color based on level
+    let textClass = 'text-light';
+    if (log.level === 'success') textClass = 'text-success';
+    else if (log.level === 'error') textClass = 'text-danger';
+    else if (log.level === 'warning') textClass = 'text-warning';
+    else if (log.level === 'info') textClass = 'text-info';
+    
+    logEntry.innerHTML = `<span class="text-muted">[${log.timestamp}]</span> <span class="${textClass}">${log.message}</span>`;
+    
+    logsContainer.appendChild(logEntry);
+    
+    // Auto-scroll to bottom
+    const logContainer = document.getElementById('sync_log_container');
+    logContainer.scrollTop = logContainer.scrollHeight;
 }
 
 function startProgressStream() {
     console.log('[SYNC] Starting progress stream...');
-    const statusText = document.getElementById('sync_status');
+    
+    // Clear previous logs
+    const logsContainer = document.getElementById('sync_logs');
+    logsContainer.innerHTML = '';
+    
+    // Disable close button until done
+    const closeBtn = document.getElementById('sync_close_btn');
+    if (closeBtn) {
+        closeBtn.disabled = true;
+    }
     
     // Use EventSource for Server-Sent Events
     const eventSource = new EventSource('/sync/api/progress-stream');
@@ -591,31 +688,62 @@ function startProgressStream() {
         const log = JSON.parse(event.data);
         console.log('[SYNC-PROGRESS]', log);
         
-        // Update status text with latest log
+        // Add log entry to console
+        addLogEntry(log);
+        
+        // Update current status alert
+        const statusText = document.getElementById('sync_status');
+        const statusAlert = document.getElementById('sync_status_alert');
         if (statusText) {
             const icon = log.level === 'error' ? '❌' : 
                         log.level === 'success' ? '✅' : 
                         log.level === 'warning' ? '⚠️' : 'ℹ️';
             statusText.innerHTML = `${icon} ${log.message}`;
+            
+            // Update alert color based on status
+            if (statusAlert) {
+                statusAlert.className = 'alert mb-3';
+                if (log.level === 'error') {
+                    statusAlert.classList.add('alert-danger');
+                } else if (log.level === 'success') {
+                    statusAlert.classList.add('alert-success');
+                } else if (log.level === 'warning') {
+                    statusAlert.classList.add('alert-warning');
+                } else {
+                    statusAlert.classList.add('alert-info');
+                }
+            }
         }
         
         // Update progress bar based on keywords
-        if (log.message.includes('Preparing')) {
+        if (log.message.includes('Preparing') || log.message.includes('Starting')) {
             updateSyncProgress(10, log.message);
-        } else if (log.message.includes('Connecting')) {
+        } else if (log.message.includes('Connecting') || log.message.includes('Login')) {
             updateSyncProgress(20, log.message);
+        } else if (log.message.includes('Fetching') || log.message.includes('Prepared')) {
+            updateSyncProgress(40, log.message);
         } else if (log.message.includes('Transferring')) {
-            updateSyncProgress(50, log.message);
-        } else if (log.message.includes('Applying')) {
-            updateSyncProgress(75, log.message);
-        } else if (log.message.includes('completed')) {
+            updateSyncProgress(60, log.message);
+        } else if (log.message.includes('transferred')) {
+            updateSyncProgress(80, log.message);
+        } else if (log.message.includes('completed') || log.message.includes('Complete')) {
             updateSyncProgress(100, log.message);
+            
+            // Enable close button when done
+            if (closeBtn) {
+                closeBtn.disabled = false;
+            }
         }
     };
     
-    eventSource.onerror = function() {
-        console.log('[SYNC] Progress stream closed');
+    eventSource.onerror = function(error) {
+        console.log('[SYNC] Progress stream closed or error:', error);
         eventSource.close();
+        
+        // Enable close button on error
+        if (closeBtn) {
+            closeBtn.disabled = false;
+        }
     };
     
     // Store reference to close later
