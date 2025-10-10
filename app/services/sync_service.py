@@ -59,12 +59,13 @@ class SyncService:
                 'id': node.id,
                 'hostname': node.hostname,
                 'ip_address': node.ip_address,
-                'username': node.username,
+                'ssh_user': node.ssh_user,
+                'ssh_port': node.ssh_port,
                 'cluster_id': node.cluster_id,
                 'status': node.status,
                 'microk8s_installed': node.microk8s_installed,
-                'wol_enabled': node.wol_enabled,
-                'mac_address': node.mac_address,
+                'wol_enabled': node.wol_enabled if hasattr(node, 'wol_enabled') else False,
+                'mac_address': node.mac_address if hasattr(node, 'mac_address') else None,
                 'created_at': node.created_at.isoformat() if node.created_at else None,
                 'updated_at': node.updated_at.isoformat() if node.updated_at else None
             })
@@ -226,7 +227,7 @@ class SyncService:
     
     def _nodes_identical(self, node1: Dict, node2: Dict) -> bool:
         """Check if two nodes are identical"""
-        compare_fields = ['hostname', 'ip_address', 'username', 'status']
+        compare_fields = ['hostname', 'ip_address', 'ssh_user', 'status']
         return all(node1.get(f) == node2.get(f) for f in compare_fields)
     
     def _clusters_identical(self, cluster1: Dict, cluster2: Dict) -> bool:
@@ -237,7 +238,7 @@ class SyncService:
     def _find_node_differences(self, node1: Dict, node2: Dict) -> List[str]:
         """Find specific differences between two nodes"""
         differences = []
-        compare_fields = ['hostname', 'ip_address', 'username', 'status', 
+        compare_fields = ['hostname', 'ip_address', 'ssh_user', 'ssh_port', 'status', 
                          'microk8s_installed', 'wol_enabled', 'mac_address']
         
         for field in compare_fields:
