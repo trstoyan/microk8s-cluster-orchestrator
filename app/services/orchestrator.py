@@ -1034,6 +1034,80 @@ class OrchestrationService:
         
         return results
     
+    def _extract_discovered_nodes(self, ansible_output: str) -> list:
+        """
+        Extract discovered nodes from cluster scan output.
+        This is used for the auto-discovery feature to suggest adding nodes.
+        
+        Args:
+            ansible_output: Raw Ansible playbook output
+            
+        Returns:
+            List of discovered node dictionaries with hostname, IP, labels, ready status
+        """
+        discovered = []
+        try:
+            import re
+            
+            # Look for kubectl get nodes JSON output in the Ansible output
+            # The scan playbook stores cluster nodes in a variable
+            json_match = re.search(r'"cluster_nodes".*?"stdout":\s*"({.*?})"', ansible_output, re.DOTALL)
+            if json_match:
+                # Clean up the JSON string (remove escape characters)
+                nodes_json_str = json_match.group(1).replace('\\"', '"').replace('\\n', '')
+                
+                try:
+                    nodes_data = json.loads(nodes_json_str)
+                    
+                    # Parse each node from the kubectl output
+                    for item in nodes_data.get('items', []):
+                        metadata = item.get('metadata', {})
+                        status = item.get('status', {})
+                        
+                        node_name = metadata.get('name', '')
+                        
+                        # Get IP address from node status addresses
+                        ip_address = None
+                        for addr in status.get('addresses', []):
+                            if addr.get('type') == 'InternalIP':
+                                ip_address = addr.get('address')
+                                break
+                        
+                        # Check if node is ready
+                        is_ready = False
+                        for condition in status.get('conditions', []):
+                            if condition.get('type') == 'Ready' and condition.get('status') == 'True':
+                                is_ready = True
+                                break
+                        
+                        if node_name and ip_address:
+                            discovered.append({
+                                'hostname': node_name,
+                                'ip_address': ip_address,
+                                'labels': metadata.get('labels', {}),
+                                'ready': is_ready,
+                                'roles': self._extract_node_roles(metadata.get('labels', {}))
+                            })
+                    
+                except json.JSONDecodeError as e:
+                    print(f"Failed to parse cluster nodes JSON: {e}")
+                    
+            return discovered
+            
+        except Exception as e:
+            print(f"Error extracting discovered nodes: {e}")
+            return []
+    
+    def _extract_node_roles(self, labels: dict) -> list:
+        """Extract node roles from Kubernetes labels."""
+        roles = []
+        for key in labels:
+            if 'node-role.kubernetes.io/' in key:
+                role = key.split('/')[-1]
+                if role:
+                    roles.append(role)
+        return roles if roles else ['worker']
+    
     def collect_hardware_report(self, cluster_id: int = None, node_id: int = None) -> Dict[str, Any]:
         """Collect comprehensive hardware information from cluster nodes."""
         try:
