@@ -56,18 +56,69 @@
             </div>
         </div>
 
-        <!-- Setup Instructions Card -->
-        <div class="card mb-4">
-            <div class="card-header">
+        <!-- Quick Setup (One-liner) Card -->
+        <div class="card mb-4 border-success">
+            <div class="card-header bg-success text-white">
                 <h5 class="mb-0">
-                    <i class="bi bi-list-check"></i> Setup Instructions
+                    <i class="bi bi-lightning-charge-fill"></i> Quick Setup (Recommended)
                 </h5>
             </div>
             <div class="card-body">
-                {% if node.ssh_setup_instructions|default('') %}
-                    <div class="alert alert-info">
-                        <h6><i class="bi bi-info-circle"></i> Follow these steps to complete the SSH key setup:</h6>
+                <div class="alert alert-success mb-3">
+                    <h6><i class="bi bi-rocket-fill"></i> Automated One-Liner Setup</h6>
+                    <p class="mb-2">Run this command on <strong>{{ node.hostname }}</strong> to automatically configure SSH access:</p>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label"><strong>Copy and paste this on the node:</strong></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control font-monospace bg-dark text-light" id="curl-command" 
+                               value="curl -sSL http://{{ request.host }}/setup/node-ssh?node_id={{ node.id }} | bash" readonly>
+                        <button class="btn btn-success" onclick="copyToClipboard('curl-command')">
+                            <i class="bi bi-clipboard"></i> Copy
+                        </button>
                     </div>
+                </div>
+                
+                <div class="accordion" id="quickSetupDetails">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseDetails">
+                                <i class="bi bi-info-circle me-2"></i> What does this script do?
+                            </button>
+                        </h2>
+                        <div id="collapseDetails" class="accordion-collapse collapse" data-bs-parent="#quickSetupDetails">
+                            <div class="accordion-body">
+                                <p>This automated script will:</p>
+                                <ul>
+                                    <li>✅ Check all prerequisites (SSH, permissions, etc.)</li>
+                                    <li>✅ Create <code>~/.ssh</code> directory if needed</li>
+                                    <li>✅ Add the orchestrator's public key to <code>authorized_keys</code></li>
+                                    <li>✅ Set correct file permissions (700 for directory, 600 for keys)</li>
+                                    <li>✅ Verify SSH server is running</li>
+                                    <li>✅ Remove old keys if updating</li>
+                                </ul>
+                                <p class="mb-0"><strong>Safe to run multiple times</strong> - it's idempotent and won't create duplicates.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manual Setup Instructions Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-list-check"></i> Manual Setup Instructions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> <strong>Prefer automated setup?</strong> Use the one-liner command above for faster setup.
+                </div>
+                
+                {% if node.ssh_setup_instructions|default('') %}
                     <div class="setup-instructions">
                         {{ node.ssh_setup_instructions|replace('\n', '<br>')|replace('# ', '<h6>')|replace('```bash', '<pre class="bg-dark text-light p-3 rounded"><code>')|replace('```', '</code></pre>')|safe }}
                     </div>

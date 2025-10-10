@@ -173,6 +173,54 @@ def edit_node(node_id):
     
     return render_template('edit_node.html', node=node, clusters=clusters)
 
+@bp.route('/setup/node-ssh')
+def setup_node_ssh_script():
+    """
+    Serve the automated SSH setup script for nodes.
+    Can be curled directly: curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=1 | bash
+    """
+    node_id = request.args.get('node_id')
+    
+    if not node_id:
+        return "Error: node_id parameter required\nUsage: curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=<node_id> | bash", 400
+    
+    node = Node.query.get(node_id)
+    if not node:
+        return f"Error: Node with ID {node_id} not found", 404
+    
+    # Get orchestrator IP (try to detect from request)
+    orchestrator_ip = request.host.split(':')[0]
+    
+    # Read the template script
+    import os
+    script_path = os.path.join(current_app.root_path, 'templates', 'scripts', 'setup_node_ssh.sh')
+    
+    try:
+        with open(script_path, 'r') as f:
+            script_content = f.read()
+    except FileNotFoundError:
+        return "Error: Setup script template not found", 500
+    
+    # Replace variables
+    script_content = script_content.replace('{{node_id}}', str(node.id))
+    script_content = script_content.replace('{{hostname}}', node.hostname or 'unknown')
+    script_content = script_content.replace('{{ssh_public_key}}', node.ssh_public_key or 'None')
+    script_content = script_content.replace('{{orchestrator_ip}}', orchestrator_ip)
+    script_content = script_content.replace('{{ssh_user}}', node.ssh_user or 'ubuntu')
+    
+    # Return as plain text with proper content type
+    response = current_app.response_class(
+        script_content,
+        mimetype='text/plain',
+        headers={
+            'Content-Disposition': f'inline; filename="setup_node_{node.id}.sh"',
+            'Cache-Control': 'no-cache'
+        }
+    )
+    
+    return response
+
+
 @bp.route('/nodes/<int:node_id>/ssh-setup')
 @login_required
 def node_ssh_setup(node_id):

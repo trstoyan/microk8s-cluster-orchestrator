@@ -222,51 +222,118 @@
                 </div>
             </div>
             <div class="card-body">
+                {% set longhorn_status = node.get_longhorn_status() %}
+                
+                <!-- Status Badge -->
+                <div class="mb-3">
+                    <span class="badge 
+                        {% if longhorn_status.status == 'met' %}bg-success
+                        {% elif longhorn_status.status == 'checking' %}bg-info
+                        {% elif longhorn_status.status == 'failed' %}bg-danger
+                        {% else %}bg-secondary{% endif %} fs-6">
+                        {% if longhorn_status.status == 'met' %}
+                            <i class="bi bi-check-circle-fill"></i> Prerequisites Met
+                        {% elif longhorn_status.status == 'checking' %}
+                            <i class="bi bi-hourglass-split"></i> Checking...
+                        {% elif longhorn_status.status == 'failed' %}
+                            <i class="bi bi-x-circle-fill"></i> Prerequisites Not Met
+                        {% else %}
+                            <i class="bi bi-question-circle-fill"></i> Not Checked
+                        {% endif %}
+                    </span>
+                    {% if node.longhorn_last_check %}
+                        <small class="text-muted ms-2">
+                            Last checked: {{ node.longhorn_last_check.strftime('%Y-%m-%d %H:%M:%S') }}
+                        </small>
+                    {% endif %}
+                </div>
+                
                 <div class="row">
                     <div class="col-md-6">
                         <h6>Required Packages</h6>
                         <ul class="list-unstyled">
+                            {% set packages = ['lvm2', 'liblvm2cmd2.03', 'nfs-common', 'open-iscsi', 'util-linux'] %}
+                            {% set descriptions = {
+                                'lvm2': 'Logical Volume Manager',
+                                'liblvm2cmd2.03': 'LVM2 command library',
+                                'nfs-common': 'NFS support files',
+                                'open-iscsi': 'iSCSI initiator tools',
+                                'util-linux': 'System utilities'
+                            } %}
+                            {% for pkg in packages %}
                             <li>
-                                <i class="bi bi-check-circle text-success"></i> lvm2
-                                <small class="text-muted">- Logical Volume Manager</small>
+                                {% if longhorn_status.status == 'met' %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% elif longhorn_status.status == 'failed' and pkg in longhorn_status.missing_packages %}
+                                    <i class="bi bi-x-circle text-danger"></i>
+                                {% elif longhorn_status.status == 'not_checked' %}
+                                    <i class="bi bi-question-circle text-secondary"></i>
+                                {% else %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% endif %}
+                                {{ pkg }}
+                                <small class="text-muted">- {{ descriptions[pkg] }}</small>
                             </li>
-                            <li>
-                                <i class="bi bi-check-circle text-success"></i> liblvm2cmd2.03
-                                <small class="text-muted">- LVM2 command library</small>
-                            </li>
-                            <li>
-                                <i class="bi bi-check-circle text-success"></i> nfs-common
-                                <small class="text-muted">- NFS support files</small>
-                            </li>
-                            <li>
-                                <i class="bi bi-check-circle text-success"></i> open-iscsi
-                                <small class="text-muted">- iSCSI initiator tools</small>
-                            </li>
-                            <li>
-                                <i class="bi bi-check-circle text-success"></i> util-linux
-                                <small class="text-muted">- System utilities</small>
-                            </li>
+                            {% endfor %}
                         </ul>
                     </div>
                     <div class="col-md-6">
                         <h6>Required Services</h6>
                         <ul class="list-unstyled">
+                            {% set services = ['iscsid', 'multipathd'] %}
+                            {% set service_descriptions = {
+                                'iscsid': 'iSCSI daemon',
+                                'multipathd': 'Multipath daemon'
+                            } %}
+                            {% for svc in services %}
                             <li>
-                                <i class="bi bi-check-circle text-success"></i> iscsid
-                                <small class="text-muted">- iSCSI daemon</small>
+                                {% if longhorn_status.status == 'met' %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% elif longhorn_status.status == 'failed' %}
+                                    {% if longhorn_status.services_status and longhorn_status.services_status.get(svc) == 'running' %}
+                                        <i class="bi bi-check-circle text-success"></i>
+                                    {% else %}
+                                        <i class="bi bi-x-circle text-danger"></i>
+                                    {% endif %}
+                                {% elif longhorn_status.status == 'not_checked' %}
+                                    <i class="bi bi-question-circle text-secondary"></i>
+                                {% else %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% endif %}
+                                {{ svc }}
+                                <small class="text-muted">- {{ service_descriptions[svc] }}</small>
                             </li>
-                            <li>
-                                <i class="bi bi-check-circle text-success"></i> multipathd
-                                <small class="text-muted">- Multipath daemon</small>
-                            </li>
+                            {% endfor %}
                         </ul>
                     </div>
                 </div>
+                
+                {% if longhorn_status.status == 'not_checked' %}
+                <div class="alert alert-warning mt-3">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Prerequisites not yet checked.</strong> Click "Check Prerequisites" to verify Longhorn requirements on this node.
+                </div>
+                {% elif longhorn_status.status == 'failed' %}
+                <div class="alert alert-danger mt-3">
+                    <i class="bi bi-x-circle"></i>
+                    <strong>Missing prerequisites detected!</strong>
+                    {% if longhorn_status.missing_packages %}
+                    <p class="mb-1 mt-2">Missing packages: <code>{{ longhorn_status.missing_packages|join(', ') }}</code></p>
+                    {% endif %}
+                    <p class="mb-0">Click "Install Prerequisites" to install missing components.</p>
+                </div>
+                {% elif longhorn_status.status == 'met' %}
+                <div class="alert alert-success mt-3">
+                    <i class="bi bi-check-circle"></i>
+                    <strong>All prerequisites met!</strong> This node is ready for Longhorn storage.
+                </div>
+                {% else %}
                 <div class="alert alert-info mt-3">
                     <i class="bi bi-info-circle"></i>
                     <strong>Note:</strong> These prerequisites are required for Longhorn to function properly. 
                     Run the prerequisite check to verify the current status on this node.
                 </div>
+                {% endif %}
             </div>
         </div>
 
