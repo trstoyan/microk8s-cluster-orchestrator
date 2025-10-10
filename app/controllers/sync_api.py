@@ -4,6 +4,7 @@ REST API endpoints for live data synchronization
 """
 
 from flask import Blueprint, request, jsonify, current_app
+from flask_cors import CORS
 from functools import wraps
 import secrets
 
@@ -11,6 +12,9 @@ from app.services.sync_service import SyncService
 from app.utils.encryption import SyncToken, SyncEncryption
 
 sync_bp = Blueprint('sync_api', __name__, url_prefix='/api/v1/sync')
+
+# Enable CORS for sync API (allows cross-origin requests between orchestrator instances)
+CORS(sync_bp, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"]}})
 
 # Token manager (in production, use Redis or database)
 token_manager = SyncToken()
