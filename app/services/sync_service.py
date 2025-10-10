@@ -63,9 +63,11 @@ class SyncService:
                 'ssh_port': node.ssh_port,
                 'cluster_id': node.cluster_id,
                 'status': node.status,
-                'microk8s_installed': node.microk8s_installed,
+                'microk8s_version': node.microk8s_version,
+                'microk8s_status': node.microk8s_status,
+                'is_control_plane': node.is_control_plane,
                 'wol_enabled': node.wol_enabled if hasattr(node, 'wol_enabled') else False,
-                'mac_address': node.mac_address if hasattr(node, 'mac_address') else None,
+                'wol_mac_address': node.wol_mac_address if hasattr(node, 'wol_mac_address') else None,
                 'created_at': node.created_at.isoformat() if node.created_at else None,
                 'updated_at': node.updated_at.isoformat() if node.updated_at else None
             })
@@ -239,7 +241,8 @@ class SyncService:
         """Find specific differences between two nodes"""
         differences = []
         compare_fields = ['hostname', 'ip_address', 'ssh_user', 'ssh_port', 'status', 
-                         'microk8s_installed', 'wol_enabled', 'mac_address']
+                         'microk8s_status', 'microk8s_version', 'is_control_plane',
+                         'wol_enabled', 'wol_mac_address']
         
         for field in compare_fields:
             if node1.get(field) != node2.get(field):
