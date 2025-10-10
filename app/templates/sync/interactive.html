@@ -345,54 +345,128 @@ function displayComparison(comparison) {
 }
 
 function displayNodes(nodes) {
+    console.log('[SYNC] Displaying nodes:', nodes);
+    
     let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
     html += '<thead><tr><th>Select</th><th>Hostname</th><th>IP</th><th>Status</th><th>Difference</th></tr></thead><tbody>';
     
+    let hasRows = false;
+    
     // Different nodes
-    nodes.different.forEach(item => {
-        html += `
-            <tr class="table-warning">
-                <td><input type="checkbox" class="node-select" data-id="${item.local.id}" onchange="updateSelection()"></td>
-                <td>${item.local.hostname}</td>
-                <td>${item.local.ip_address}</td>
-                <td><span class="badge badge-warning">Different</span></td>
-                <td><small>${item.differences.join(', ')}</small></td>
-            </tr>
-        `;
-    });
+    if (nodes.different && nodes.different.length > 0) {
+        nodes.different.forEach(item => {
+            hasRows = true;
+            html += `
+                <tr class="table-warning">
+                    <td><input type="checkbox" class="node-select" data-id="${item.local.id}" onchange="updateSelection()"></td>
+                    <td>${item.local.hostname}</td>
+                    <td>${item.local.ip_address}</td>
+                    <td><span class="badge badge-warning">Different</span></td>
+                    <td><small>${item.differences.join(', ')}</small></td>
+                </tr>
+            `;
+        });
+    }
     
     // Missing on remote
-    nodes.missing_on_remote.forEach(node => {
-        html += `
-            <tr class="table-info">
-                <td><input type="checkbox" class="node-select" data-id="${node.id}" onchange="updateSelection()"></td>
-                <td>${node.hostname}</td>
-                <td>${node.ip_address}</td>
-                <td><span class="badge badge-info">Missing on Remote</span></td>
-                <td>Will be created on remote</td>
-            </tr>
-        `;
-    });
+    if (nodes.missing_on_remote && nodes.missing_on_remote.length > 0) {
+        nodes.missing_on_remote.forEach(node => {
+            hasRows = true;
+            html += `
+                <tr class="table-info">
+                    <td><input type="checkbox" class="node-select" data-id="${node.id}" onchange="updateSelection()"></td>
+                    <td>${node.hostname}</td>
+                    <td>${node.ip_address}</td>
+                    <td><span class="badge badge-info">Missing on Remote</span></td>
+                    <td>Will be created on remote</td>
+                </tr>
+            `;
+        });
+    }
+    
+    // Identical nodes (show but disabled checkbox)
+    if (nodes.identical && nodes.identical.length > 0) {
+        nodes.identical.forEach(node => {
+            hasRows = true;
+            html += `
+                <tr class="table-success">
+                    <td><input type="checkbox" class="node-select" data-id="${node.id}" disabled></td>
+                    <td>${node.hostname}</td>
+                    <td>${node.ip_address || 'N/A'}</td>
+                    <td><span class="badge badge-success">Identical</span></td>
+                    <td><small>No sync needed</small></td>
+                </tr>
+            `;
+        });
+    }
+    
+    if (!hasRows) {
+        html += '<tr><td colspan="5" class="text-center text-muted">No nodes found</td></tr>';
+    }
     
     html += '</tbody></table></div>';
     document.getElementById('nodes_content').innerHTML = html;
 }
 
 function displayClusters(clusters) {
+    console.log('[SYNC] Displaying clusters:', clusters);
+    
     let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
     html += '<thead><tr><th>Select</th><th>Name</th><th>Nodes</th><th>HA</th><th>Status</th></tr></thead><tbody>';
     
-    clusters.different.forEach(item => {
-        html += `
-            <tr class="table-warning">
-                <td><input type="checkbox" class="cluster-select" data-id="${item.local.id}"></td>
-                <td>${item.local.name}</td>
-                <td>${item.local.node_count}</td>
-                <td>${item.local.ha_enabled ? 'Yes' : 'No'}</td>
-                <td><span class="badge badge-warning">Different</span></td>
-            </tr>
-        `;
-    });
+    let hasRows = false;
+    
+    // Different clusters
+    if (clusters.different && clusters.different.length > 0) {
+        clusters.different.forEach(item => {
+            hasRows = true;
+            html += `
+                <tr class="table-warning">
+                    <td><input type="checkbox" class="cluster-select" data-id="${item.local.id}"></td>
+                    <td>${item.local.name}</td>
+                    <td>${item.local.node_count || 0}</td>
+                    <td>${item.local.ha_enabled ? 'Yes' : 'No'}</td>
+                    <td><span class="badge badge-warning">Different</span></td>
+                </tr>
+            `;
+        });
+    }
+    
+    // Missing on remote
+    if (clusters.missing_on_remote && clusters.missing_on_remote.length > 0) {
+        clusters.missing_on_remote.forEach(cluster => {
+            hasRows = true;
+            html += `
+                <tr class="table-info">
+                    <td><input type="checkbox" class="cluster-select" data-id="${cluster.id}"></td>
+                    <td>${cluster.name}</td>
+                    <td>${cluster.node_count || 0}</td>
+                    <td>${cluster.ha_enabled ? 'Yes' : 'No'}</td>
+                    <td><span class="badge badge-info">Missing on Remote</span></td>
+                </tr>
+            `;
+        });
+    }
+    
+    // Identical clusters (show but disabled)
+    if (clusters.identical && clusters.identical.length > 0) {
+        clusters.identical.forEach(cluster => {
+            hasRows = true;
+            html += `
+                <tr class="table-success">
+                    <td><input type="checkbox" class="cluster-select" data-id="${cluster.id}" disabled></td>
+                    <td>${cluster.name}</td>
+                    <td>${cluster.node_count || 0}</td>
+                    <td>${cluster.ha_enabled ? 'Yes' : 'No'}</td>
+                    <td><span class="badge badge-success">Identical</span></td>
+                </tr>
+            `;
+        });
+    }
+    
+    if (!hasRows) {
+        html += '<tr><td colspan="5" class="text-center text-muted">No clusters found</td></tr>';
+    }
     
     html += '</tbody></table></div>';
     document.getElementById('clusters_content').innerHTML = html;
