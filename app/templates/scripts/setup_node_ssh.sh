@@ -216,4 +216,20 @@ fi
 
 echo ""
 print_status "Setup complete! 🎉"
+echo ""
+
+# Notify orchestrator that setup is complete (optional callback)
+print_status "Notifying orchestrator that SSH setup is complete..."
+if curl -sSf -X POST "http://${ORCHESTRATOR_IP}:5000/api/nodes/${NODE_ID}/ssh-setup-complete" \
+    -H "Content-Type: application/json" \
+    -d "{\"hostname\":\"$(hostname)\",\"setup_completed\":true}" \
+    --max-time 5 2>/dev/null; then
+    print_success "✅ Orchestrator notified - connection will be tested automatically"
+else
+    print_warning "Could not notify orchestrator (this is OK - you can test manually)"
+    print_status "Go to the orchestrator web UI and click 'Check SSH Connection'"
+fi
+
+echo ""
+print_status "All done! The orchestrator can now manage this node. 🎉"
 

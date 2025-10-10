@@ -287,7 +287,70 @@ def install_microk8s(node_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/nodes/<int:node_id>/ssh-setup-complete', methods=['POST'])
+def ssh_setup_complete_callback(node_id):
+    """
+    Callback endpoint for automated SSH setup script.
+    Called by the node after running the curl setup script.
+    Automatically tests SSH connection and updates node status.
+    No authentication required (for curl access from nodes).
+    """
+    try:
+        node = Node.query.get(node_id)
+        if not node:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        logger.info(f"[SSH-SETUP] Received setup complete callback for node {node.hostname} (ID: {node_id})")
+        
+        # Test SSH connection automatically
+        from ..services.ssh_key_manager import SSHKeyManager
+        ssh_manager = SSHKeyManager()
+        
+        try:
+            logger.info(f"[SSH-SETUP] Testing SSH connection to {node.hostname}...")
+            test_result = ssh_manager.validate_ssh_connection(
+                node.hostname,
+                node.ip_address,
+                node.ssh_user,
+                node.ssh_port,
+                node.ssh_key_path
+            )
+            
+            # Update node status
+            node.ssh_connection_tested = True
+            node.ssh_connection_test_result = json.dumps(test_result)
+            
+            if test_result.get('success'):
+                node.ssh_key_status = 'deployed'
+                logger.info(f"[SSH-SETUP] ✅ SSH connection test successful for {node.hostname}")
+            else:
+                node.ssh_key_status = 'failed'
+                logger.warning(f"[SSH-SETUP] ⚠️ SSH connection test failed for {node.hostname}: {test_result.get('message')}")
+            
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'SSH setup verified and connection tested',
+                'ssh_working': test_result.get('success', False),
+                'sudo_access': test_result.get('sudo_access', False)
+            })
+            
+        except Exception as test_error:
+            logger.error(f"[SSH-SETUP] Error testing connection: {str(test_error)}")
+            return jsonify({
+                'success': False,
+                'message': 'Setup callback received but connection test failed',
+                'error': str(test_error)
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"[SSH-SETUP] Error in setup complete callback: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/nodes/<int:node_id>/check-status', methods=['POST'])
+@login_required
 def check_node_status(node_id):
     """Check the status of a node."""
     try:
