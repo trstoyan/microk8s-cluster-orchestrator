@@ -186,6 +186,23 @@ chmod 700 "$SSH_DIR"
 chmod 600 "$AUTH_KEYS"
 print_success "Permissions set correctly"
 
+# Verify the key was added
+echo ""
+print_status "Verifying SSH key was added correctly..."
+if grep -q "$KEY_COMMENT" "$AUTH_KEYS"; then
+    print_success "✓ Key found in authorized_keys"
+    echo ""
+    print_status "Last 3 lines of authorized_keys:"
+    echo -e "${BLUE}──────────────────────────────────────${NC}"
+    tail -n 3 "$AUTH_KEYS" | sed 's/^/  /'
+    echo -e "${BLUE}──────────────────────────────────────${NC}"
+else
+    print_error "Key NOT found in authorized_keys!"
+    print_status "File contents:"
+    cat "$AUTH_KEYS" | sed 's/^/  /'
+fi
+echo ""
+
 echo ""
 print_success "SSH setup completed successfully!"
 echo ""
@@ -197,30 +214,93 @@ echo ""
 # Check if user already has passwordless sudo
 if sudo -n true 2>/dev/null; then
     print_success "User already has passwordless sudo configured"
+    print_status "Testing with: sudo -n whoami"
+    sudo -n whoami | sed 's/^/  Result: /'
 else
-    print_warning "Passwordless sudo is not configured"
-    print_status "The orchestrator needs passwordless sudo to manage this node"
-    echo ""
-    print_status "To enable it, run this command:"
-    echo -e "${GREEN}echo \"$CURRENT_USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/orchestrator-$CURRENT_USER${NC}"
-    echo ""
-    read -p "Would you like to configure passwordless sudo now? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_status "Configuring passwordless sudo..."
-        echo "$CURRENT_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/orchestrator-$CURRENT_USER > /dev/null
-        sudo chmod 440 /etc/sudoers.d/orchestrator-$CURRENT_USER
+    print_warning "Passwordless sudo is not configured - required for orchestrator operations"
+    print_status "Configuring now (use SKIP_SUDO=1 to skip)..."
+    
+    # Check for SKIP_SUDO environment variable
+    if [ "$SKIP_SUDO" == "1" ]; then
+        print_warning "⚠️  Skipped passwordless sudo configuration (SKIP_SUDO=1)"
+        print_status "To configure manually later:"
+        echo -e "${GREEN}  echo \"$CURRENT_USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/orchestrator-$CURRENT_USER${NC}"
+        echo -e "${GREEN}  sudo chmod 440 /etc/sudoers.d/orchestrator-$CURRENT_USER${NC}"
+    else
+        echo ""
+        print_status "Creating passwordless sudo configuration..."
+        SUDOERS_FILE="/etc/sudoers.d/orchestrator-$CURRENT_USER"
+        SUDOERS_CONTENT="$CURRENT_USER ALL=(ALL) NOPASSWD:ALL"
         
-        # Test it
+        echo ""
+        print_status "Writing to: $SUDOERS_FILE"
+        print_status "Content: $SUDOERS_CONTENT"
+        echo ""
+        
+        echo "$SUDOERS_CONTENT" | sudo tee $SUDOERS_FILE
+        sudo chmod 440 $SUDOERS_FILE
+        
+        echo ""
+        print_status "Verifying sudoers file..."
+        echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+        print_status "File: $SUDOERS_FILE"
+        if [ -f "$SUDOERS_FILE" ]; then
+            print_success "✓ File exists"
+            print_status "Permissions: $(ls -l $SUDOERS_FILE | awk '{print $1}')"
+            print_status "Owner: $(ls -l $SUDOERS_FILE | awk '{print $3\":\"$4}')"
+            echo ""
+            print_status "Contents:"
+            sudo cat $SUDOERS_FILE | sed 's/^/  → /'
+        else
+            print_error "✗ File was not created!"
+        fi
+        echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+        
+        echo ""
+        print_status "Validating sudoers syntax..."
+        if sudo visudo -c -f $SUDOERS_FILE 2>&1 | grep -q "parsed OK"; then
+            print_success "✓ Sudoers syntax is valid"
+        else
+            print_error "✗ Sudoers syntax validation failed"
+            sudo visudo -c -f $SUDOERS_FILE 2>&1 | sed 's/^/  /'
+        fi
+        
+        echo ""
+        print_status "Testing passwordless sudo..."
+        echo -e "${BLUE}──────────────────────────────────────${NC}"
+        print_status "Test 1: sudo -n true"
+        if sudo -n true 2>/dev/null; then
+            print_success "  ✓ PASS"
+        else
+            print_error "  ✗ FAIL"
+        fi
+        
+        print_status "Test 2: sudo -n whoami"
+        SUDO_TEST=$(sudo -n whoami 2>&1)
+        if [ "$SUDO_TEST" == "root" ]; then
+            print_success "  ✓ PASS (result: $SUDO_TEST)"
+        else
+            print_error "  ✗ FAIL (result: $SUDO_TEST)"
+        fi
+        
+        print_status "Test 3: sudo -n echo 'test'"
+        if sudo -n echo "test" >/dev/null 2>&1; then
+            print_success "  ✓ PASS"
+        else
+            print_error "  ✗ FAIL"
+        fi
+        echo -e "${BLUE}──────────────────────────────────────${NC}"
+        
+        echo ""
         if sudo -n true 2>/dev/null; then
             print_success "✅ Passwordless sudo configured successfully!"
         else
-            print_error "Failed to configure passwordless sudo"
-            print_status "You may need to configure it manually"
+            print_error "❌ Passwordless sudo still not working"
+            print_status "Manual configuration required:"
+            echo -e "${YELLOW}  1. sudo visudo${NC}"
+            echo -e "${YELLOW}  2. Add line: $CURRENT_USER ALL=(ALL) NOPASSWD:ALL${NC}"
+            echo -e "${YELLOW}  3. Save and exit${NC}"
         fi
-    else
-        print_warning "Skipped passwordless sudo configuration"
-        print_status "Note: Some orchestrator operations may fail without passwordless sudo"
     fi
 fi
 

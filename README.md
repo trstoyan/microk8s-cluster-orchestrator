@@ -23,20 +23,34 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
 
 ### 🎯 **Core Functionality**
 - **Node Management**: Add, remove, and monitor cluster nodes
+  - **Auto-Discovery**: Scan clusters to find nodes already joined but not in orchestrator
+  - One-click bulk addition of discovered nodes with automatic SSH key generation
+  - Friendly duplicate detection with helpful error messages and edit links
 - **Cluster Orchestration**: Automated cluster setup, configuration, and graceful shutdown
-- **Web Dashboard**: Modern, responsive web interface for cluster management
+- **Web Dashboard**: Modern, responsive tabbed interface for system management
+  - Overview: Quick status and system actions
+  - Updates: Version management with safe update strategies
+  - Live Sync: Real-time server-to-server data synchronization
+  - Logs: Built-in log viewer with live streaming
+  - Timezone: System timezone configuration
 - **CLI Tools**: Command-line interface for automation and scripting
 - **Real-time Monitoring**: Live status updates and health checks
+- **Live Progress Logging**: Ubuntu-style progress indicators for long-running operations
 
 ### 🔐 **SSH Key Management**
-- **Automatic SSH Key Generation**: Unique SSH key pairs for each node
+- **One-Liner Automated Setup**: `curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=1 | bash`
+  - Automatic prerequisite checks (SSH client, permissions, connectivity)
+  - Creates `.ssh` directory with correct permissions (700)
+  - Adds orchestrator's public key to `authorized_keys` (600)
+  - Configures passwordless sudo for orchestrator operations
+  - Automatic SSH connection test and status update
+  - Safe to run multiple times (idempotent)
+- **Automatic SSH Key Generation**: Unique SSH key pairs for each node with absolute paths
 - **Manual SSH Key Selection**: Choose from existing SSH keys
 - **SSH Key Scanning**: Automatic detection and listing of available keys
-- **Unique SSH Key Pairs**: Each node has its own unique SSH key
-- **Step-by-step Setup Instructions**: Detailed, copy-paste instructions
 - **Connection Testing**: Built-in SSH connection validation with sudo access testing
 - **Key Regeneration**: Easy key regeneration for compromised or lost keys
-- **Support for Existing Infrastructure**: Works with existing SSH key infrastructure
+- **Auto-Verification**: Setup script automatically tests connection and updates node status
 
 ### 🌐 **Network & Communication**
 - **Hosts File Configuration**: Automatic `/etc/hosts` configuration for MicroK8s HA clusters
@@ -44,6 +58,18 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
   - Creates backups of original files before modification
   - Validates hostname resolution and DNS functionality
   - Essential for MicroK8s High Availability cluster communication
+
+### 🔄 **Live Server Sync**
+- **Real-Time Data Synchronization**: Sync orchestrator data between multiple servers
+  - Server-to-server inventory comparison (nodes, clusters, SSH keys)
+  - Selective sync with checkboxes for specific items
+  - Live progress streaming (Ubuntu installer-style logs)
+  - Color-coded log output (success, error, warning, info)
+  - Session-based authentication for secure cross-server communication
+  - CORS support for browser-based sync operations
+  - Automatic detection of identical, different, and missing items
+- **Embedded in System Management**: Access sync via System Management > Live Sync tab
+- **Real-Time Progress**: Watch every step with auto-scrolling log console
 
 ### 🎨 **Playbook Editor**
 - **Visual Drag-and-Drop Interface**: Build Ansible playbooks without YAML knowledge
@@ -71,7 +97,7 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
   - Configurable power management rules
   - Real-time UPS status monitoring
 
-### 📊 **Hardware Reporting**
+### 📊 **Hardware Reporting & Storage**
 - **Comprehensive Hardware Information**: Detailed system information collection
   - CPU information (cores, usage, temperature)
   - Memory details (total, usage, swap)
@@ -81,6 +107,12 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
   - Thermal sensor monitoring
   - Docker and Kubernetes volume tracking
   - LVM and RAID information
+- **Longhorn Storage Prerequisites**: Intelligent prerequisite management
+  - Actual status display (not checked, met, or failed)
+  - Package verification (lvm2, nfs-common, open-iscsi, etc.)
+  - Service status checks (iscsid, multipathd)
+  - One-click installation of missing prerequisites
+  - Color-coded visual feedback (✓ green checks, ✗ red for missing, ? gray for unchecked)
 
 #### 🤖 **AI Assistant with Local RAG System**
 - **Local-Only Operation**: Runs entirely on local resources, no external dependencies
