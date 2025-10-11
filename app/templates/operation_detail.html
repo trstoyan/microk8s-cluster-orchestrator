@@ -201,7 +201,12 @@
                     </div>
                     
                     <div class="mt-3">
-                        <button class="btn btn-success btn-lg" onclick="addDiscoveredNodes({{ operation.id }})">
+                        <div class="alert alert-warning">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>Before adding:</strong> Ensure all discovered nodes use the same SSH user.
+                            You'll be prompted to specify the SSH username.
+                        </div>
+                        <button class="btn btn-success btn-lg" onclick="addDiscoveredNodes({{ operation.id }}, {{ metadata.new_nodes|tojson }})">
                             <i class="bi bi-plus-circle"></i> Add All {{ metadata.new_nodes|length }} Node(s) to Orchestrator
                         </button>
                         <small class="text-muted ms-2">
@@ -397,8 +402,36 @@ function executeOperation(operationId) {
     }
 }
 
-function addDiscoveredNodes(operationId) {
-    if (confirm('Add all discovered nodes to the orchestrator?\n\nThis will:\n✓ Create node entries in the database\n✓ Generate SSH keys for each node\n✓ Assign them to the current cluster\n\nYou will still need to complete SSH setup for each node afterwards.')) {
+function addDiscoveredNodes(operationId, discoveredNodes) {
+    // First, prompt for SSH username
+    const sshUser = prompt(
+        'What SSH username do all these nodes use?\n\n' +
+        'Common usernames:\n' +
+        '  • ubuntu (Ubuntu systems)\n' +
+        '  • pi (Raspberry Pi)\n' +
+        '  • sumix (your custom user)\n\n' +
+        'Enter SSH username:',
+        'sumix'  // Default to sumix based on your setup
+    );
+    
+    if (!sshUser || sshUser.trim() === '') {
+        alert('❌ SSH username is required. Operation cancelled.');
+        return;
+    }
+    
+    // Show node list with the username
+    const nodeList = discoveredNodes.map(n => `  • ${n.hostname} (${n.ip_address})`).join('\n');
+    const confirmMessage = `Add all discovered nodes to the orchestrator?\n\n` +
+        `SSH User: ${sshUser}\n\n` +
+        `Nodes to add (${discoveredNodes.length}):\n${nodeList}\n\n` +
+        `This will:\n` +
+        `✓ Create node entries in the database\n` +
+        `✓ Generate SSH keys for each node\n` +
+        `✓ Assign them to the current cluster\n` +
+        `✓ Use SSH user: ${sshUser}\n\n` +
+        `You will still need to complete SSH setup for each node afterwards.`;
+    
+    if (confirm(confirmMessage)) {
         // Show loading state
         const btn = event.target;
         const originalHTML = btn.innerHTML;
@@ -409,12 +442,15 @@ function addDiscoveredNodes(operationId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-            }
+            },
+            body: JSON.stringify({
+                ssh_user: sshUser.trim()
+            })
         })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(`✅ Success!\n\nAdded ${data.added_count} node(s):\n${data.added_nodes.map(n => `  • ${n.hostname} (${n.ip_address})`).join('\n')}\n\nNext steps:\n1. Go to each node's SSH setup page\n2. Run the one-liner command on each node\n3. Test SSH connection`);
+                alert(`✅ Success!\n\nAdded ${data.added_count} node(s) with SSH user "${sshUser}":\n${data.added_nodes.map(n => `  • ${n.hostname} (${n.ip_address})`).join('\n')}\n\nNext steps:\n1. Go to each node's SSH setup page\n2. Copy the one-liner curl command\n3. Run it on each node (as user: ${sshUser})\n4. SSH will be configured automatically!`);
                 location.reload();
             } else {
                 alert('❌ Error adding nodes: ' + data.error);

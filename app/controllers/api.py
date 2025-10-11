@@ -2636,6 +2636,18 @@ def add_discovered_nodes(operation_id):
         
         cluster = Cluster.query.get(operation.cluster_id)
         
+        # Get SSH user from request (required)
+        data = request.get_json() or {}
+        ssh_user = data.get('ssh_user', '').strip()
+        
+        if not ssh_user:
+            return jsonify({
+                'success': False,
+                'error': 'SSH username is required. Please specify the SSH user for these nodes.'
+            }), 400
+        
+        logger.info(f"[NODE-DISCOVERY] Adding {len(new_nodes)} discovered nodes with SSH user: {ssh_user}")
+        
         # Add each discovered node
         from ..services.ssh_key_manager import SSHKeyManager
         ssh_manager = SSHKeyManager()
@@ -2649,13 +2661,13 @@ def add_discovered_nodes(operation_id):
                 node = Node(
                     hostname=discovered['hostname'],
                     ip_address=discovered['ip_address'],
-                    ssh_user='ubuntu',  # Default, user can change later
+                    ssh_user=ssh_user,  # Use provided SSH user
                     ssh_port=22,
                     cluster_id=cluster.id,
                     status='active',  # Already in cluster, so active
                     microk8s_status='installed',  # Already running MicroK8s
                     is_control_plane='control-plane' in discovered.get('roles', []) or 'master' in discovered.get('roles', []),
-                    notes=f"Auto-discovered from cluster scan on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+                    notes=f"Auto-discovered from cluster scan on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} | SSH user: {ssh_user}"
                 )
                 db.session.add(node)
                 db.session.flush()  # Get the node ID

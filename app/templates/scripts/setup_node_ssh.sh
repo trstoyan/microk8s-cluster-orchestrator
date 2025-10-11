@@ -149,6 +149,13 @@ if [ -z "$SSH_PUBLIC_KEY" ] || [ "$SSH_PUBLIC_KEY" == "None" ]; then
     exit 1
 fi
 
+echo ""
+print_status "SSH Public Key received from orchestrator:"
+echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+echo "$SSH_PUBLIC_KEY" | sed 's/^/  /'
+echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+echo ""
+
 print_status "Configuring SSH access..."
 echo ""
 
@@ -168,17 +175,53 @@ if [ ! -f "$AUTH_KEYS" ]; then
     print_success "authorized_keys file created"
 fi
 
-# Remove old key if exists (to avoid duplicates)
+# Prepare key with comment
 KEY_COMMENT="orchestrator-node-${NODE_ID}"
-if grep -q "$KEY_COMMENT" "$AUTH_KEYS"; then
-    print_status "Removing old key for this node..."
-    sed -i "/$KEY_COMMENT/d" "$AUTH_KEYS"
+
+# Ensure SSH_PUBLIC_KEY has the comment at the end
+if [[ "$SSH_PUBLIC_KEY" != *"$KEY_COMMENT"* ]]; then
+    print_status "Adding comment to SSH key..."
+    SSH_PUBLIC_KEY_WITH_COMMENT="${SSH_PUBLIC_KEY} ${KEY_COMMENT}"
+else
+    SSH_PUBLIC_KEY_WITH_COMMENT="$SSH_PUBLIC_KEY"
 fi
 
+# Remove old key if exists (to avoid duplicates)
+if grep -q "$KEY_COMMENT" "$AUTH_KEYS" 2>/dev/null; then
+    print_status "Removing old key for this node..."
+    sed -i "/$KEY_COMMENT/d" "$AUTH_KEYS"
+    print_success "Old key removed"
+fi
+
+# Show what we're about to add
+echo ""
+print_status "Preparing to add SSH public key..."
+echo -e "${BLUE}──────────────────────────────────────${NC}"
+print_status "Key type: $(echo $SSH_PUBLIC_KEY_WITH_COMMENT | awk '{print $1}')"
+print_status "Key fingerprint: $(echo $SSH_PUBLIC_KEY_WITH_COMMENT | awk '{print $2}' | head -c 32)..."
+print_status "Comment: $KEY_COMMENT"
+echo -e "${BLUE}──────────────────────────────────────${NC}"
+
+# Count keys before
+KEYS_BEFORE=$(wc -l < "$AUTH_KEYS" 2>/dev/null || echo "0")
+
 # Add new key
+echo ""
 print_status "Adding SSH public key to authorized_keys..."
-echo "$SSH_PUBLIC_KEY" >> "$AUTH_KEYS"
-print_success "SSH key added successfully!"
+print_status "Keys before: $KEYS_BEFORE"
+
+# Write the key
+echo "$SSH_PUBLIC_KEY_WITH_COMMENT" >> "$AUTH_KEYS"
+
+# Count keys after
+KEYS_AFTER=$(wc -l < "$AUTH_KEYS")
+print_status "Keys after: $KEYS_AFTER"
+
+if [ "$KEYS_AFTER" -gt "$KEYS_BEFORE" ]; then
+    print_success "✓ SSH key written to file! (added 1 line)"
+else
+    print_error "✗ No line was added to file!"
+fi
 
 # Ensure correct permissions
 print_status "Setting correct permissions..."
@@ -189,18 +232,27 @@ print_success "Permissions set correctly"
 # Verify the key was added
 echo ""
 print_status "Verifying SSH key was added correctly..."
+echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
+print_status "Searching for: $KEY_COMMENT"
+
 if grep -q "$KEY_COMMENT" "$AUTH_KEYS"; then
-    print_success "✓ Key found in authorized_keys"
+    print_success "✓ Key found in authorized_keys!"
     echo ""
-    print_status "Last 3 lines of authorized_keys:"
-    echo -e "${BLUE}──────────────────────────────────────${NC}"
-    tail -n 3 "$AUTH_KEYS" | sed 's/^/  /'
-    echo -e "${BLUE}──────────────────────────────────────${NC}"
+    print_status "Complete authorized_keys file (${KEYS_AFTER} lines):"
+    cat -n "$AUTH_KEYS" | sed 's/^/  /'
 else
-    print_error "Key NOT found in authorized_keys!"
-    print_status "File contents:"
-    cat "$AUTH_KEYS" | sed 's/^/  /'
+    print_error "✗ Key NOT found in authorized_keys!"
+    echo ""
+    print_status "What was written:"
+    echo "$SSH_PUBLIC_KEY_WITH_COMMENT" | sed 's/^/  EXPECTED: /'
+    echo ""
+    print_status "What's in the file ($AUTH_KEYS):"
+    cat -n "$AUTH_KEYS" | sed 's/^/  /'
+    echo ""
+    print_status "Searching for comment '$KEY_COMMENT' in file:"
+    grep -n "$KEY_COMMENT" "$AUTH_KEYS" | sed 's/^/  FOUND: /' || echo "  NOT FOUND"
 fi
+echo -e "${BLUE}══════════════════════════════════════════════════${NC}"
 echo ""
 
 echo ""

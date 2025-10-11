@@ -8,6 +8,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- **Live Server Sync**: Real-time data synchronization between orchestrator instances
+  - Server-to-server inventory comparison (nodes, clusters, SSH keys)
+  - Selective sync with checkboxes for granular control
+  - Live progress streaming with Ubuntu installer-style logs
+  - Color-coded log output (success: green, error: red, warning: yellow, info: blue)
+  - Auto-scrolling log console in progress modal
+  - Session-based authentication for secure cross-server communication
+  - CORS support for browser-based sync operations
+  - Automatic detection of identical, different, and missing items
+  - Progress bar with keyword-based updates (Preparing→Connecting→Transferring→Complete)
+  - Server-Sent Events (SSE) for real-time log streaming
+  - Embedded in System Management > Live Sync tab
+
+- **One-Liner SSH Setup Script**: Automated node setup via curl
+  - Single command: `curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=X | bash`
+  - Automatic prerequisite checks (SSH client, permissions, network connectivity)
+  - Creates `.ssh` directory with correct permissions (700)
+  - Adds orchestrator public key to `authorized_keys` (600)
+  - Automatic passwordless sudo configuration
+  - Removes duplicate keys (idempotent, safe to run multiple times)
+  - Verifies SSH server is running
+  - Automatic callback to orchestrator after completion
+  - Auto-tests SSH connection and updates node status
+  - Fully verbose output showing file contents and test results
+  - Non-interactive (works with curl piping)
+
+- **Cluster Node Auto-Discovery**: Automatically find and add nodes already in Kubernetes cluster
+  - Scans cluster and discovers all nodes via `kubectl get nodes`
+  - Compares with orchestrator database
+  - Identifies nodes in cluster but not in orchestrator
+  - Displays discovered nodes in green card on operation detail page
+  - Shows hostname, IP, roles (control-plane/worker), ready status
+  - One-click "Add All X Nodes" button
+  - Automatically generates SSH keys for each discovered node
+  - Sets correct role (control-plane vs worker) based on labels
+  - Adds helpful note with discovery timestamp
+  - Perfect for manually-joined clusters
+
+- **System Management Reorganization**: Tabbed interface for better organization
+  - Overview: System info, quick actions, "Upgrade System" button
+  - Updates: Full update management with safe strategies
+  - Live Sync: Embedded sync interface (no duplicate sidebar)
+  - Logs: Built-in log viewer with file selection
+  - Timezone: System timezone configuration
+  - Removed Sync from sidebar (cleaner navigation)
+  - Tab-based navigation with proper ARIA attributes
+  - Lazy loading (sync iframe loads only when tab clicked)
+
+- **Friendly Error Messages**: User-friendly error handling
+  - Duplicate node/cluster detection with helpful messages
+  - Clickable links to edit existing items
+  - Warning icons (⚠️) for user-fixable issues
+  - Error icons (❌) for system errors
+  - No technical SQL jargon in user-facing messages
+  - Context-aware messages with actionable solutions
+
+- **Longhorn Prerequisites Visual Feedback**: Honest status display
+  - Gray question marks (?) when not checked
+  - Green checks (✓) only when actually met
+  - Red X (✗) for missing prerequisites
+  - Status badge: "Not Checked" / "Prerequisites Met" / "Prerequisites Not Met"
+  - Shows last check timestamp
+  - Context-aware alerts with missing packages/services listed
+  - YAML output parsing from Ansible playbooks
+  - Automatic status updates after check completes
+
+- **Diagnostic Tools**: Helpful troubleshooting scripts
+  - `scripts/diagnose_scan_failure.py` - Diagnose failed cluster scans
+  - `scripts/fix_ssh_key_paths.py` - Fix relative→absolute SSH key paths
+  - Shows exactly what's wrong and how to fix it
+  - Actionable solutions for common issues
+
+- **Production Server Improvements**: Better reliability and error handling
+  - Unified server commands: `make start/stop/restart/status`
+  - Server watchdog script for bulletproof restarts
+  - Port conflict detection and auto-cleanup
+  - Orphaned process handling
+  - Firewall management commands
+  - Update system works without rsync (cp fallback)
+  - Branch-aware updates (not hardcoded to main)
+  - Update summary at completion
+
 - **Playbook Editor**: Comprehensive visual playbook creation and management system
   - **Visual Drag-and-Drop Interface**: Build Ansible playbooks without YAML knowledge
   - **Template Library**: Pre-built templates for common MicroK8s operations
