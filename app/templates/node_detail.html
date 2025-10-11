@@ -249,8 +249,8 @@
                 </div>
                 
                 <div class="row">
-                    <div class="col-md-6">
-                        <h6>Required Packages</h6>
+                    <div class="col-md-4">
+                        <h6><i class="bi bi-box"></i> Required Packages</h6>
                         <ul class="list-unstyled">
                             {% set packages = ['lvm2', 'liblvm2cmd2.03', 'nfs-common', 'open-iscsi', 'util-linux'] %}
                             {% set descriptions = {
@@ -261,7 +261,7 @@
                                 'util-linux': 'System utilities'
                             } %}
                             {% for pkg in packages %}
-                            <li>
+                            <li class="mb-1">
                                 {% if longhorn_status.status == 'met' %}
                                     <i class="bi bi-check-circle text-success"></i>
                                 {% elif longhorn_status.status == 'failed' and pkg in longhorn_status.missing_packages %}
@@ -271,26 +271,20 @@
                                 {% else %}
                                     <i class="bi bi-check-circle text-success"></i>
                                 {% endif %}
-                                {{ pkg }}
-                                <small class="text-muted">- {{ descriptions[pkg] }}</small>
+                                <code>{{ pkg }}</code>
+                                <br><small class="text-muted ms-3">{{ descriptions[pkg] }}</small>
                             </li>
                             {% endfor %}
                         </ul>
                     </div>
-                    <div class="col-md-6">
-                        <h6>Required Services</h6>
+                    <div class="col-md-4">
+                        <h6><i class="bi bi-hdd"></i> Services</h6>
                         <ul class="list-unstyled">
-                            {% set services = ['iscsid', 'multipathd'] %}
-                            {% set service_descriptions = {
-                                'iscsid': 'iSCSI daemon',
-                                'multipathd': 'Multipath daemon'
-                            } %}
-                            {% for svc in services %}
-                            <li>
+                            <li class="mb-2">
                                 {% if longhorn_status.status == 'met' %}
                                     <i class="bi bi-check-circle text-success"></i>
                                 {% elif longhorn_status.status == 'failed' %}
-                                    {% if longhorn_status.services_status and longhorn_status.services_status.get(svc) == 'running' %}
+                                    {% if longhorn_status.services_status and longhorn_status.services_status.get('services', {}).get('iscsid', {}).get('running') %}
                                         <i class="bi bi-check-circle text-success"></i>
                                     {% else %}
                                         <i class="bi bi-x-circle text-danger"></i>
@@ -300,10 +294,65 @@
                                 {% else %}
                                     <i class="bi bi-check-circle text-success"></i>
                                 {% endif %}
-                                {{ svc }}
-                                <small class="text-muted">- {{ service_descriptions[svc] }}</small>
+                                <code>iscsid</code> <span class="badge bg-success">Running</span>
+                                <br><small class="text-muted ms-3">iSCSI daemon - must be active</small>
                             </li>
-                            {% endfor %}
+                            <li class="mb-1">
+                                {% if longhorn_status.status == 'met' %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% elif longhorn_status.status == 'failed' %}
+                                    {% if longhorn_status.services_status and longhorn_status.services_status.get('system', {}).get('multipath_disabled') %}
+                                        <i class="bi bi-check-circle text-success"></i>
+                                    {% else %}
+                                        <i class="bi bi-x-circle text-danger"></i>
+                                    {% endif %}
+                                {% elif longhorn_status.status == 'not_checked' %}
+                                    <i class="bi bi-question-circle text-secondary"></i>
+                                {% else %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% endif %}
+                                <code>multipathd</code> <span class="badge bg-danger">Disabled</span>
+                                <br><small class="text-muted ms-3">Multipath - MUST be disabled</small>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="col-md-4">
+                        <h6><i class="bi bi-cpu"></i> System Requirements</h6>
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                {% if longhorn_status.status == 'met' %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% elif longhorn_status.status == 'failed' %}
+                                    {% if longhorn_status.services_status and longhorn_status.services_status.get('system', {}).get('swap_disabled') %}
+                                        <i class="bi bi-check-circle text-success"></i>
+                                    {% else %}
+                                        <i class="bi bi-x-circle text-danger"></i>
+                                    {% endif %}
+                                {% elif longhorn_status.status == 'not_checked' %}
+                                    <i class="bi bi-question-circle text-secondary"></i>
+                                {% else %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% endif %}
+                                <strong>Swap Memory</strong> <span class="badge bg-danger">Disabled</span>
+                                <br><small class="text-muted ms-3">MUST be disabled for K8s</small>
+                            </li>
+                            <li class="mb-1">
+                                {% if longhorn_status.status == 'met' %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% elif longhorn_status.status == 'failed' %}
+                                    {% if longhorn_status.services_status and longhorn_status.services_status.get('system', {}).get('dm_crypt_loaded') %}
+                                        <i class="bi bi-check-circle text-success"></i>
+                                    {% else %}
+                                        <i class="bi bi-x-circle text-danger"></i>
+                                    {% endif %}
+                                {% elif longhorn_status.status == 'not_checked' %}
+                                    <i class="bi bi-question-circle text-secondary"></i>
+                                {% else %}
+                                    <i class="bi bi-check-circle text-success"></i>
+                                {% endif %}
+                                <strong>dm-crypt module</strong> <span class="badge bg-success">Loaded</span>
+                                <br><small class="text-muted ms-3">Kernel module for encryption</small>
+                            </li>
                         </ul>
                     </div>
                 </div>
