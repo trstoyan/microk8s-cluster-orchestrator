@@ -279,6 +279,18 @@ class OrchestrationService:
             else:
                 node.microk8s_status = 'not_installed'
         
+        # Update MicroK8s version
+        if 'microk8s_version' in health_data and health_data['microk8s_version'] and health_data['microk8s_version'] != 'unknown':
+            node.microk8s_version = health_data['microk8s_version']
+        
+        # Update control plane status (actual detection from Kubernetes)
+        if 'is_control_plane' in health_data:
+            # Convert string boolean to actual boolean
+            if isinstance(health_data['is_control_plane'], str):
+                node.is_control_plane = health_data['is_control_plane'].lower() in ('true', 'yes', '1')
+            else:
+                node.is_control_plane = bool(health_data['is_control_plane'])
+        
         # Update network information
         if 'ip_address' in health_data and health_data['ip_address']:
             node.ip_address = health_data['ip_address']
