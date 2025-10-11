@@ -124,7 +124,11 @@ class OrchestrationService:
         # Add common variables
         inventory['all']['children']['microk8s_nodes']['vars'] = {
             'ansible_python_interpreter': '/usr/bin/python3',
-            'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+            'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null',
+            'ansible_become': True,  # Enable privilege escalation (sudo)
+            'ansible_become_method': 'sudo',  # Use sudo for privilege escalation
+            'ansible_become_user': 'root',  # Become root user
+            'ansible_become_flags': '-H -S -n'  # -n = non-interactive (no password), -H = set HOME, -S = read password from stdin (but we use -n so this is for compatibility)
         }
         
         # Write inventory to temporary file
@@ -227,56 +231,107 @@ class OrchestrationService:
     def _parse_and_update_node_health(self, node: Node, output: str) -> None:
         """Parse health report from Ansible output and update node status."""
         try:
-            # Look for health report in the output
+            import yaml
+            import logging
+            logger = logging.getLogger(__name__)
             
-            # Try to find the health report JSON in the output
-            # The playbook writes the health report to /tmp/microk8s_health_<hostname>.json
-            # and also displays it in the debug output
+            # Look for health report in the YAML output from the debug task
+            # The output format is YAML because of the ansible.builtin.yaml callback
             
-            # Look for the health_report variable in the debug output
-            health_report_match = re.search(r'"health_report":\s*({.*?})', output, re.DOTALL)
-            if health_report_match:
-                try:
-                    health_data = json.loads(health_report_match.group(1))
+            # Find the health_report section in the output
+            health_report_start = output.find('health_report:')
+            if health_report_start == -1:
+                logger.warning(f"Could not find health_report in output for node {node.hostname}")
+                return
+            
+            # Extract the health_report YAML block
+            # Find the next TASK marker or end of output
+            output_after_health = output[health_report_start:]
+            next_task_pos = output_after_health.find('TASK [')
+            
+            if next_task_pos != -1:
+                health_yaml = output_after_health[:next_task_pos]
+            else:
+                health_yaml = output_after_health
+            
+            # Parse the YAML
+            try:
+                # Parse just the health_report section
+                parsed = yaml.safe_load(health_yaml)
+                if parsed and 'health_report' in parsed:
+                    health_data = parsed['health_report']
+                    logger.info(f"Successfully parsed health data for node {node.hostname}: {health_data.keys()}")
                     self._update_node_from_health_data(node, health_data)
                     return
-                except json.JSONDecodeError:
-                    pass
+            except yaml.YAMLError as e:
+                logger.warning(f"YAML parsing failed for node {node.hostname}: {e}")
             
-            # Alternative: look for the structured health report output
-            # The debug output shows the health_report variable
-            health_lines = []
-            in_health_report = False
-            for line in output.split('\n'):
-                if '"health_report":' in line or 'health_report:' in line:
-                    in_health_report = True
-                if in_health_report:
-                    health_lines.append(line)
-                    if '}' in line and in_health_report:
-                        break
-            
-            if health_lines:
-                health_text = '\n'.join(health_lines)
-                # Try to extract key information using regex
-                self._extract_health_info_from_text(node, health_text, output)
+            # Fallback: try to extract key information using regex
+            logger.info(f"Falling back to regex extraction for node {node.hostname}")
+            self._extract_health_info_from_text(node, output, output)
             
         except Exception as e:
-            print(f"Error parsing health report for node {node.hostname}: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error parsing health report for node {node.hostname}: {e}")
     
     def _update_node_from_health_data(self, node: Node, health_data: dict) -> None:
         """Update node from parsed health data."""
+        # Update MicroK8s status
         if 'microk8s_installed' in health_data:
             if health_data['microk8s_installed']:
-                if health_data.get('microk8s_running', False):
+                # Check if running: either explicitly running OR service active (for worker nodes)
+                microk8s_running = health_data.get('microk8s_running', False)
+                service_active = health_data.get('service_active', False)
+                
+                # Worker nodes may not say "microk8s is running" but if service is active, they ARE running
+                if microk8s_running or service_active:
                     node.microk8s_status = 'running'
                 else:
                     node.microk8s_status = 'installed'
             else:
                 node.microk8s_status = 'not_installed'
         
-        # Update other fields if available
+        # Update MicroK8s version
+        if 'microk8s_version' in health_data and health_data['microk8s_version'] and health_data['microk8s_version'] != 'unknown':
+            node.microk8s_version = health_data['microk8s_version']
+        
+        # Update control plane status (actual detection from Kubernetes)
+        if 'is_control_plane' in health_data:
+            # Convert string boolean to actual boolean
+            if isinstance(health_data['is_control_plane'], str):
+                node.is_control_plane = health_data['is_control_plane'].lower() in ('true', 'yes', '1')
+            else:
+                node.is_control_plane = bool(health_data['is_control_plane'])
+        
+        # Update network information
         if 'ip_address' in health_data and health_data['ip_address']:
             node.ip_address = health_data['ip_address']
+        
+        # Update system information
+        if 'os_version' in health_data and health_data['os_version']:
+            node.os_version = health_data['os_version']
+        
+        if 'kernel_version' in health_data and health_data['kernel_version']:
+            node.kernel_version = health_data['kernel_version']
+        
+        if 'cpu_cores' in health_data:
+            try:
+                node.cpu_cores = int(health_data['cpu_cores'])
+            except (ValueError, TypeError):
+                pass
+        
+        if 'memory_gb' in health_data:
+            try:
+                node.memory_gb = float(health_data['memory_gb'])
+            except (ValueError, TypeError):
+                pass
+        
+        if 'disk_gb' in health_data:
+            try:
+                node.disk_gb = float(health_data['disk_gb'])
+            except (ValueError, TypeError):
+                pass
     
     def _extract_health_info_from_text(self, node: Node, health_text: str, full_output: str) -> None:
         """Extract health information from text output."""
@@ -916,6 +971,41 @@ class OrchestrationService:
                     cluster.status = 'degraded'
                     cluster.health_score = scan_results.get('health_score', 50)
                 
+                # Extract discovered nodes for auto-add feature
+                discovered_nodes = self._extract_discovered_nodes(output)
+                
+                # Compare discovered nodes with existing nodes in orchestrator
+                new_nodes = []
+                if discovered_nodes:
+                    # Get all existing node hostnames and IPs in this cluster
+                    existing_hostnames = {node.hostname.lower() for node in cluster.nodes}
+                    existing_ips = {node.ip_address for node in cluster.nodes if node.ip_address}
+                    
+                    # Find nodes that exist in cluster but not in orchestrator
+                    for discovered in discovered_nodes:
+                        hostname_lower = discovered['hostname'].lower()
+                        ip = discovered['ip_address']
+                        
+                        # Check if this node is NOT already in orchestrator
+                        if hostname_lower not in existing_hostnames and ip not in existing_ips:
+                            new_nodes.append(discovered)
+                    
+                    # Store in operation metadata for display
+                    operation.operation_metadata = json.dumps({
+                        'scan_results': scan_results,
+                        'discovered_nodes': discovered_nodes,
+                        'new_nodes': new_nodes,  # Nodes that need to be added
+                        'new_nodes_count': len(new_nodes)
+                    })
+                    
+                    # Add a note in the output if new nodes were discovered
+                    if new_nodes:
+                        output += f"\n\n=== DISCOVERED NEW NODES ===\n"
+                        output += f"Found {len(new_nodes)} node(s) in the cluster that are not yet in the orchestrator:\n"
+                        for node in new_nodes:
+                            output += f"  - {node['hostname']} ({node['ip_address']}) - Roles: {', '.join(node['roles'])}\n"
+                        output += "\nThese nodes can be automatically added to the orchestrator.\n"
+                
                 db.session.commit()
                 self._update_operation_status(operation, 'completed', success=True, output=output)
             else:
@@ -1025,6 +1115,81 @@ class OrchestrationService:
             results['issues'].append(f'Failed to parse scan results: {str(e)}')
         
         return results
+    
+    def _extract_discovered_nodes(self, ansible_output: str) -> list:
+        """
+        Extract discovered nodes from cluster scan output.
+        This is used for the auto-discovery feature to suggest adding nodes.
+        
+        Args:
+            ansible_output: Raw Ansible playbook output
+            
+        Returns:
+            List of discovered node dictionaries with hostname, IP, labels, ready status
+        """
+        discovered = []
+        try:
+            import re
+            
+            # Look for the cluster_info data which contains total_nodes count
+            # Then extract node hostnames and IPs from simpler patterns
+            
+            # Pattern 1: Extract from node status lines showing addresses
+            # Format: 'addresses': [{'address': '10.25.8.68', 'type': 'InternalIP'}, {'address': 'devmod-02', 'type': 'Hostname'}]
+            address_pattern = r"'addresses':\s*\[.*?'address':\s*'([\d.]+)',\s*'type':\s*'InternalIP'.*?'address':\s*'([\w-]+)',\s*'type':\s*'Hostname'"
+            
+            matches = re.finditer(address_pattern, ansible_output)
+            
+            for match in matches:
+                ip_address = match.group(1)
+                hostname = match.group(2)
+                
+                # Look for the labels section for this hostname to determine roles
+                # Pattern: 'name': 'devmod-02', ... 'labels': {...}
+                label_pattern = rf"'name':\s*'{re.escape(hostname)}'.*?'labels':\s*(\{{[^}}]*?microk8s[^}}]*?\}})"
+                label_match = re.search(label_pattern, ansible_output, re.DOTALL)
+                
+                labels = {}
+                roles = ['worker']  # Default
+                
+                if label_match:
+                    # Check if it's a control plane node
+                    if 'microk8s-controlplane' in label_match.group(1):
+                        roles = ['control-plane']
+                
+                # Check if ready (look for Ready condition near this hostname)
+                ready_pattern = rf"'name':\s*'{re.escape(hostname)}'.*?'type':\s*'Ready'.*?'status':\s*'(True|False)'"
+                ready_match = re.search(ready_pattern, ansible_output, re.DOTALL)
+                is_ready = ready_match and ready_match.group(1) == 'True'
+                
+                if hostname and ip_address:
+                    # Avoid duplicates
+                    if not any(d['hostname'] == hostname for d in discovered):
+                        discovered.append({
+                            'hostname': hostname,
+                            'ip_address': ip_address,
+                            'labels': labels,
+                            'ready': is_ready,
+                            'roles': roles
+                        })
+                    
+            return discovered
+            
+        except Exception as e:
+            print(f"Error extracting discovered nodes: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def _extract_node_roles(self, labels: dict) -> list:
+        """Extract node roles from Kubernetes labels."""
+        roles = []
+        for key in labels:
+            if 'node-role.kubernetes.io/' in key:
+                role = key.split('/')[-1]
+                if role:
+                    roles.append(role)
+        return roles if roles else ['worker']
     
     def collect_hardware_report(self, cluster_id: int = None, node_id: int = None) -> Dict[str, Any]:
         """Collect comprehensive hardware information from cluster nodes."""

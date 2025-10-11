@@ -3,6 +3,8 @@
 import os
 import subprocess
 import json
+import logging
+from datetime import datetime
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,6 +19,7 @@ bp = Blueprint('api', __name__)
 orchestrator = OrchestrationService()
 wol_service = WakeOnLANService()
 playbook_service = PlaybookService()
+logger = logging.getLogger(__name__)
 
 @bp.route('/health', methods=['GET'])
 def health_check():
@@ -284,7 +287,70 @@ def install_microk8s(node_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/nodes/<int:node_id>/ssh-setup-complete', methods=['POST'])
+def ssh_setup_complete_callback(node_id):
+    """
+    Callback endpoint for automated SSH setup script.
+    Called by the node after running the curl setup script.
+    Automatically tests SSH connection and updates node status.
+    No authentication required (for curl access from nodes).
+    """
+    try:
+        node = Node.query.get(node_id)
+        if not node:
+            return jsonify({'error': 'Node not found'}), 404
+        
+        logger.info(f"[SSH-SETUP] Received setup complete callback for node {node.hostname} (ID: {node_id})")
+        
+        # Test SSH connection automatically
+        from ..services.ssh_key_manager import SSHKeyManager
+        ssh_manager = SSHKeyManager()
+        
+        try:
+            logger.info(f"[SSH-SETUP] Testing SSH connection to {node.hostname}...")
+            test_result = ssh_manager.validate_ssh_connection(
+                node.hostname,
+                node.ip_address,
+                node.ssh_user,
+                node.ssh_port,
+                node.ssh_key_path
+            )
+            
+            # Update node status
+            node.ssh_connection_tested = True
+            node.ssh_connection_test_result = json.dumps(test_result)
+            
+            if test_result.get('success'):
+                node.ssh_key_status = 'deployed'
+                logger.info(f"[SSH-SETUP] ✅ SSH connection test successful for {node.hostname}")
+            else:
+                node.ssh_key_status = 'failed'
+                logger.warning(f"[SSH-SETUP] ⚠️ SSH connection test failed for {node.hostname}: {test_result.get('message')}")
+            
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'SSH setup verified and connection tested',
+                'ssh_working': test_result.get('success', False),
+                'sudo_access': test_result.get('sudo_access', False)
+            })
+            
+        except Exception as test_error:
+            logger.error(f"[SSH-SETUP] Error testing connection: {str(test_error)}")
+            return jsonify({
+                'success': False,
+                'message': 'Setup callback received but connection test failed',
+                'error': str(test_error)
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"[SSH-SETUP] Error in setup complete callback: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.route('/nodes/<int:node_id>/check-status', methods=['POST'])
+@login_required
 def check_node_status(node_id):
     """Check the status of a node."""
     try:
@@ -338,10 +404,71 @@ def check_longhorn_prerequisites(node_id):
         result = orchestrator.execute_pending_operation(operation.id)
         
         if result['success']:
+            # Parse and save the Longhorn check results to the node
+            try:
+                output = result.get('output', '')
+                
+                # Parse the YAML-formatted report from Ansible debug output
+                # Look for "longhorn_check_report:" section
+                import re
+                import yaml
+                
+                # Try to extract the YAML block after "longhorn_check_report:"
+                yaml_match = re.search(
+                    r'longhorn_check_report:\s*\n((?:[ ]{4,}.*\n)+)',
+                    output,
+                    re.MULTILINE
+                )
+                
+                if yaml_match:
+                    yaml_content = yaml_match.group(1)
+                    # Remove the indentation (4 spaces)
+                    yaml_content = '\n'.join(line[4:] if len(line) > 4 else line for line in yaml_content.split('\n'))
+                    
+                    # Parse YAML
+                    report = yaml.safe_load(yaml_content)
+                    
+                    logger.info(f"[LONGHORN] Parsed report for {node.hostname}: prerequisites_met={report.get('prerequisites_met')}")
+                    
+                    # Update node with results
+                    node.longhorn_prerequisites_met = report.get('prerequisites_met', False)
+                    node.longhorn_prerequisites_status = 'met' if report.get('prerequisites_met') else 'failed'
+                    node.longhorn_missing_packages = json.dumps(report.get('packages_status', {}).get('missing', []))
+                    node.longhorn_missing_commands = json.dumps(report.get('commands_status', {}).get('missing', []))
+                    
+                    # Combine services_status, system_requirements, and kernel_modules for complete status
+                    combined_status = {
+                        'services': report.get('services_status', {}),
+                        'system': report.get('system_requirements', {}),
+                        'kernel_modules': report.get('kernel_modules', {})
+                    }
+                    node.longhorn_services_status = json.dumps(combined_status)
+                    node.longhorn_storage_info = json.dumps(report.get('storage_info', {}))
+                    node.longhorn_last_check = datetime.utcnow()
+                    
+                    db.session.commit()
+                    
+                    # Log detailed status
+                    swap_status = report.get('system_requirements', {}).get('swap_disabled', False)
+                    multipath_status = report.get('system_requirements', {}).get('multipath_disabled', False)
+                    kernel_modules_status = report.get('kernel_modules', {}).get('all_loaded', False)
+                    logger.info(f"[LONGHORN] ✅ Updated node {node.hostname} - Status: {node.longhorn_prerequisites_status}")
+                    logger.info(f"[LONGHORN]   - Swap disabled: {swap_status}, Multipath disabled: {multipath_status}, Kernel modules loaded: {kernel_modules_status}")
+                else:
+                    logger.warning(f"[LONGHORN] Could not find longhorn_check_report in output")
+                    logger.debug(f"[LONGHORN] Output preview: {output[:500]}")
+                    
+            except Exception as e:
+                logger.error(f"[LONGHORN] Failed to parse check results: {str(e)}")
+                logger.error(f"[LONGHORN] Traceback:", exc_info=True)
+                # Don't fail the whole operation, just log the error
+                pass
+            
             return jsonify({
                 'success': True,
                 'operation_id': operation.id,
-                'message': 'Longhorn prerequisites check completed successfully'
+                'message': 'Longhorn prerequisites check completed successfully',
+                'prerequisites_met': node.longhorn_prerequisites_met
             })
         else:
             return jsonify({
@@ -444,29 +571,96 @@ def setup_cluster(cluster_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@bp.route('/clusters/<int:cluster_id>/configure-hosts', methods=['POST'])
+@bp.route('/clusters/<int:cluster_id>/configure-hosts/preview', methods=['GET'])
 @login_required
-def configure_hosts_file(cluster_id):
-    """Configure /etc/hosts file on all cluster nodes for proper hostname resolution."""
+def preview_hosts_configuration(cluster_id):
+    """Preview what will be added to /etc/hosts files."""
     try:
         cluster = Cluster.query.get_or_404(cluster_id)
         
         if not cluster.nodes:
             return jsonify({'error': 'Cluster has no nodes assigned'}), 400
         
-        operation = orchestrator.configure_hosts_file(cluster)
+        # Build the proposed hosts entries
+        entries = []
+        for node in cluster.nodes:
+            entries.append({
+                'id': node.id,
+                'hostname': node.hostname,
+                'ip_address': node.ip_address,
+                'status': node.status,
+                'is_control_plane': node.is_control_plane,
+                'ssh_ready': node.ssh_connection_tested and node.ssh_key_generated,
+                'entry': f"{node.ip_address}    {node.hostname}"
+            })
+        
+        return jsonify({
+            'success': True,
+            'cluster_name': cluster.name,
+            'total_nodes': len(entries),
+            'entries': entries,
+            'preview_text': '\n'.join([e['entry'] for e in entries]),
+            'message': f'This will add {len(entries)} entries to /etc/hosts on each selected node'
+        })
+        
+    except Exception as e:
+        logger.error(f"[HOSTS-CONFIG] Error previewing configuration: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/clusters/<int:cluster_id>/configure-hosts', methods=['POST'])
+@login_required
+def configure_hosts_file(cluster_id):
+    """Configure /etc/hosts file on selected cluster nodes."""
+    try:
+        cluster = Cluster.query.get_or_404(cluster_id)
+        data = request.get_json() or {}
+        selected_node_ids = data.get('selected_nodes', [])
+        
+        if not cluster.nodes:
+            return jsonify({'error': 'Cluster has no nodes assigned'}), 400
+        
+        # If no selection provided, use all nodes (backward compatibility)
+        if not selected_node_ids:
+            selected_nodes = list(cluster.nodes)
+        else:
+            # Filter to only selected nodes
+            selected_nodes = [node for node in cluster.nodes if node.id in selected_node_ids]
+        
+        if not selected_nodes:
+            return jsonify({'error': 'No nodes selected for configuration'}), 400
+        
+        # Create a temporary cluster object for the operation
+        class TempCluster:
+            def __init__(self, original_cluster, nodes):
+                self.id = original_cluster.id
+                self.name = original_cluster.name
+                self.nodes = nodes
+        
+        temp_cluster = TempCluster(cluster, selected_nodes)
+        
+        operation = orchestrator.configure_hosts_file(temp_cluster)
         # Set the user who initiated the operation
         operation.user_id = current_user.id
         operation.created_by = current_user.full_name
+        
+        # Store selected nodes in metadata
+        operation.operation_metadata = json.dumps({
+            'selected_node_ids': selected_node_ids,
+            'selected_count': len(selected_nodes),
+            'total_cluster_nodes': len(cluster.nodes)
+        })
+        
         db.session.commit()
         
         return jsonify({
             'operation': operation.to_dict(),
-            'message': f'Hosts file configuration started for cluster {cluster.name}',
-            'nodes_count': len(cluster.nodes),
-            'nodes': [{'hostname': node.hostname, 'ip_address': node.ip_address} for node in cluster.nodes]
+            'message': f'Hosts file configuration started for {len(selected_nodes)} node(s) in cluster {cluster.name}',
+            'nodes_count': len(selected_nodes),
+            'nodes': [{'hostname': node.hostname, 'ip_address': node.ip_address} for node in selected_nodes]
         }), 202
     except Exception as e:
+        logger.error(f"[HOSTS-CONFIG] Error configuring hosts: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/nodes/configure-hosts', methods=['POST'])
@@ -1514,17 +1708,18 @@ def get_update_status():
         has_local_changes = bool(result.stdout.strip())
         local_changes = result.stdout.strip().split('\n') if result.stdout.strip() else []
         
-        # Fetch latest from remote
-        subprocess.run(['git', 'fetch', 'origin'], 
+        # Fetch latest from remote (for current branch)
+        subprocess.run(['git', 'fetch', 'origin', current_branch], 
                       capture_output=True, text=True, cwd=os.getcwd())
         
-        # Check if there are updates available
-        result = subprocess.run(['git', 'rev-list', 'HEAD..origin/main', '--count'], 
+        # Check if there are updates available (compare to origin/current_branch, not origin/main)
+        remote_branch = f'origin/{current_branch}'
+        result = subprocess.run(['git', 'rev-list', f'HEAD..{remote_branch}', '--count'], 
                               capture_output=True, text=True, cwd=os.getcwd())
         updates_available = int(result.stdout.strip()) if result.returncode == 0 else 0
         
-        # Get latest commit info
-        result = subprocess.run(['git', 'log', 'origin/main', '-1', '--format=%H|%s|%an|%ad', '--date=iso'], 
+        # Get latest commit info from current branch
+        result = subprocess.run(['git', 'log', remote_branch, '-1', '--format=%H|%s|%an|%ad', '--date=iso'], 
                               capture_output=True, text=True, cwd=os.getcwd())
         latest_commit_info = None
         if result.returncode == 0 and result.stdout.strip():
@@ -1663,27 +1858,47 @@ def restart_system():
                     'error': f'Failed to send restart signal: {str(e)}'
                 }), 500
         
-        # Fallback: try to restart the application process
+        # Fallback: Use restart helper script for clean restart
         try:
-            # Schedule restart after response is sent
-            def delayed_restart():
-                import time
-                time.sleep(3)  # Give time for response to be sent
-                try:
-                    # Try to restart with the same command line
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
-                except Exception as e:
-                    print(f"Failed to restart: {e}")
+            from pathlib import Path
+            project_root = Path(__file__).parent.parent.parent
+            restart_script = project_root / 'scripts' / 'restart_server.sh'
             
-            import threading
-            restart_thread = threading.Thread(target=delayed_restart)
-            restart_thread.daemon = True
-            restart_thread.start()
-            
-            return jsonify({
-                'success': True,
-                'message': 'Application restart initiated (may take a few seconds)'
-            })
+            # Make sure script is executable
+            if restart_script.exists():
+                subprocess.run(['chmod', '+x', str(restart_script)], check=True)
+                
+                # Schedule restart after response is sent
+                def delayed_restart():
+                    import time
+                    time.sleep(2)  # Give time for response to be sent
+                    try:
+                        # Use restart helper script for clean restart
+                        subprocess.Popen([str(restart_script)], 
+                                       cwd=str(project_root),
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
+                        # Exit current process after spawning restart
+                        time.sleep(1)
+                        os._exit(0)
+                    except Exception as e:
+                        print(f"Failed to restart: {e}")
+                
+                import threading
+                restart_thread = threading.Thread(target=delayed_restart)
+                restart_thread.daemon = True
+                restart_thread.start()
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Server restart initiated. Please wait 5-10 seconds...'
+                })
+            else:
+                # Fallback to old method if script doesn't exist
+                return jsonify({
+                    'success': False,
+                    'error': 'Restart script not found. Use: make restart'
+                }), 500
             
         except Exception as e:
             return jsonify({
@@ -2389,3 +2604,208 @@ def execute_operation(operation_id):
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/operations/<int:operation_id>/discovered-nodes', methods=['GET'])
+@login_required
+def get_discovered_nodes(operation_id):
+    """
+    Get discovered nodes from a scan operation.
+    """
+    try:
+        operation = Operation.query.get_or_404(operation_id)
+        
+        if operation.operation_type != 'scan':
+            return jsonify({
+                'success': False,
+                'error': 'This operation is not a cluster scan'
+            }), 400
+        
+        if not operation.operation_metadata:
+            return jsonify({
+                'success': False,
+                'discovered_nodes': []
+            })
+        
+        metadata = json.loads(operation.operation_metadata)
+        new_nodes = metadata.get('new_nodes', [])
+        
+        # Suggest SSH user based on existing nodes in the cluster
+        ssh_user_suggestion = None
+        if operation.cluster_id:
+            # Get most common SSH user from existing nodes in this cluster
+            cluster = Cluster.query.get(operation.cluster_id)
+            if cluster and cluster.nodes:
+                ssh_users = [node.ssh_user for node in cluster.nodes if node.ssh_user]
+                if ssh_users:
+                    # Use the most common SSH user
+                    from collections import Counter
+                    ssh_user_suggestion = Counter(ssh_users).most_common(1)[0][0]
+        
+        # If no suggestion from cluster nodes, use common default
+        if not ssh_user_suggestion:
+            ssh_user_suggestion = 'ubuntu'  # Common default for many systems
+        
+        return jsonify({
+            'success': True,
+            'discovered_nodes': new_nodes,
+            'total_count': len(new_nodes),
+            'ssh_user_suggestion': ssh_user_suggestion
+        })
+        
+    except Exception as e:
+        logger.error(f"[NODE-DISCOVERY] Error getting discovered nodes: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@bp.route('/operations/<int:operation_id>/add-discovered-nodes', methods=['POST'])
+@login_required
+def add_discovered_nodes(operation_id):
+    """
+    Add nodes that were discovered during a cluster scan.
+    This automatically creates node entries for all nodes found in the Kubernetes cluster
+    that aren't yet in the orchestrator.
+    """
+    try:
+        operation = Operation.query.get_or_404(operation_id)
+        
+        # Verify this is a scan operation
+        if operation.operation_type != 'scan':
+            return jsonify({
+                'success': False,
+                'error': 'This operation is not a cluster scan'
+            }), 400
+        
+        # Parse metadata to get discovered nodes
+        if not operation.operation_metadata:
+            return jsonify({
+                'success': False,
+                'error': 'No discovered nodes found in this scan'
+            }), 404
+        
+        metadata = json.loads(operation.operation_metadata)
+        new_nodes = metadata.get('new_nodes', [])
+        
+        if not new_nodes:
+            return jsonify({
+                'success': False,
+                'error': 'No new nodes to add'
+            }), 404
+        
+        # Get the cluster from the operation
+        if not operation.cluster_id:
+            return jsonify({
+                'success': False,
+                'error': 'Operation is not associated with a cluster'
+            }), 400
+        
+        cluster = Cluster.query.get(operation.cluster_id)
+        
+        # Get SSH configuration from request (required)
+        data = request.get_json() or {}
+        ssh_user = data.get('ssh_user', '').strip()
+        ssh_port = data.get('ssh_port', 22)
+        selected_nodes_from_ui = data.get('selected_nodes', [])
+        
+        if not ssh_user:
+            return jsonify({
+                'success': False,
+                'error': 'SSH username is required. Please specify the SSH user for these nodes.'
+            }), 400
+        
+        # If selected_nodes provided from UI, use those instead of all new_nodes
+        if selected_nodes_from_ui:
+            # Map selected nodes by hostname to get full data from metadata
+            selected_hostnames = {n.get('hostname') for n in selected_nodes_from_ui}
+            nodes_to_add = [n for n in new_nodes if n['hostname'] in selected_hostnames]
+            logger.info(f"[NODE-DISCOVERY] User selected {len(nodes_to_add)} of {len(new_nodes)} discovered nodes")
+        else:
+            # Backward compatibility: add all if no selection provided
+            nodes_to_add = new_nodes
+        
+        logger.info(f"[NODE-DISCOVERY] Adding {len(nodes_to_add)} discovered nodes with SSH user: {ssh_user}, port: {ssh_port}")
+        
+        # Add each discovered node
+        from ..services.ssh_key_manager import SSHKeyManager
+        ssh_manager = SSHKeyManager()
+        
+        added_nodes = []
+        errors = []
+        
+        for discovered in nodes_to_add:
+            try:
+                # Create node entry
+                node = Node(
+                    hostname=discovered['hostname'],
+                    ip_address=discovered['ip_address'],
+                    ssh_user=ssh_user,  # Use provided SSH user
+                    ssh_port=ssh_port,  # Use provided SSH port
+                    cluster_id=cluster.id,
+                    status='active',  # Already in cluster, so active
+                    microk8s_status='installed',  # Already running MicroK8s
+                    is_control_plane='control-plane' in discovered.get('roles', []) or 'master' in discovered.get('roles', []),
+                    notes=f"Auto-discovered from cluster scan on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} | SSH: {ssh_user}@{discovered['ip_address']}:{ssh_port}"
+                )
+                db.session.add(node)
+                db.session.flush()  # Get the node ID
+                
+                # Generate SSH key
+                try:
+                    key_info = ssh_manager.generate_key_pair(node.id, node.hostname)
+                    
+                    node.ssh_key_path = key_info['private_key_path']
+                    node.ssh_public_key = key_info['public_key']
+                    node.ssh_key_fingerprint = key_info['fingerprint']
+                    node.ssh_key_generated = True
+                    node.ssh_key_status = 'generated'
+                    
+                    # Generate setup instructions
+                    instructions = ssh_manager.get_setup_instructions(
+                        node.hostname,
+                        key_info['public_key'],
+                        node.ssh_user
+                    )
+                    node.ssh_setup_instructions = instructions
+                    
+                    db.session.commit()
+                    
+                    added_nodes.append({
+                        'id': node.id,
+                        'hostname': node.hostname,
+                        'ip_address': node.ip_address
+                    })
+                    
+                except Exception as key_error:
+                    logger.error(f"[NODE-DISCOVERY] Failed to generate SSH key for {node.hostname}: {str(key_error)}")
+                    errors.append(f"{node.hostname}: SSH key generation failed - {str(key_error)}")
+                    # Still add the node, just without SSH key
+                    db.session.commit()
+                    added_nodes.append({
+                        'id': node.id,
+                        'hostname': node.hostname,
+                        'ip_address': node.ip_address,
+                        'warning': 'SSH key generation failed'
+                    })
+                    
+            except Exception as e:
+                logger.error(f"[NODE-DISCOVERY] Failed to add node {discovered.get('hostname')}: {str(e)}")
+                errors.append(f"{discovered.get('hostname', 'Unknown')}: {str(e)}")
+                db.session.rollback()
+        
+        return jsonify({
+            'success': True,
+            'added_count': len(added_nodes),
+            'added_nodes': added_nodes,
+            'errors': errors,
+            'message': f'Successfully added {len(added_nodes)} node(s) to the orchestrator'
+        })
+        
+    except Exception as e:
+        logger.error(f"[NODE-DISCOVERY] Error adding discovered nodes: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

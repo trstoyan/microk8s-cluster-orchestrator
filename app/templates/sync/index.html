@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Sync Dashboard - MicroK8s Orchestrator{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-12 text-center mb-5">
+            <h1><i class="fas fa-sync-alt fa-3x mb-3"></i></h1>
+            <h2>Live Server Sync</h2>
+            <p class="lead text-muted">Securely synchronize data between MicroK8s Orchestrator instances</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 offset-md-3">
+            <div class="card shadow">
+                <div class="card-body p-5">
+                    <h4 class="mb-4">🔐 Features</h4>
+                    <ul class="list-unstyled">
+                        <li class="mb-3">
+                            <i class="fas fa-check-circle text-success"></i>
+                            <strong>Live Sync:</strong> Transfer data while servers are running
+                        </li>
+                        <li class="mb-3">
+                            <i class="fas fa-check-circle text-success"></i>
+                            <strong>Encrypted:</strong> AES-256 encryption for secure transfer
+                        </li>
+                        <li class="mb-3">
+                            <i class="fas fa-check-circle text-success"></i>
+                            <strong>Selective:</strong> Choose exactly what to sync
+                        </li>
+                        <li class="mb-3">
+                            <i class="fas fa-check-circle text-success"></i>
+                            <strong>Comparison:</strong> See differences before syncing
+                        </li>
+                        <li class="mb-3">
+                            <i class="fas fa-check-circle text-success"></i>
+                            <strong>Real-time:</strong> Live progress tracking
+                        </li>
+                    </ul>
+
+                    <hr class="my-4">
+
+                    <div class="d-grid gap-2">
+                        <a href="{{ url_for('sync_web.interactive') }}" class="btn btn-primary btn-lg">
+                            <i class="fas fa-sync"></i> Start Interactive Sync
+                        </a>
+                        <a href="#" class="btn btn-outline-secondary btn-lg disabled">
+                            <i class="fas fa-terminal"></i> CLI Mode (Use: make sync-interactive)
+                        </a>
+                    </div>
+
+                    <div class="alert alert-info mt-4">
+                        <strong><i class="fas fa-info-circle"></i> Quick Start:</strong>
+                        <pre class="mb-0 mt-2"><code>make sync-interactive URL=https://remote:5000</code></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center mt-4">
+                <a href="{{ url_for('web.dashboard') }}" class="btn btn-link">
+                    <i class="fas fa-arrow-left"></i> Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

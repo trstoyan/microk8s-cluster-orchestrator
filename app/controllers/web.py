@@ -2,6 +2,7 @@
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy.exc import IntegrityError
 from ..models.database import db
 from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User, PlaybookTemplate, CustomPlaybook, PlaybookExecution, NodeGroup
 from ..models.network_lease import NetworkLease, NetworkInterface
@@ -90,9 +91,32 @@ def add_node():
                 flash(f'Error generating SSH key: {str(key_error)}', 'error')
                 return redirect(url_for('web.add_node'))
                 
+        except IntegrityError as e:
+            db.session.rollback()
+            # Check if it's a duplicate hostname error
+            if 'UNIQUE constraint failed: nodes.hostname' in str(e.orig):
+                hostname = request.form.get('hostname', 'Unknown')
+                existing_node = Node.query.filter_by(hostname=hostname).first()
+                if existing_node:
+                    flash(f'⚠️ Node "{hostname}" already exists! Would you like to <a href="{url_for("web.edit_node", node_id=existing_node.id)}" class="alert-link">edit it</a> instead?', 'warning')
+                else:
+                    flash(f'⚠️ Node "{hostname}" already exists in the database.', 'warning')
+            elif 'UNIQUE constraint failed: nodes.ip_address' in str(e.orig):
+                ip_address = request.form.get('ip_address', 'Unknown')
+                existing_node = Node.query.filter_by(ip_address=ip_address).first()
+                if existing_node:
+                    flash(f'⚠️ IP address "{ip_address}" is already used by node "{existing_node.hostname}". Please use a different IP or <a href="{url_for("web.edit_node", node_id=existing_node.id)}" class="alert-link">edit that node</a>.', 'warning')
+                else:
+                    flash(f'⚠️ IP address "{ip_address}" is already in use.', 'warning')
+            else:
+                # Generic integrity error
+                flash(f'⚠️ This node information conflicts with an existing entry. Please check your input.', 'warning')
+            return redirect(url_for('web.add_node'))
+                
         except Exception as e:
             db.session.rollback()
-            flash(f'Error adding node: {str(e)}', 'error')
+            flash(f'❌ Error adding node: {str(e)}', 'error')
+            return redirect(url_for('web.add_node'))
     
     clusters = Cluster.query.all()
     return render_template('add_node.html', clusters=clusters)
@@ -122,11 +146,80 @@ def edit_node(node_id):
             flash(f'Node "{node.hostname}" updated successfully!', 'success')
             return redirect(url_for('web.nodes'))
             
+        except IntegrityError as e:
+            db.session.rollback()
+            # Check if it's a duplicate hostname error
+            if 'UNIQUE constraint failed: nodes.hostname' in str(e.orig):
+                hostname = request.form.get('hostname', 'Unknown')
+                conflicting_node = Node.query.filter_by(hostname=hostname).filter(Node.id != node_id).first()
+                if conflicting_node:
+                    flash(f'⚠️ Hostname "{hostname}" is already used by another node (ID: {conflicting_node.id}). Please choose a different hostname.', 'warning')
+                else:
+                    flash(f'⚠️ Hostname "{hostname}" conflicts with an existing node.', 'warning')
+            elif 'UNIQUE constraint failed: nodes.ip_address' in str(e.orig):
+                ip_address = request.form.get('ip_address', 'Unknown')
+                conflicting_node = Node.query.filter_by(ip_address=ip_address).filter(Node.id != node_id).first()
+                if conflicting_node:
+                    flash(f'⚠️ IP address "{ip_address}" is already used by node "{conflicting_node.hostname}". Please use a different IP.', 'warning')
+                else:
+                    flash(f'⚠️ IP address "{ip_address}" is already in use.', 'warning')
+            else:
+                # Generic integrity error
+                flash(f'⚠️ Update failed: This information conflicts with another node. Please check your input.', 'warning')
+            
         except Exception as e:
             db.session.rollback()
-            flash(f'Error updating node: {str(e)}', 'error')
+            flash(f'❌ Error updating node: {str(e)}', 'error')
     
     return render_template('edit_node.html', node=node, clusters=clusters)
+
+@bp.route('/setup/node-ssh')
+def setup_node_ssh_script():
+    """
+    Serve the automated SSH setup script for nodes.
+    Can be curled directly: curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=1 | bash
+    """
+    node_id = request.args.get('node_id')
+    
+    if not node_id:
+        return "Error: node_id parameter required\nUsage: curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=<node_id> | bash", 400
+    
+    node = Node.query.get(node_id)
+    if not node:
+        return f"Error: Node with ID {node_id} not found", 404
+    
+    # Get orchestrator IP (try to detect from request)
+    orchestrator_ip = request.host.split(':')[0]
+    
+    # Read the template script
+    import os
+    script_path = os.path.join(current_app.root_path, 'templates', 'scripts', 'setup_node_ssh.sh')
+    
+    try:
+        with open(script_path, 'r') as f:
+            script_content = f.read()
+    except FileNotFoundError:
+        return "Error: Setup script template not found", 500
+    
+    # Replace variables
+    script_content = script_content.replace('{{node_id}}', str(node.id))
+    script_content = script_content.replace('{{hostname}}', node.hostname or 'unknown')
+    script_content = script_content.replace('{{ssh_public_key}}', node.ssh_public_key or 'None')
+    script_content = script_content.replace('{{orchestrator_ip}}', orchestrator_ip)
+    script_content = script_content.replace('{{ssh_user}}', node.ssh_user or 'ubuntu')
+    
+    # Return as plain text with proper content type
+    response = current_app.response_class(
+        script_content,
+        mimetype='text/plain',
+        headers={
+            'Content-Disposition': f'inline; filename="setup_node_{node.id}.sh"',
+            'Cache-Control': 'no-cache'
+        }
+    )
+    
+    return response
+
 
 @bp.route('/nodes/<int:node_id>/ssh-setup')
 @login_required
@@ -705,9 +798,22 @@ def add_cluster():
             db.session.commit()
             flash('Cluster added successfully!', 'success')
             return redirect(url_for('web.clusters'))
+        except IntegrityError as e:
+            db.session.rollback()
+            # Check if it's a duplicate cluster name error
+            if 'UNIQUE constraint failed: clusters.name' in str(e.orig):
+                cluster_name = request.form.get('name', 'Unknown')
+                existing_cluster = Cluster.query.filter_by(name=cluster_name).first()
+                if existing_cluster:
+                    flash(f'⚠️ Cluster "{cluster_name}" already exists! Would you like to <a href="{url_for("web.edit_cluster", cluster_id=existing_cluster.id)}" class="alert-link">edit it</a> instead?', 'warning')
+                else:
+                    flash(f'⚠️ Cluster "{cluster_name}" already exists in the database.', 'warning')
+            else:
+                flash(f'⚠️ This cluster information conflicts with an existing entry. Please check your input.', 'warning')
+            
         except Exception as e:
             db.session.rollback()
-            flash(f'Error adding cluster: {str(e)}', 'error')
+            flash(f'❌ Error adding cluster: {str(e)}', 'error')
     
     return render_template('add_cluster.html')
 

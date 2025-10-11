@@ -39,6 +39,20 @@
       changed_when: false
       when: microk8s_installed.rc == 0 and microk8s_status.rc == 0
     
+    - name: Check if node is control plane
+      shell: microk8s kubectl get node {{ ansible_hostname }} -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/control-plane}'
+      register: control_plane_check
+      failed_when: false
+      changed_when: false
+      when: microk8s_installed.rc == 0 and microk8s_status.rc == 0
+    
+    - name: Get MicroK8s version
+      shell: microk8s version | grep 'MicroK8s' | awk '{print $2}'
+      register: microk8s_version_check
+      failed_when: false
+      changed_when: false
+      when: microk8s_installed.rc == 0
+    
     - name: Check disk usage
       command: df -h /
       register: disk_usage
@@ -66,9 +80,16 @@
           timestamp: "{{ ansible_date_time.iso8601 }}"
           hostname: "{{ ansible_hostname }}"
           ip_address: "{{ ansible_default_ipv4.address }}"
+          os_version: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          kernel_version: "{{ ansible_kernel }}"
+          cpu_cores: "{{ ansible_processor_vcpus }}"
+          memory_gb: "{{ (ansible_memtotal_mb / 1024) | round(2) }}"
+          disk_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first / 1024 / 1024 / 1024) | round(2) }}"
           microk8s_installed: "{{ microk8s_installed.rc == 0 }}"
-          microk8s_running: "{{ microk8s_status.rc == 0 if microk8s_installed.rc == 0 else false }}"
-          microk8s_status: "{{ microk8s_status.stdout if microk8s_installed.rc == 0 else 'Not installed' }}"
+          microk8s_running: "{{ (microk8s_installed.rc == 0 and microk8s_status.rc == 0 and 'microk8s is running' in microk8s_status.stdout) | bool }}"
+          microk8s_version: "{{ microk8s_version_check.stdout if microk8s_version_check is defined and microk8s_version_check.rc == 0 else 'unknown' }}"
+          microk8s_status_text: "{{ microk8s_status.stdout if microk8s_installed.rc == 0 else 'Not installed' }}"
+          is_control_plane: "{{ control_plane_check is defined and control_plane_check.rc == 0 and control_plane_check.stdout != '' }}"
           service_active: "{{ service_status.status.ActiveState == 'active' if microk8s_installed.rc == 0 else false }}"
           disk_usage: "{{ disk_usage.stdout }}"
           memory_usage: "{{ memory_usage.stdout }}"

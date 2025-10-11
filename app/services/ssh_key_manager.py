@@ -83,9 +83,10 @@ class SSHKeyManager:
             
             logger.info(f"Generated SSH key pair for node {node_hostname} (ID: {node_id})")
             
+            # Return ABSOLUTE paths so they work regardless of working directory
             return {
-                'private_key_path': str(private_key_path),
-                'public_key_path': str(public_key_path),
+                'private_key_path': str(private_key_path.absolute()),
+                'public_key_path': str(public_key_path.absolute()),
                 'public_key': public_ssh.decode().strip(),
                 'fingerprint': fingerprint,
                 'key_name': key_name,

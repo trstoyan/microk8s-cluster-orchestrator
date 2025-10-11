@@ -14,11 +14,14 @@ from pathlib import Path
 class OrchestratorPrivilegeSetup:
     """Setup and configure orchestrator privileges."""
     
-    def __init__(self):
+    def __init__(self, auto_fix=True, interactive=True):
         self.script_dir = Path(__file__).parent
         self.project_root = self.script_dir.parent
         self.current_user = os.getenv('USER', 'orchestrator')
         self.sudoers_file = Path('/etc/sudoers.d/microk8s-orchestrator')
+        self.auto_fix = auto_fix
+        self.interactive = interactive
+        self.fixes_applied = []
         
         # Commands that the orchestrator needs to run with sudo
         self.required_commands = [
@@ -62,6 +65,19 @@ class OrchestratorPrivilegeSetup:
             '/var/log/microk8s-orchestrator',
         ]
     
+    def prompt_user(self, question, default='y'):
+        """Prompt user for yes/no input in interactive mode."""
+        if not self.interactive:
+            return default.lower() == 'y'
+        
+        choices = 'Y/n' if default.lower() == 'y' else 'y/N'
+        response = input(f"{question} [{choices}]: ").strip().lower()
+        
+        if not response:
+            return default.lower() == 'y'
+        
+        return response in ['y', 'yes']
+    
     def check_current_privileges(self):
         """Check current sudo privileges."""
         print("🔍 Checking current sudo privileges...")
@@ -75,7 +91,9 @@ class OrchestratorPrivilegeSetup:
                 return True
             else:
                 print("❌ Passwordless sudo is not configured")
-                return False
+                if self.auto_fix:
+                    print("🔧 Auto-fix: This will be configured in the next step")
+                return True  # Will be fixed by create_sudoers_config
         except Exception as e:
             print(f"❌ Error checking sudo privileges: {e}")
             return False
@@ -147,8 +165,18 @@ class OrchestratorPrivilegeSetup:
         """Create required directories with proper permissions."""
         print("📁 Creating required directories...")
         
+        # Track if we already asked about NUT installation
+        nut_install_asked = False
+        
         try:
             for directory in self.required_directories:
+                # Check if nut user exists (check each time in case it was just installed)
+                nut_user_exists = False
+                try:
+                    result = subprocess.run(['id', 'nut'], capture_output=True, text=True)
+                    nut_user_exists = (result.returncode == 0)
+                except:
+                    pass
                 if not Path(directory).exists():
                     subprocess.run(['sudo', 'mkdir', '-p', directory], check=True)
                     print(f"✅ Created directory: {directory}")
@@ -157,8 +185,53 @@ class OrchestratorPrivilegeSetup:
                 
                 # Set proper ownership and permissions
                 if 'nut' in directory:
-                    subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
-                    subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                    if nut_user_exists:
+                        subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
+                        subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                        print(f"✅ Set NUT permissions for: {directory}")
+                    else:
+                        # Only ask once about NUT installation
+                        if not nut_install_asked:
+                            print(f"ℹ️  NUT user not found - UPS support is optional")
+                            if self.interactive:
+                                install_nut = self.prompt_user(
+                                    "Do you want to install NUT (Network UPS Tools) now?", 
+                                    default='n'
+                                )
+                                nut_install_asked = True  # Mark as asked
+                                
+                                if install_nut:
+                                    print("📦 Installing NUT...")
+                                    try:
+                                        subprocess.run(['sudo', 'apt', 'update'], check=True)
+                                        subprocess.run(['sudo', 'apt', 'install', '-y', 'nut', 'nut-client'], check=True)
+                                        print("✅ NUT installed successfully")
+                                        # Re-check if nut user exists now
+                                        result = subprocess.run(['id', 'nut'], capture_output=True, text=True)
+                                        if result.returncode == 0:
+                                            subprocess.run(['sudo', 'chown', 'nut:nut', directory], check=True)
+                                            subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                                            # Only add to fixes once
+                                            if "Installed NUT (UPS support)" not in self.fixes_applied:
+                                                self.fixes_applied.append("Installed NUT (UPS support)")
+                                        else:
+                                            print("⚠️  NUT user still not found after installation")
+                                            subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                                    except Exception as e:
+                                        print(f"⚠️  NUT installation failed: {e}")
+                                        print("   You can install it manually later if needed")
+                                        subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                                else:
+                                    print("   Skipping NUT installation - UPS features will not be available")
+                                    subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                            else:
+                                nut_install_asked = True
+                                print(f"   💡 Install NUT later with: sudo apt install nut nut-client")
+                                subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                        else:
+                            # Already asked, just set permissions without nut user
+                            subprocess.run(['sudo', 'chmod', '755', directory], check=True)
+                            print(f"✅ Set permissions for: {directory} (NUT user not available)")
                 else:
                     subprocess.run(['sudo', 'chown', f'{self.current_user}:{self.current_user}', directory], check=True)
                     subprocess.run(['sudo', 'chmod', '755', directory], check=True)
@@ -168,6 +241,7 @@ class OrchestratorPrivilegeSetup:
             
         except Exception as e:
             print(f"❌ Error creating directories: {e}")
+            print(f"💡 Solution: Check permissions and try: sudo mkdir -p /etc/nut /var/lib/nut")
             return False
     
     def add_user_to_groups(self):
@@ -197,37 +271,91 @@ class OrchestratorPrivilegeSetup:
         """Test that all required privileges are working."""
         print("🧪 Testing privileges...")
         
-        test_commands = [
-            ('sudo -n systemctl status ssh', 'systemctl'),
-            ('sudo -n apt --version', 'apt'),
-            ('sudo -n chown --version', 'chown'),
-            ('sudo -n ls /etc/nut', 'nut directory access'),
-            ('sudo -n microk8s version', 'microk8s'),
+        # Required tests (must pass)
+        required_tests = [
+            ('sudo -n systemctl status ssh', 'systemctl', 'sudo systemctl is required for service management'),
+            ('sudo -n apt --version', 'apt', 'sudo apt is required for package management'),
+            ('sudo -n chown --version', 'chown', 'sudo chown is required for file permissions'),
         ]
         
-        all_passed = True
-        for command, description in test_commands:
+        # Optional tests (nice to have)
+        optional_tests = [
+            ('sudo -n ls /etc/nut', 'nut directory access', 'NUT (UPS) - optional, install with: sudo apt install nut'),
+            ('sudo -n microk8s version', 'microk8s', 'MicroK8s - optional on orchestrator, install with: sudo snap install microk8s --classic'),
+        ]
+        
+        all_required_passed = True
+        
+        # Test required commands
+        for command, description, solution in required_tests:
             try:
                 result = subprocess.run(command.split(), capture_output=True, text=True)
                 if result.returncode == 0:
                     print(f"✅ {description}: OK")
                 else:
                     print(f"❌ {description}: FAILED")
-                    all_passed = False
+                    print(f"   💡 Solution: {solution}")
+                    all_required_passed = False
             except Exception as e:
                 print(f"❌ {description}: ERROR - {e}")
-                all_passed = False
+                print(f"   💡 Solution: {solution}")
+                all_required_passed = False
         
-        return all_passed
+        # Test optional commands (don't fail on these)
+        for command, description, solution in optional_tests:
+            try:
+                result = subprocess.run(command.split(), capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"✅ {description}: OK")
+                else:
+                    print(f"ℹ️  {description}: Not installed (optional)")
+                    print(f"   💡 {solution}")
+                    
+                    # Interactive prompt for MicroK8s
+                    if self.interactive and 'microk8s' in command:
+                        print("   ℹ️  MicroK8s is NOT needed on the orchestrator server")
+                        print("   ℹ️  The orchestrator manages MicroK8s on remote cluster nodes")
+                        print("   ℹ️  Only install if this machine will also be a cluster node")
+                        
+                        install_anyway = self.prompt_user(
+                            "Install MicroK8s anyway (this machine will be a cluster node)?",
+                            default='n'
+                        )
+                        
+                        if install_anyway:
+                            print("📦 Installing MicroK8s...")
+                            try:
+                                subprocess.run(['sudo', 'snap', 'install', 'microk8s', '--classic'], check=True)
+                                subprocess.run(['sudo', 'usermod', '-a', '-G', 'microk8s', self.current_user], check=True)
+                                print("✅ MicroK8s installed successfully")
+                                print("⚠️  You need to log out and back in for group changes to take effect")
+                                self.fixes_applied.append("Installed MicroK8s (cluster node)")
+                            except Exception as e:
+                                print(f"⚠️  MicroK8s installation failed: {e}")
+                        else:
+                            print("   ✅ Skipped MicroK8s - orchestrator will manage remote nodes")
+                            
+            except Exception as e:
+                print(f"ℹ️  {description}: Not available (optional)")
+                print(f"   💡 {solution}")
+        
+        return all_required_passed
     
     def create_systemd_service(self):
         """Create systemd service for the orchestrator."""
         print("⚙️  Creating systemd service...")
         
         try:
+            # Ensure watchdog script exists and is executable
+            watchdog_script = self.project_root / 'scripts' / 'server_watchdog.sh'
+            if watchdog_script.exists():
+                subprocess.run(['chmod', '+x', str(watchdog_script)], check=True)
+            
             service_content = f"""[Unit]
 Description=MicroK8s Cluster Orchestrator
 After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -235,9 +363,26 @@ User={self.current_user}
 Group={self.current_user}
 WorkingDirectory={self.project_root}
 Environment=PATH={self.project_root}/.venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart={self.project_root}/.venv/bin/python {self.project_root}/cli.py web
+
+# Use watchdog script to handle port conflicts and restarts
+ExecStart={self.project_root}/scripts/server_watchdog.sh
+
+# Restart configuration
 Restart=always
 RestartSec=10
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=90
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=microk8s-orchestrator
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
@@ -283,14 +428,102 @@ WantedBy=multi-user.target
         print(f"✅ Setup report saved to: {report_file}")
         return report
     
+    def check_and_fix_environment(self):
+        """Check and auto-fix common environment issues."""
+        print("🔍 Pre-flight checks and auto-fixes...")
+        print()
+        
+        fixes = []
+        
+        # 1. Check Python virtual environment
+        venv_path = self.project_root / '.venv'
+        if not venv_path.exists():
+            print("❌ Python virtual environment not found")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Creating virtual environment...")
+                try:
+                    subprocess.run(['python3', '-m', 'venv', str(venv_path)], 
+                                 cwd=self.project_root, check=True)
+                    print("✅ Virtual environment created")
+                    fixes.append("Created Python virtual environment")
+                except Exception as e:
+                    print(f"⚠️  Could not create venv: {e}")
+        else:
+            print("✅ Python virtual environment exists")
+        
+        # 2. Check Python dependencies
+        requirements_file = self.project_root / 'requirements.txt'
+        if requirements_file.exists():
+            pip_path = venv_path / 'bin' / 'pip'
+            if pip_path.exists():
+                print("🔍 Checking Python dependencies...")
+                try:
+                    result = subprocess.run([str(pip_path), 'check'], 
+                                          capture_output=True, text=True)
+                    if result.returncode != 0 and self.auto_fix:
+                        print("🔧 Auto-fix: Installing/updating dependencies...")
+                        subprocess.run([str(pip_path), 'install', '-r', 
+                                      str(requirements_file)], check=True)
+                        fixes.append("Installed Python dependencies")
+                        print("✅ Dependencies updated")
+                    else:
+                        print("✅ Python dependencies OK")
+                except Exception as e:
+                    print(f"⚠️  Dependency check warning: {e}")
+        
+        # 3. Check database file
+        db_files = list(self.project_root.glob('*.db')) + list(self.project_root.glob('instance/*.db'))
+        if not db_files:
+            print("❌ Database not initialized")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Database will be initialized after setup")
+                print("   Run 'make init' after setup completes")
+                fixes.append("Database initialization pending")
+        else:
+            print(f"✅ Database found: {db_files[0].name}")
+        
+        # 4. Check logs directory
+        logs_dir = self.project_root / 'logs'
+        if not logs_dir.exists():
+            print("❌ Logs directory missing")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Creating logs directory...")
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                fixes.append("Created logs directory")
+                print("✅ Logs directory created")
+        else:
+            print("✅ Logs directory exists")
+        
+        # 5. Check config directory
+        config_dir = self.project_root / 'config'
+        if not config_dir.exists():
+            print("❌ Config directory missing")
+            if self.auto_fix:
+                print("🔧 Auto-fix: Creating config directory...")
+                config_dir.mkdir(parents=True, exist_ok=True)
+                fixes.append("Created config directory")
+                print("✅ Config directory created")
+        else:
+            print("✅ Config directory exists")
+        
+        self.fixes_applied.extend(fixes)
+        
+        if fixes:
+            print(f"\n✨ Applied {len(fixes)} auto-fixes")
+        
+        print()
+        return True
+    
     def run_setup(self):
         """Run the complete privilege setup."""
         print("🚀 Starting MicroK8s Cluster Orchestrator privilege setup...")
         print(f"👤 Running as user: {self.current_user}")
         print(f"📂 Project root: {self.project_root}")
+        print(f"🔧 Auto-fix mode: {'ON' if self.auto_fix else 'OFF'}")
         print()
         
         steps = [
+            ("Environment pre-flight checks", self.check_and_fix_environment),
             ("Checking current privileges", self.check_current_privileges),
             ("Creating sudoers configuration", self.create_sudoers_config),
             ("Creating required directories", self.create_required_directories),
@@ -329,13 +562,46 @@ WantedBy=multi-user.target
         if all_success:
             print("\n🎉 Privilege setup completed successfully!")
             print("The orchestrator is now ready to perform system-level operations.")
+            
+            if self.fixes_applied:
+                print(f"\n🔧 Auto-fixes applied ({len(self.fixes_applied)}):")
+                for fix in self.fixes_applied:
+                    print(f"  • {fix}")
+            
             print("\nNext steps:")
-            print("1. Test the orchestrator: python cli.py system check-prerequisites 1")
-            print("2. Start the web interface: python cli.py web")
-            print("3. Or start as a service: sudo systemctl start microk8s-orchestrator")
+            print("1. Initialize database: make init")
+            print("2. Start the server: make start")
+            print("3. Access web interface: http://localhost:5000")
+            print("")
+            print("💡 Tip: Server will use systemd service (auto-restart enabled)")
         else:
             print("\n⚠️  Setup completed with some failures.")
-            print("Please review the failed steps and run the setup again if needed.")
+            print("\n📋 Troubleshooting Common Issues:")
+            print("=" * 50)
+            
+            # Check which steps failed and provide specific solutions
+            if not results.get("Creating required directories", True):
+                print("\n🔧 Directory Creation Failed:")
+                print("  • NUT user not found - this is OPTIONAL")
+                print("  • Install NUT only if you use UPS: sudo apt install nut nut-client")
+                print("  • Otherwise, ignore this warning - the orchestrator works without UPS support")
+            
+            if not results.get("Testing privileges", True):
+                print("\n🔧 Privilege Testing Failed:")
+                print("  • MicroK8s test failed - this is OPTIONAL on orchestrator server")
+                print("  • Install only on cluster nodes, not on the orchestrator itself")
+                print("  • Required tests: systemctl, apt, chown - these MUST pass")
+            
+            print("\n💡 Quick Fixes:")
+            print("  • Database not initialized: make init")
+            print("  • Server won't start: Check logs/production.log for errors")
+            print("  • Missing dependencies: .venv/bin/pip install -r requirements.txt")
+            print("  • Permission issues: Ensure you ran with sudo")
+            
+            print("\n📚 For more help:")
+            print("  • Check logs: cat logs/production.log")
+            print("  • View setup report: cat setup_report.json")
+            print("  • Documentation: docs/README.md")
         
         return all_success
 
