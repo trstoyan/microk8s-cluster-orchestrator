@@ -435,12 +435,22 @@ def check_longhorn_prerequisites(node_id):
                     node.longhorn_prerequisites_status = 'met' if report.get('prerequisites_met') else 'failed'
                     node.longhorn_missing_packages = json.dumps(report.get('packages_status', {}).get('missing', []))
                     node.longhorn_missing_commands = json.dumps(report.get('commands_status', {}).get('missing', []))
-                    node.longhorn_services_status = json.dumps(report.get('services_status', {}))
+                    
+                    # Combine services_status with system_requirements for complete status
+                    combined_status = {
+                        'services': report.get('services_status', {}),
+                        'system': report.get('system_requirements', {})
+                    }
+                    node.longhorn_services_status = json.dumps(combined_status)
                     node.longhorn_storage_info = json.dumps(report.get('storage_info', {}))
                     node.longhorn_last_check = datetime.utcnow()
                     
                     db.session.commit()
-                    logger.info(f"[LONGHORN] ✅ Updated node {node.hostname} - Status: {node.longhorn_prerequisites_status}")
+                    
+                    # Log detailed status
+                    swap_status = report.get('system_requirements', {}).get('swap_disabled', False)
+                    multipath_status = report.get('system_requirements', {}).get('multipath_disabled', False)
+                    logger.info(f"[LONGHORN] ✅ Updated node {node.hostname} - Status: {node.longhorn_prerequisites_status}, Swap disabled: {swap_status}, Multipath disabled: {multipath_status}")
                 else:
                     logger.warning(f"[LONGHORN] Could not find longhorn_check_report in output")
                     logger.debug(f"[LONGHORN] Output preview: {output[:500]}")
