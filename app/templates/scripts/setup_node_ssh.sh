@@ -263,11 +263,36 @@ echo ""
 print_status "Configuring passwordless sudo for orchestrator operations..."
 echo ""
 
-# Check if user already has passwordless sudo
+# Always ensure orchestrator-specific sudoers file exists with correct configuration
+SUDOERS_FILE="/etc/sudoers.d/orchestrator-$CURRENT_USER"
+SUDOERS_CONTENT="# MicroK8s Cluster Orchestrator - Passwordless sudo configuration
+# Created by automated setup script
+# !requiretty is CRITICAL - allows sudo over SSH without TTY (needed for Ansible)
+Defaults:$CURRENT_USER !requiretty
+$CURRENT_USER ALL=(ALL) NOPASSWD:ALL"
+
+# Check if user already has passwordless sudo (from any source)
 if sudo -n true 2>/dev/null; then
     print_success "User already has passwordless sudo configured"
     print_status "Testing with: sudo -n whoami"
     sudo -n whoami | sed 's/^/  Result: /'
+    
+    # Ensure orchestrator-specific file exists with !requiretty
+    if [ -f "$SUDOERS_FILE" ]; then
+        if ! grep -q "!requiretty" "$SUDOERS_FILE" 2>/dev/null; then
+            print_status "Updating orchestrator sudoers file to disable requiretty (needed for Ansible)..."
+            echo "$SUDOERS_CONTENT" | sudo tee $SUDOERS_FILE >/dev/null
+            sudo chmod 440 $SUDOERS_FILE
+            print_success "✓ Sudoers file updated with !requiretty"
+        else
+            print_success "✓ Orchestrator sudoers file already configured correctly"
+        fi
+    else
+        print_status "Creating orchestrator-specific sudoers file (for !requiretty support)..."
+        echo "$SUDOERS_CONTENT" | sudo tee $SUDOERS_FILE >/dev/null
+        sudo chmod 440 $SUDOERS_FILE
+        print_success "✓ Created $SUDOERS_FILE with !requiretty"
+    fi
 else
     print_warning "Passwordless sudo is not configured - required for orchestrator operations"
     print_status "Configuring now (use SKIP_SUDO=1 to skip)..."
@@ -276,20 +301,19 @@ else
     if [ "$SKIP_SUDO" == "1" ]; then
         print_warning "⚠️  Skipped passwordless sudo configuration (SKIP_SUDO=1)"
         print_status "To configure manually later:"
-        echo -e "${GREEN}  echo \"$CURRENT_USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/orchestrator-$CURRENT_USER${NC}"
+        echo -e "${GREEN}  echo -e \"Defaults:$CURRENT_USER !requiretty\\n$CURRENT_USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/orchestrator-$CURRENT_USER${NC}"
         echo -e "${GREEN}  sudo chmod 440 /etc/sudoers.d/orchestrator-$CURRENT_USER${NC}"
     else
         echo ""
         print_status "Creating passwordless sudo configuration..."
-        SUDOERS_FILE="/etc/sudoers.d/orchestrator-$CURRENT_USER"
-        SUDOERS_CONTENT="$CURRENT_USER ALL=(ALL) NOPASSWD:ALL"
         
         echo ""
         print_status "Writing to: $SUDOERS_FILE"
-        print_status "Content: $SUDOERS_CONTENT"
+        print_status "Content:"
+        echo "$SUDOERS_CONTENT" | sed 's/^/    /'
         echo ""
         
-        echo "$SUDOERS_CONTENT" | sudo tee $SUDOERS_FILE
+        echo "$SUDOERS_CONTENT" | sudo tee $SUDOERS_FILE >/dev/null
         sudo chmod 440 $SUDOERS_FILE
         
         echo ""

@@ -124,7 +124,11 @@ class OrchestrationService:
         # Add common variables
         inventory['all']['children']['microk8s_nodes']['vars'] = {
             'ansible_python_interpreter': '/usr/bin/python3',
-            'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+            'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null',
+            'ansible_become': True,  # Enable privilege escalation (sudo)
+            'ansible_become_method': 'sudo',  # Use sudo for privilege escalation
+            'ansible_become_user': 'root',  # Become root user
+            'ansible_become_flags': '-H -S -n'  # -n = non-interactive (no password), -H = set HOME, -S = read password from stdin (but we use -n so this is for compatibility)
         }
         
         # Write inventory to temporary file
