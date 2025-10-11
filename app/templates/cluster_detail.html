@@ -490,6 +490,85 @@
     </div>
 </div>
 
+<!-- Add Discovered Nodes Modal -->
+<div class="modal fade" id="addNodesModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-plus-circle"></i> Add Discovered Nodes to Orchestrator
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- SSH User Configuration -->
+                <div class="mb-4">
+                    <h6><i class="bi bi-person-gear"></i> SSH Configuration</h6>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Important:</strong> Specify the SSH username used on these nodes. 
+                        All selected nodes should use the same SSH user for setup.
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="ssh-username" class="form-label"><strong>SSH Username:</strong></label>
+                            <input type="text" class="form-control" id="ssh-username" value="sumix" placeholder="e.g., ubuntu, pi, sumix" required>
+                            <small class="text-muted">Common: ubuntu, pi, sumix, admin</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="ssh-port" class="form-label"><strong>SSH Port:</strong></label>
+                            <input type="number" class="form-control" id="ssh-port" value="22" placeholder="22">
+                            <small class="text-muted">Default: 22</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Node Selection -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6><i class="bi bi-server"></i> Select Nodes to Add (<span id="selected-count">0</span> selected)</h6>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-primary" onclick="selectAllDiscoveredNodes()">
+                                <i class="bi bi-check-all"></i> All
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="selectNoDiscoveredNodes()">
+                                <i class="bi bi-x-lg"></i> None
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead class="sticky-top bg-white">
+                                <tr>
+                                    <th width="50">
+                                        <input type="checkbox" id="select-all-checkbox" onchange="toggleAllDiscoveredNodes(this)" checked>
+                                    </th>
+                                    <th>Hostname</th>
+                                    <th>IP Address</th>
+                                    <th>Roles</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="discovered-nodes-list">
+                                <!-- Will be populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-success btn-lg" id="confirm-add-nodes" onclick="confirmAddDiscoveredNodes()">
+                    <i class="bi bi-plus-circle"></i> Add Selected Nodes (<span id="selected-count-btn">0</span>)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -738,7 +817,13 @@ function setupCluster(clusterId) {
 }
 
 function scanCluster(clusterId) {
-    if (confirm('Scan this cluster? This will check the status of all nodes.')) {
+    if (confirm('Scan this cluster?\n\nThis will:\n• Check status of all nodes\n• Detect configuration drift\n• Discover any nodes in the cluster not yet in orchestrator\n• Show auto-add option if new nodes found')) {
+        // Show loading indicator
+        const scanBtn = event.target.closest('a');
+        if (scanBtn) {
+            scanBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Scanning...';
+        }
+        
         fetch(`/api/clusters/${clusterId}/scan`, {
             method: 'POST',
             headers: {
@@ -749,15 +834,67 @@ function scanCluster(clusterId) {
         .then(data => {
             if (data.error) {
                 alert('Error starting cluster scan: ' + data.error);
-            } else {
-                alert('Cluster scan started. Check the operations page for progress.');
                 location.reload();
+            } else {
+                const operationId = data.id || data.operation_id;
+                
+                // Show progress message
+                alert('✅ Cluster scan started!\n\nMonitoring progress...');
+                
+                // Poll for completion
+                pollScanCompletion(operationId, clusterId);
             }
         })
         .catch(error => {
             alert('Error starting cluster scan: ' + error);
+            location.reload();
         });
     }
+}
+
+function pollScanCompletion(operationId, clusterId) {
+    const checkInterval = setInterval(() => {
+        fetch(`/api/operations/${operationId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'completed' || data.status === 'failed') {
+                clearInterval(checkInterval);
+                
+                if (data.status === 'completed' && data.success) {
+                    // Check if discovered nodes exist
+                    checkForDiscoveredNodes(operationId, clusterId);
+                } else {
+                    alert(`❌ Cluster scan ${data.status}.\n\nCheck operation details for more information.`);
+                    location.reload();
+                }
+            }
+        })
+        .catch(error => {
+            clearInterval(checkInterval);
+            alert('Error checking scan status: ' + error);
+            location.reload();
+        });
+    }, 2000);  // Check every 2 seconds
+}
+
+function checkForDiscoveredNodes(operationId, clusterId) {
+    fetch(`/api/operations/${operationId}/discovered-nodes`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.discovered_nodes && data.discovered_nodes.length > 0) {
+            // Show modal with discovered nodes
+            alert(`✅ Scan complete!\n\nDiscovered ${data.discovered_nodes.length} node(s) already in the cluster but not in orchestrator.\n\nOpening node selection...`);
+            showAddNodesModalFromScan(operationId, data.discovered_nodes, data.ssh_user_suggestion || 'sumix');
+        } else {
+            alert('✅ Cluster scan completed successfully!\n\nNo new nodes discovered.');
+            location.reload();
+        }
+    })
+    .catch(error => {
+        // No discovered nodes or error - just reload
+        alert('✅ Cluster scan completed!');
+        location.reload();
+    });
 }
 
 function configureHosts(clusterId, clusterName) {
@@ -887,5 +1024,169 @@ document.addEventListener('DOMContentLoaded', function() {
         isVirtualCheckbox.addEventListener('change', toggleVirtualNodeFields);
     }
 });
+
+// Add Discovered Nodes Modal Functions
+let currentOperationId = null;
+let discoveredNodesData = [];
+
+function showAddNodesModalFromScan(operationId, nodes, suggestedUser) {
+    currentOperationId = operationId;
+    discoveredNodesData = nodes;
+    
+    // Set suggested username
+    document.getElementById('ssh-username').value = suggestedUser || 'sumix';
+    
+    // Populate the table
+    const tbody = document.getElementById('discovered-nodes-list');
+    tbody.innerHTML = '';
+    
+    nodes.forEach((node, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>
+                <input type="checkbox" class="node-checkbox" data-index="${index}" onchange="updateSelectedCount()" checked>
+            </td>
+            <td><i class="bi bi-server"></i> <strong>${node.hostname}</strong></td>
+            <td><code>${node.ip_address}</code></td>
+            <td>
+                ${node.roles.map(role => `
+                    <span class="badge ${role === 'control-plane' || role === 'master' ? 'bg-primary' : 'bg-secondary'}">
+                        ${role}
+                    </span>
+                `).join('')}
+            </td>
+            <td>
+                ${node.ready ? 
+                    '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Ready</span>' : 
+                    '<span class="badge bg-warning"><i class="bi bi-exclamation-triangle"></i> Not Ready</span>'
+                }
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+    
+    // Update count
+    updateSelectedCount();
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('addNodesModal'));
+    modal.show();
+}
+
+function updateSelectedCount() {
+    const checkboxes = document.querySelectorAll('.node-checkbox:checked');
+    const count = checkboxes.length;
+    
+    document.getElementById('selected-count').textContent = count;
+    document.getElementById('selected-count-btn').textContent = count;
+    
+    const confirmBtn = document.getElementById('confirm-add-nodes');
+    if (confirmBtn) {
+        confirmBtn.disabled = count === 0;
+    }
+}
+
+function toggleAllDiscoveredNodes(checkbox) {
+    document.querySelectorAll('.node-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelectedCount();
+}
+
+function selectAllDiscoveredNodes() {
+    document.querySelectorAll('.node-checkbox').forEach(cb => cb.checked = true);
+    document.getElementById('select-all-checkbox').checked = true;
+    updateSelectedCount();
+}
+
+function selectNoDiscoveredNodes() {
+    document.querySelectorAll('.node-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('select-all-checkbox').checked = false;
+    updateSelectedCount();
+}
+
+function confirmAddDiscoveredNodes() {
+    const sshUser = document.getElementById('ssh-username').value.trim();
+    const sshPort = parseInt(document.getElementById('ssh-port').value) || 22;
+    
+    if (!sshUser) {
+        alert('❌ Please enter an SSH username');
+        document.getElementById('ssh-username').focus();
+        return;
+    }
+    
+    // Get selected nodes
+    const selectedNodes = [];
+    document.querySelectorAll('.node-checkbox:checked').forEach(checkbox => {
+        const index = parseInt(checkbox.dataset.index);
+        selectedNodes.push(discoveredNodesData[index]);
+    });
+    
+    if (selectedNodes.length === 0) {
+        alert('❌ Please select at least one node to add');
+        return;
+    }
+    
+    // Show confirmation
+    const nodeList = selectedNodes.map(n => `  • ${n.hostname} (${n.ip_address})`).join('\n');
+    const confirmMessage = `Add ${selectedNodes.length} node(s) to the orchestrator?\n\n` +
+        `SSH User: ${sshUser}\n` +
+        `SSH Port: ${sshPort}\n\n` +
+        `Nodes:\n${nodeList}\n\n` +
+        `This will:\n` +
+        `✓ Create node entries in database\n` +
+        `✓ Generate SSH keys for each node\n` +
+        `✓ Assign to current cluster\n\n` +
+        `After adding, run the setup script on each node.`;
+    
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+    
+    // Disable button and show loading
+    const btn = document.getElementById('confirm-add-nodes');
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Adding nodes...';
+    
+    // Send request
+    fetch(`/api/operations/${currentOperationId}/add-discovered-nodes`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            ssh_user: sshUser,
+            ssh_port: sshPort,
+            selected_nodes: selectedNodes.map(n => ({
+                hostname: n.hostname,
+                ip_address: n.ip_address,
+                roles: n.roles,
+                ready: n.ready
+            }))
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addNodesModal'));
+            modal.hide();
+            
+            alert(`✅ Success!\n\nAdded ${data.added_count} node(s) with SSH user "${sshUser}":\n${data.added_nodes.map(n => `  • ${n.hostname} (${n.ip_address})`).join('\n')}\n\nNext steps:\n1. Go to Nodes page\n2. For each new node, open SSH Setup\n3. Copy one-liner curl command\n4. Run on node as user: ${sshUser}\n5. Done!`);
+            
+            location.reload();
+        } else {
+            alert('❌ Error adding nodes: ' + data.error);
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        }
+    })
+    .catch(error => {
+        alert('❌ Error: ' + error);
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+    });
+}
+
 </script>
 {% endblock %}

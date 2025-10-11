@@ -2593,6 +2593,45 @@ def execute_operation(operation_id):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.route('/operations/<int:operation_id>/discovered-nodes', methods=['GET'])
+@login_required
+def get_discovered_nodes(operation_id):
+    """
+    Get discovered nodes from a scan operation.
+    """
+    try:
+        operation = Operation.query.get_or_404(operation_id)
+        
+        if operation.operation_type != 'scan':
+            return jsonify({
+                'success': False,
+                'error': 'This operation is not a cluster scan'
+            }), 400
+        
+        if not operation.operation_metadata:
+            return jsonify({
+                'success': False,
+                'discovered_nodes': []
+            })
+        
+        metadata = json.loads(operation.operation_metadata)
+        new_nodes = metadata.get('new_nodes', [])
+        
+        return jsonify({
+            'success': True,
+            'discovered_nodes': new_nodes,
+            'total_count': len(new_nodes),
+            'ssh_user_suggestion': 'sumix'  # Default suggestion
+        })
+        
+    except Exception as e:
+        logger.error(f"[NODE-DISCOVERY] Error getting discovered nodes: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @bp.route('/operations/<int:operation_id>/add-discovered-nodes', methods=['POST'])
 @login_required
 def add_discovered_nodes(operation_id):
