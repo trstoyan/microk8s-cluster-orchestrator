@@ -13,7 +13,7 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
 ![WoL](https://img.shields.io/badge/Wake--on--LAN-Magic%20Packets-purple?style=flat-square&logo=wake-on-lan)
 ![AI](https://img.shields.io/badge/AI--Assisted-Cursor%20Powered-orange?style=flat-square&logo=artificial-intelligence)
 
-📚 **Documentation**: See the [docs/](docs/) directory for detailed guides and documentation.
+📚 **Documentation**: See [docs/INDEX.md](docs/INDEX.md) for the complete documentation index.
 
 ## ⚠️ Disclaimer
 

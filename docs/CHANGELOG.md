@@ -7,6 +7,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2025-10-11
+
+### 🔐 SSH & Authentication
+
+#### Fixed
+- **Critical Ansible Sudo Authentication**: Fixed "Missing sudo password" errors preventing all Ansible operations
+  - Root cause: `requiretty` in sudoers prevented sudo over SSH without TTY
+  - Added `Defaults:USER !requiretty` to sudoers configuration
+  - Setup script now ALWAYS creates orchestrator-specific sudoers file in `/etc/sudoers.d/`
+  - Added Ansible `become` configuration to inventory: `ansible_become=true`, `ansible_become_flags='-H -S -n'`
+  - Script detects existing sudo access and creates proper file regardless
+  - Ultra-verbose output for debugging
+  - Tested and working on all node types (control-plane and workers)
+
+#### Enhanced
+- **SSH Setup Script Improvements**:
+  - Automatically configures passwordless sudo with `!requiretty` flag
+  - Tests sudo access after setup (`sudo -n whoami`)
+  - Returns `sudo_access: true` in callback when properly configured
+  - Idempotent - safe to run multiple times
+  - Updates existing sudoers files that lack `!requiretty`
+
+### 📊 Node Status & Information
+
+#### Fixed
+- **Node Information Not Updating**: Fixed database update after "Check Node Status" operation
+  - Root cause: Parser looking for JSON but Ansible outputs YAML
+  - Implemented proper YAML parsing with `yaml.safe_load()`
+  - Extracts health_report block from Ansible debug output
+  - Now correctly saves all node information to database
+
+- **Worker Node Detection**: Worker nodes now correctly show as "running"
+  - Old logic only checked `microk8s status` command
+  - New logic checks service status: if `systemd` service is active, node IS running
+  - Worker nodes show "This MicroK8s deployment is acting as a node" but ARE running
+
+#### Added
+- **Complete Node Information Collection**:
+  - OS Version: Distribution + version (e.g., "Ubuntu 24.04")
+  - Kernel Version: From `ansible_kernel` facts
+  - CPU Cores: From `ansible_processor_vcpus`
+  - Memory GB: Converted from `ansible_memtotal_mb`
+  - Disk GB: Calculated from root mount point
+  - All fields now populate after "Check Node Status"
+
+- **MicroK8s Detection Enhancements**:
+  - Actual running/installed/stopped status (not just guessing)
+  - Real version detection: Extracts version number (e.g., "v1.32.8")
+  - Auto-detects control plane role from Kubernetes node labels
+  - Checks `node-role.kubernetes.io/control-plane` label
+  - No more manual role assignment needed!
+
+### 🔧 Longhorn Storage Prerequisites
+
+#### Fixed
+- **Critical Longhorn Requirements Corrections**:
+  - **Multipath**: Changed from "must be active" to "must be DISABLED"
+    - Longhorn conflicts with multipath - it MUST be off
+    - Prerequisites now fail if multipathd service is running
+  - **Swap Memory**: Added check for swap (must be DISABLED)
+    - Kubernetes requires swap to be disabled
+    - Check uses `swapon --show` to detect enabled swap
+  - **dm-crypt Module**: Added kernel module check
+    - Required for Longhorn encryption features
+    - Checks if `dm-crypt` module is loaded with `lsmod`
+    - Shows how to load: `sudo modprobe dm-crypt`
+
+#### Enhanced
+- **Better Status Reporting**:
+  - Shows swap status explicitly (enabled/disabled)
+  - Shows multipath status with "should be DISABLED" note
+  - Shows dm-crypt module status
+  - Clear messages about what needs to be fixed
+  - Combined services and system requirements in JSON output
+
+- **Complete Requirements Summary**:
+  ```
+  ✓ Packages: open-iscsi, nfs-common, lvm2, util-linux
+  ✓ Services: iscsid (must be running & enabled)
+  ✗ Services: multipathd (must be DISABLED)
+  ✗ System: swap (must be DISABLED)
+  ✓ Kernel: dm-crypt module (must be loaded)
+  ```
+
+### 🎨 User Interface
+
+#### Fixed
+- **System Management Refresh Button**: Now actually refreshes content
+  - Was not calling any function (broken)
+  - Now detects active tab and refreshes appropriate content
+  - Visual feedback: rotating icon animation during refresh
+  - Temporarily disables button to prevent double-clicks
+
+- **Discovered Nodes Workflow**: Moved to cluster detail page
+  - Makes more sense: trigger scan from cluster page, see results there
+  - Automatic polling after scan completes
+  - Modal appears when new nodes discovered
+  - Allows SSH user/port configuration and individual node selection
+  - Removed from operation detail page for cleaner UX
+
+#### Enhanced
+- **Node Addition UX**:
+  - Friendly duplicate detection alerts
+  - Shows helpful message: "Node already exists" with edit link
+  - No more cryptic SQL errors shown to users
+  - Clickable links to edit existing nodes
+
+### 📚 Documentation
+
+#### Added
+- **Documentation Index** (`docs/INDEX.md`):
+  - Complete categorized documentation index
+  - Getting Started, Installation, Security, Features, Development sections
+  - Quick reference table for common tasks
+  - Links to all 20+ documentation files
+
+#### Organized
+- Moved `PLAYBOOK_EDITOR_TESTING_GUIDE.md` to `docs/`
+- Renamed `cursor_setting_up_power_management_for.md` to `POWER_MANAGEMENT_SETUP.md`
+- Archived `README_original.md` to `docs/README_ARCHIVE.md`
+- Removed duplicate `SSH_KEY_MANAGEMENT.md` (kept comprehensive GUIDE version)
+- Updated main `README.md` to link to `docs/INDEX.md`
+
+### 🛠️ Technical Improvements
+
+#### Fixed
+- **Removed Hardcoded Usernames**: All instances of hardcoded "sumix" removed
+  - SSH user suggestions now intelligent: uses most common user from cluster
+  - Defaults to "ubuntu" if no existing nodes
+  - Dynamic and context-aware
+
+- **YAML Output Parsing**: Fixed health report parsing from Ansible
+  - Find `health_report:` marker in output
+  - Extract YAML block between markers
+  - Parse with `yaml.safe_load()`
+  - Fallback to regex extraction if YAML parsing fails
+  - Comprehensive logging for debugging
+
+### 🔄 Summary
+
+This release fixes critical authentication issues that prevented Ansible operations, implements proper node status detection for both control-plane and worker nodes, corrects Longhorn prerequisite requirements, and significantly improves the user experience with better error messages and documentation organization.
+
+**Key Takeaway**: Ansible operations now work reliably with proper sudo configuration, and all node information is accurately detected and displayed.
+
 ### Added
 
 - **Live Server Sync**: Real-time data synchronization between orchestrator instances
