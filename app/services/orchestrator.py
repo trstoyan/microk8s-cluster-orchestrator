@@ -269,6 +269,7 @@ class OrchestrationService:
     
     def _update_node_from_health_data(self, node: Node, health_data: dict) -> None:
         """Update node from parsed health data."""
+        # Update MicroK8s status
         if 'microk8s_installed' in health_data:
             if health_data['microk8s_installed']:
                 if health_data.get('microk8s_running', False):
@@ -278,9 +279,34 @@ class OrchestrationService:
             else:
                 node.microk8s_status = 'not_installed'
         
-        # Update other fields if available
+        # Update network information
         if 'ip_address' in health_data and health_data['ip_address']:
             node.ip_address = health_data['ip_address']
+        
+        # Update system information
+        if 'os_version' in health_data and health_data['os_version']:
+            node.os_version = health_data['os_version']
+        
+        if 'kernel_version' in health_data and health_data['kernel_version']:
+            node.kernel_version = health_data['kernel_version']
+        
+        if 'cpu_cores' in health_data:
+            try:
+                node.cpu_cores = int(health_data['cpu_cores'])
+            except (ValueError, TypeError):
+                pass
+        
+        if 'memory_gb' in health_data:
+            try:
+                node.memory_gb = float(health_data['memory_gb'])
+            except (ValueError, TypeError):
+                pass
+        
+        if 'disk_gb' in health_data:
+            try:
+                node.disk_gb = float(health_data['disk_gb'])
+            except (ValueError, TypeError):
+                pass
     
     def _extract_health_info_from_text(self, node: Node, health_text: str, full_output: str) -> None:
         """Extract health information from text output."""
