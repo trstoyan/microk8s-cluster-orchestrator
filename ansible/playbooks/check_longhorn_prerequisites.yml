@@ -59,6 +59,18 @@
       changed_when: false
       failed_when: false
     
+    - name: Check if dm-crypt kernel module is loaded
+      command: lsmod
+      register: lsmod_output
+      changed_when: false
+      failed_when: false
+    
+    - name: Check dm_crypt module specifically
+      shell: lsmod | grep -q dm_crypt && echo "loaded" || echo "not_loaded"
+      register: dm_crypt_check
+      changed_when: false
+      failed_when: false
+    
     - name: Test LVM functionality
       command: lvm version
       register: lvm_test
@@ -145,6 +157,8 @@
             swap_disabled: "{{ swap_check.stdout == '' }}"
             swap_status: "{{ swap_check.stdout if swap_check.stdout != '' else 'Disabled (correct)' }}"
             multipath_disabled: "{{ multipath_service_status.status is not defined or multipath_service_status.status.ActiveState != 'active' }}"
+            dm_crypt_loaded: "{{ 'loaded' in dm_crypt_check.stdout }}"
+            dm_crypt_status: "{{ dm_crypt_check.stdout }}"
           functionality_tests:
             lvm: "{{ lvm_test.rc == 0 }}"
             iscsi: "{{ iscsi_test.rc == 0 }}"
@@ -159,7 +173,7 @@
             lvm_pvs: "{{ lvm_pvs.stdout_lines[1:] if lvm_pvs.rc == 0 else [] }}"
             lvm_vgs: "{{ lvm_vgs.stdout_lines[1:] if lvm_vgs.rc == 0 else [] }}"
             lvm_lvs: "{{ lvm_lvs.stdout_lines[1:] if lvm_lvs.rc == 0 else [] }}"
-          prerequisites_met: "{{ (package_check.results | selectattr('changed', 'equalto', false) | list | length == longhorn_packages | length) and (command_check.results | selectattr('rc', '!=', 0) | list | length == 0) and (iscsi_service_status.status.ActiveState == 'active') and (multipath_service_status.status is not defined or multipath_service_status.status.ActiveState != 'active') and (swap_check.stdout == '') and (lvm_test.rc == 0) and (iscsi_test.rc == 0) }}"
+          prerequisites_met: "{{ (package_check.results | selectattr('changed', 'equalto', false) | list | length == longhorn_packages | length) and (command_check.results | selectattr('rc', '!=', 0) | list | length == 0) and (iscsi_service_status.status.ActiveState == 'active') and (multipath_service_status.status is not defined or multipath_service_status.status.ActiveState != 'active') and (swap_check.stdout == '') and ('loaded' in dm_crypt_check.stdout) and (lvm_test.rc == 0) and (iscsi_test.rc == 0) }}"
     
     - name: Display Longhorn prerequisites check report
       debug:
@@ -183,8 +197,10 @@
           iSCSI service status: {{ 'Running ✓' if longhorn_check_report.services_status.iscsid.running else 'NOT RUNNING ✗' }}
           Multipath service status: {{ 'Active (should be DISABLED ✗)' if longhorn_check_report.services_status.multipathd.running else 'Disabled ✓' }}
           Swap status: {{ 'Disabled ✓' if longhorn_check_report.system_requirements.swap_disabled else 'ENABLED (must disable ✗)' }}
+          dm-crypt kernel module: {{ 'Loaded ✓' if longhorn_check_report.system_requirements.dm_crypt_loaded else 'NOT LOADED ✗' }}
           
           IMPORTANT NOTES:
           - Multipath MUST be disabled for Longhorn
           - Swap memory MUST be disabled for Kubernetes/Longhorn
           - iSCSI service must be running and enabled
+          - dm-crypt kernel module must be loaded (modprobe dm-crypt)
