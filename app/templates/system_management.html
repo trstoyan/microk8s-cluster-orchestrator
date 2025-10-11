@@ -2,6 +2,20 @@
 
 {% block title %}System Management - MicroK8s Cluster Orchestrator{% endblock %}
 
+{% block extra_head %}
+<style>
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .rotating {
+        animation: rotate 1s linear infinite;
+        display: inline-block;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid">
     <div class="row">
@@ -298,24 +312,58 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function refreshCurrentTab() {
-    const activeTab = document.querySelector('#systemTabs button.active');
-    const targetId = activeTab.getAttribute('data-bs-target');
+    const activeTab = document.querySelector('#systemTabs button.nav-link.active');
     
+    if (!activeTab) {
+        console.error('No active tab found');
+        return;
+    }
+    
+    const targetId = activeTab.getAttribute('data-bs-target');
+    console.log('Refreshing tab:', targetId);
+    
+    // Show visual feedback
+    const refreshBtn = event.target.closest('button');
+    const originalIcon = refreshBtn.querySelector('i');
+    const originalIconClass = originalIcon.className;
+    
+    // Spin the icon
+    originalIcon.className = 'bi bi-arrow-clockwise rotating';
+    refreshBtn.disabled = true;
+    
+    // Function to restore button state
+    const restoreButton = () => {
+        originalIcon.className = originalIconClass;
+        refreshBtn.disabled = false;
+    };
+    
+    // Refresh based on active tab
     if (targetId === '#overview') {
         refreshStatus();
         loadTimezoneInfo();
+        setTimeout(restoreButton, 1000);
     } else if (targetId === '#updates') {
         refreshStatus();
-    } else if (targetId === '#sync' && syncContentLoaded) {
-        // Reload sync iframe
-        const iframe = document.querySelector('#sync-content-container iframe');
-        if (iframe) {
-            iframe.src = iframe.src;
+        setTimeout(restoreButton, 1000);
+    } else if (targetId === '#sync') {
+        if (syncContentLoaded) {
+            // Reload sync iframe
+            const iframe = document.querySelector('#sync-content-container iframe');
+            if (iframe) {
+                iframe.src = iframe.src;
+            }
+        } else {
+            loadSyncContent();
         }
+        setTimeout(restoreButton, 1000);
     } else if (targetId === '#logs') {
         refreshLogsTab();
+        setTimeout(restoreButton, 1000);
     } else if (targetId === '#timezone') {
         loadTimezoneInfo();
+        setTimeout(restoreButton, 1000);
+    } else {
+        restoreButton();
     }
 }
 

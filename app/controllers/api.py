@@ -2617,11 +2617,27 @@ def get_discovered_nodes(operation_id):
         metadata = json.loads(operation.operation_metadata)
         new_nodes = metadata.get('new_nodes', [])
         
+        # Suggest SSH user based on existing nodes in the cluster
+        ssh_user_suggestion = None
+        if operation.cluster_id:
+            # Get most common SSH user from existing nodes in this cluster
+            cluster = Cluster.query.get(operation.cluster_id)
+            if cluster and cluster.nodes:
+                ssh_users = [node.ssh_user for node in cluster.nodes if node.ssh_user]
+                if ssh_users:
+                    # Use the most common SSH user
+                    from collections import Counter
+                    ssh_user_suggestion = Counter(ssh_users).most_common(1)[0][0]
+        
+        # If no suggestion from cluster nodes, use common default
+        if not ssh_user_suggestion:
+            ssh_user_suggestion = 'ubuntu'  # Common default for many systems
+        
         return jsonify({
             'success': True,
             'discovered_nodes': new_nodes,
             'total_count': len(new_nodes),
-            'ssh_user_suggestion': 'sumix'  # Default suggestion
+            'ssh_user_suggestion': ssh_user_suggestion
         })
         
     except Exception as e:

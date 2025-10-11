@@ -512,8 +512,8 @@
                     <div class="row">
                         <div class="col-md-6">
                             <label for="ssh-username" class="form-label"><strong>SSH Username:</strong></label>
-                            <input type="text" class="form-control" id="ssh-username" value="sumix" placeholder="e.g., ubuntu, pi, sumix" required>
-                            <small class="text-muted">Common: ubuntu, pi, sumix, admin</small>
+                            <input type="text" class="form-control" id="ssh-username" value="" placeholder="e.g., ubuntu, pi, admin" required>
+                            <small class="text-muted">Common: ubuntu, pi, admin, root</small>
                         </div>
                         <div class="col-md-6">
                             <label for="ssh-port" class="form-label"><strong>SSH Port:</strong></label>
@@ -884,7 +884,7 @@ function checkForDiscoveredNodes(operationId, clusterId) {
         if (data.success && data.discovered_nodes && data.discovered_nodes.length > 0) {
             // Show modal with discovered nodes
             alert(`✅ Scan complete!\n\nDiscovered ${data.discovered_nodes.length} node(s) already in the cluster but not in orchestrator.\n\nOpening node selection...`);
-            showAddNodesModalFromScan(operationId, data.discovered_nodes, data.ssh_user_suggestion || 'sumix');
+            showAddNodesModalFromScan(operationId, data.discovered_nodes, data.ssh_user_suggestion || '');
         } else {
             alert('✅ Cluster scan completed successfully!\n\nNo new nodes discovered.');
             location.reload();
@@ -1033,8 +1033,8 @@ function showAddNodesModalFromScan(operationId, nodes, suggestedUser) {
     currentOperationId = operationId;
     discoveredNodesData = nodes;
     
-    // Set suggested username
-    document.getElementById('ssh-username').value = suggestedUser || 'sumix';
+    // Set suggested username (use suggestion from API or leave empty for user to fill)
+    document.getElementById('ssh-username').value = suggestedUser || '';
     
     // Populate the table
     const tbody = document.getElementById('discovered-nodes-list');
@@ -1169,7 +1169,15 @@ function confirmAddDiscoveredNodes() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            // Move focus away from modal before hiding to avoid a11y warning
             const modal = bootstrap.Modal.getInstance(document.getElementById('addNodesModal'));
+            const modalElement = document.getElementById('addNodesModal');
+            
+            // Remove focus from any element inside the modal
+            if (document.activeElement && modalElement.contains(document.activeElement)) {
+                document.activeElement.blur();
+            }
+            
             modal.hide();
             
             alert(`✅ Success!\n\nAdded ${data.added_count} node(s) with SSH user "${sshUser}":\n${data.added_nodes.map(n => `  • ${n.hostname} (${n.ip_address})`).join('\n')}\n\nNext steps:\n1. Go to Nodes page\n2. For each new node, open SSH Setup\n3. Copy one-liner curl command\n4. Run on node as user: ${sshUser}\n5. Done!`);
