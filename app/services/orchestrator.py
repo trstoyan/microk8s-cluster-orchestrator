@@ -231,48 +231,61 @@ class OrchestrationService:
     def _parse_and_update_node_health(self, node: Node, output: str) -> None:
         """Parse health report from Ansible output and update node status."""
         try:
-            # Look for health report in the output
+            import yaml
+            import logging
+            logger = logging.getLogger(__name__)
             
-            # Try to find the health report JSON in the output
-            # The playbook writes the health report to /tmp/microk8s_health_<hostname>.json
-            # and also displays it in the debug output
+            # Look for health report in the YAML output from the debug task
+            # The output format is YAML because of the ansible.builtin.yaml callback
             
-            # Look for the health_report variable in the debug output
-            health_report_match = re.search(r'"health_report":\s*({.*?})', output, re.DOTALL)
-            if health_report_match:
-                try:
-                    health_data = json.loads(health_report_match.group(1))
+            # Find the health_report section in the output
+            health_report_start = output.find('health_report:')
+            if health_report_start == -1:
+                logger.warning(f"Could not find health_report in output for node {node.hostname}")
+                return
+            
+            # Extract the health_report YAML block
+            # Find the next TASK marker or end of output
+            output_after_health = output[health_report_start:]
+            next_task_pos = output_after_health.find('TASK [')
+            
+            if next_task_pos != -1:
+                health_yaml = output_after_health[:next_task_pos]
+            else:
+                health_yaml = output_after_health
+            
+            # Parse the YAML
+            try:
+                # Parse just the health_report section
+                parsed = yaml.safe_load(health_yaml)
+                if parsed and 'health_report' in parsed:
+                    health_data = parsed['health_report']
+                    logger.info(f"Successfully parsed health data for node {node.hostname}: {health_data.keys()}")
                     self._update_node_from_health_data(node, health_data)
                     return
-                except json.JSONDecodeError:
-                    pass
+            except yaml.YAMLError as e:
+                logger.warning(f"YAML parsing failed for node {node.hostname}: {e}")
             
-            # Alternative: look for the structured health report output
-            # The debug output shows the health_report variable
-            health_lines = []
-            in_health_report = False
-            for line in output.split('\n'):
-                if '"health_report":' in line or 'health_report:' in line:
-                    in_health_report = True
-                if in_health_report:
-                    health_lines.append(line)
-                    if '}' in line and in_health_report:
-                        break
-            
-            if health_lines:
-                health_text = '\n'.join(health_lines)
-                # Try to extract key information using regex
-                self._extract_health_info_from_text(node, health_text, output)
+            # Fallback: try to extract key information using regex
+            logger.info(f"Falling back to regex extraction for node {node.hostname}")
+            self._extract_health_info_from_text(node, output, output)
             
         except Exception as e:
-            print(f"Error parsing health report for node {node.hostname}: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error parsing health report for node {node.hostname}: {e}")
     
     def _update_node_from_health_data(self, node: Node, health_data: dict) -> None:
         """Update node from parsed health data."""
         # Update MicroK8s status
         if 'microk8s_installed' in health_data:
             if health_data['microk8s_installed']:
-                if health_data.get('microk8s_running', False):
+                # Check if running: either explicitly running OR service active (for worker nodes)
+                microk8s_running = health_data.get('microk8s_running', False)
+                service_active = health_data.get('service_active', False)
+                
+                # Worker nodes may not say "microk8s is running" but if service is active, they ARE running
+                if microk8s_running or service_active:
                     node.microk8s_status = 'running'
                 else:
                     node.microk8s_status = 'installed'
