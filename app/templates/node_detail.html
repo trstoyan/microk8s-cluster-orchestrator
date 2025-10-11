@@ -336,23 +336,37 @@
                                 <strong>Swap Memory</strong> <span class="badge bg-danger">Disabled</span>
                                 <br><small class="text-muted ms-3">MUST be disabled for K8s</small>
                             </li>
-                            <li class="mb-1">
+                        </ul>
+                        
+                        <h6 class="mt-3"><i class="bi bi-layers"></i> Kernel Modules</h6>
+                        <ul class="list-unstyled">
+                            {% set kernel_modules = ['dm_mod', 'dm_crypt', 'dm_snapshot', 'dm_mirror', 'dm_thin_pool'] %}
+                            {% set module_descriptions = {
+                                'dm_mod': 'Device Mapper base',
+                                'dm_crypt': 'Encryption support',
+                                'dm_snapshot': 'Snapshot support',
+                                'dm_mirror': 'Mirroring support',
+                                'dm_thin_pool': 'Thin provisioning'
+                            } %}
+                            {% for module in kernel_modules %}
+                            <li class="mb-1" style="font-size: 0.9em;">
                                 {% if longhorn_status.status == 'met' %}
-                                    <i class="bi bi-check-circle text-success"></i>
+                                    <i class="bi bi-check-circle-fill text-success" style="font-size: 0.8em;"></i>
                                 {% elif longhorn_status.status == 'failed' %}
-                                    {% if longhorn_status.services_status and longhorn_status.services_status.get('system', {}).get('dm_crypt_loaded') %}
-                                        <i class="bi bi-check-circle text-success"></i>
+                                    {% if longhorn_status.services_status and longhorn_status.services_status.get('kernel_modules', {}).get(module) %}
+                                        <i class="bi bi-check-circle-fill text-success" style="font-size: 0.8em;"></i>
                                     {% else %}
-                                        <i class="bi bi-x-circle text-danger"></i>
+                                        <i class="bi bi-x-circle-fill text-danger" style="font-size: 0.8em;"></i>
                                     {% endif %}
                                 {% elif longhorn_status.status == 'not_checked' %}
-                                    <i class="bi bi-question-circle text-secondary"></i>
+                                    <i class="bi bi-question-circle text-secondary" style="font-size: 0.8em;"></i>
                                 {% else %}
-                                    <i class="bi bi-check-circle text-success"></i>
+                                    <i class="bi bi-check-circle-fill text-success" style="font-size: 0.8em;"></i>
                                 {% endif %}
-                                <strong>dm-crypt module</strong> <span class="badge bg-success">Loaded</span>
-                                <br><small class="text-muted ms-3">Kernel module for encryption</small>
+                                <code style="font-size: 0.85em;">{{ module }}</code>
+                                <br><small class="text-muted ms-3" style="font-size: 0.85em;">{{ module_descriptions[module] }}</small>
                             </li>
+                            {% endfor %}
                         </ul>
                     </div>
                 </div>

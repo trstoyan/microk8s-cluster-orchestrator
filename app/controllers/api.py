@@ -436,10 +436,11 @@ def check_longhorn_prerequisites(node_id):
                     node.longhorn_missing_packages = json.dumps(report.get('packages_status', {}).get('missing', []))
                     node.longhorn_missing_commands = json.dumps(report.get('commands_status', {}).get('missing', []))
                     
-                    # Combine services_status with system_requirements for complete status
+                    # Combine services_status, system_requirements, and kernel_modules for complete status
                     combined_status = {
                         'services': report.get('services_status', {}),
-                        'system': report.get('system_requirements', {})
+                        'system': report.get('system_requirements', {}),
+                        'kernel_modules': report.get('kernel_modules', {})
                     }
                     node.longhorn_services_status = json.dumps(combined_status)
                     node.longhorn_storage_info = json.dumps(report.get('storage_info', {}))
@@ -450,7 +451,9 @@ def check_longhorn_prerequisites(node_id):
                     # Log detailed status
                     swap_status = report.get('system_requirements', {}).get('swap_disabled', False)
                     multipath_status = report.get('system_requirements', {}).get('multipath_disabled', False)
-                    logger.info(f"[LONGHORN] ✅ Updated node {node.hostname} - Status: {node.longhorn_prerequisites_status}, Swap disabled: {swap_status}, Multipath disabled: {multipath_status}")
+                    kernel_modules_status = report.get('kernel_modules', {}).get('all_loaded', False)
+                    logger.info(f"[LONGHORN] ✅ Updated node {node.hostname} - Status: {node.longhorn_prerequisites_status}")
+                    logger.info(f"[LONGHORN]   - Swap disabled: {swap_status}, Multipath disabled: {multipath_status}, Kernel modules loaded: {kernel_modules_status}")
                 else:
                     logger.warning(f"[LONGHORN] Could not find longhorn_check_report in output")
                     logger.debug(f"[LONGHORN] Output preview: {output[:500]}")
