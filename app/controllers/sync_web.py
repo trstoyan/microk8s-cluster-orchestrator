@@ -341,6 +341,7 @@ def api_transfer():
     
     print(f"[SYNC-DEBUG] Getting app object...", flush=True)
     # Get Flask app for background thread
+    from flask import current_app
     app = current_app._get_current_object()
     print(f"[SYNC-DEBUG] Got app object", flush=True)
     
