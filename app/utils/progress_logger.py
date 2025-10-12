@@ -7,7 +7,7 @@ import logging
 import queue
 import time
 from datetime import datetime
-from threading import Lock
+from threading import RLock  # Use RLock (Reentrant Lock) instead of Lock
 
 class ProgressLogger:
     """
@@ -18,7 +18,7 @@ class ProgressLogger:
     def __init__(self, max_logs=1000):
         self.logs = []
         self.max_logs = max_logs
-        self.lock = Lock()
+        self.lock = RLock()  # Use RLock to allow re-entrant locking
         self.clients = []  # List of queues for SSE clients
         self.operation_id = None
         self.start_time = None
