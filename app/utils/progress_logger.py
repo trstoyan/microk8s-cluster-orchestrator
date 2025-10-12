@@ -122,8 +122,14 @@ class ProgressLogger:
                 'status': self.status,
                 'duration': duration,
                 'log_count': len(self.logs),
-                'start_time': self.start_time
+                'start_time': self.start_time,
+                'is_running': self.status == 'running'
             }
+    
+    def is_sync_in_progress(self):
+        """Check if a sync operation is currently running"""
+        with self.lock:
+            return self.status == 'running'
 
 
 # Global progress logger instance

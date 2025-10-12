@@ -288,18 +288,26 @@ def api_transfer():
     progress.start_operation(operation_id)
     
     logger.info(f"[SYNC] Starting transfer operation {operation_id}")
+    logger.info(f"[SYNC] Remote URL: {remote_url}, Username: {remote_username}")
+    logger.info(f"[SYNC] Selected items: {len(selected_items.get('nodes', []))} nodes, {len(selected_items.get('clusters', []))} clusters")
     progress.info(f'🚀 Starting sync operation {operation_id}...')
+    
+    # Get Flask app for background thread
+    app = current_app._get_current_object()
     
     # Run transfer in background thread
     def run_transfer():
+        logger.info(f"[SYNC] Background thread started for operation {operation_id}")
         try:
-            _execute_transfer(operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger)
+            _execute_transfer(app, operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger)
         except Exception as e:
-            logger.error(f"[SYNC] Background transfer error: {str(e)}")
+            logger.error(f"[SYNC] Background transfer exception: {str(e)}")
+            logger.error(f"[SYNC] Traceback:", exc_info=True)
             progress.error(f'❌ Transfer failed: {str(e)}')
     
-    thread = threading.Thread(target=run_transfer, daemon=True)
+    thread = threading.Thread(target=run_transfer, daemon=True, name=f"sync-{operation_id}")
     thread.start()
+    logger.info(f"[SYNC] Background thread started: {thread.name}, is_alive={thread.is_alive()}")
     
     # Return immediately so client can start listening to SSE
     return jsonify({
@@ -309,37 +317,48 @@ def api_transfer():
     })
 
 
-def _execute_transfer(operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger):
+def _execute_transfer(app, operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger):
     """Execute the actual transfer logic in background"""
+    logger.info(f"[SYNC-THREAD] Thread executing for operation {operation_id}")
+    
     # Need to work within Flask app context for database access
-    from flask import current_app
     from app.models.database import db
     
-    with current_app.app_context():
+    with app.app_context():
         try:
-            # Ensure URL has protocol
+            logger.info(f"[SYNC-THREAD] Entered app context")
+            
+            # Ensure URL has protocol and no trailing slash
             if not remote_url.startswith('http://') and not remote_url.startswith('https://'):
                 remote_url = 'http://' + remote_url
             remote_url = remote_url.rstrip('/')
             
+            logger.info(f"[SYNC-THREAD] Normalized remote URL: {remote_url}")
             progress.info(f'📦 Preparing to transfer {len(selected_items.get("nodes", []))} nodes, {len(selected_items.get("clusters", []))} clusters')
             
             # Login to remote server
             progress.info(f'🔐 Connecting to {remote_url}...')
             session = requests.Session()
             
+            login_url = f"{remote_url}/auth/login"
+            logger.info(f"[SYNC-THREAD] Attempting login to: {login_url}")
+            
             login_response = session.post(
-                f"{remote_url}/auth/login",
+                login_url,
                 data={'username': remote_username, 'password': remote_password},
                 timeout=10,
                 allow_redirects=False
             )
             
+            logger.info(f"[SYNC-THREAD] Login response: {login_response.status_code}")
+            
             if login_response.status_code not in [200, 302]:
                 progress.error(f'❌ Login failed (status {login_response.status_code})')
+                logger.error(f"[SYNC-THREAD] Login failed with status {login_response.status_code}")
                 return
             
             progress.success('✅ Connected and authenticated')
+            logger.info(f"[SYNC-THREAD] Successfully authenticated")
             
             # Get selected items from local database
             from app.models.flask_models import Node, Cluster
@@ -423,6 +442,25 @@ def _execute_transfer(operation_id, remote_url, remote_username, remote_password
         except Exception as e:
             logger.error(f"[SYNC] Transfer error in operation {operation_id}: {str(e)}")
             progress.error(f'❌ Transfer failed: {str(e)}')
+
+
+@sync_web_bp.route('/api/sync-status')
+@login_required
+def get_sync_status():
+    """
+    Get current sync operation status
+    """
+    progress = get_progress_logger()
+    status = progress.get_status()
+    
+    return jsonify({
+        'success': True,
+        'sync_in_progress': status['is_running'],
+        'operation_id': status['operation_id'],
+        'status': status['status'],
+        'duration': status['duration'],
+        'log_count': status['log_count']
+    })
 
 
 @sync_web_bp.route('/api/progress-stream')
