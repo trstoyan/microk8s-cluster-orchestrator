@@ -572,15 +572,27 @@ async function startSync() {
         
         console.log('[SYNC] Transfer payload:', JSON.stringify(transferPayload, null, 2));
         
+        // Add timeout to fetch using AbortController
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            console.error('[SYNC] Fetch timeout after 30 seconds!');
+            controller.abort();
+        }, 30000);
+        
+        console.log('[SYNC] About to call fetch /sync/api/transfer...');
+        
         const response = await fetch('/sync/api/transfer', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(transferPayload)
+            body: JSON.stringify(transferPayload),
+            signal: controller.signal
+        }).finally(() => {
+            clearTimeout(timeoutId);
         });
         
-        console.log('[SYNC] Transfer API HTTP status:', response.status, response.statusText);
+        console.log('[SYNC] Fetch completed! HTTP status:', response.status, response.statusText);
         
         if (!response.ok) {
             const errorText = await response.text();
@@ -625,23 +637,33 @@ async function startSync() {
         }
     } catch (error) {
         console.error('[SYNC] Error during sync:', error);
+        console.error('[SYNC] Error stack:', error.stack);
+        console.error('[SYNC] Error name:', error.name);
+        console.error('[SYNC] Error message:', error.message);
+        
         updateSyncProgress(0, '❌ Error: ' + error.message);
         addLogEntry({
             timestamp: new Date().toLocaleTimeString(),
             level: 'error',
-            message: 'Sync error: ' + error.message
+            message: `Sync error: ${error.name}: ${error.message}`
         });
         
         // Enable close button on error
         const closeBtn = document.getElementById('sync_close_btn');
         if (closeBtn) {
             closeBtn.disabled = false;
+            closeBtn.classList.remove('btn-secondary');
+            closeBtn.classList.add('btn-danger');
+            closeBtn.innerHTML = '<i class="bi bi-x-circle"></i> Close';
             closeBtn.onclick = function() {
                 if (window.syncProgressStream) {
                     window.syncProgressStream.close();
                 }
-                modal.hide();
-                showError('Sync error: ' + error.message);
+                const modal = bootstrap.Modal.getInstance(document.getElementById('progressModal'));
+                if (modal) {
+                    modal.hide();
+                }
+                showError(`Sync error: ${error.message}`);
             };
         }
     }
