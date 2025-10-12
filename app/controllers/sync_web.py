@@ -400,14 +400,28 @@ def _execute_transfer(app, operation_id, remote_url, remote_username, remote_pas
             login_url = f"{remote_url}/auth/login"
             logger.info(f"[SYNC-THREAD] Attempting login to: {login_url}")
             
-            login_response = session.post(
-                login_url,
-                data={'username': remote_username, 'password': remote_password},
-                timeout=10,
-                allow_redirects=False
-            )
-            
-            logger.info(f"[SYNC-THREAD] Login response: {login_response.status_code}")
+            try:
+                login_response = session.post(
+                    login_url,
+                    data={'username': remote_username, 'password': remote_password},
+                    timeout=10,
+                    allow_redirects=False
+                )
+                logger.info(f"[SYNC-THREAD] Login response: {login_response.status_code}")
+            except requests.exceptions.ConnectionError as e:
+                progress.error(f'❌ Cannot connect to remote server at {remote_url}')
+                progress.error(f'   Server may be offline or unreachable')
+                logger.error(f"[SYNC-THREAD] Connection error: {str(e)}")
+                return
+            except requests.exceptions.Timeout:
+                progress.error(f'❌ Connection timeout to {remote_url}')
+                progress.error(f'   Server took too long to respond (>10s)')
+                logger.error(f"[SYNC-THREAD] Timeout connecting to remote")
+                return
+            except Exception as e:
+                progress.error(f'❌ Network error: {str(e)}')
+                logger.error(f"[SYNC-THREAD] Network error: {str(e)}")
+                return
             
             if login_response.status_code not in [200, 302]:
                 progress.error(f'❌ Login failed (status {login_response.status_code})')

@@ -263,6 +263,67 @@ create_directories() {
     print_success "Required directories created"
 }
 
+check_port_availability() {
+    print_header "Checking Port Availability"
+    
+    local PORT=5000
+    
+    print_info "Checking if port $PORT is available..."
+    
+    # Check if port is in use
+    if command -v ss &> /dev/null; then
+        if sudo ss -tlnp | grep -q ":$PORT "; then
+            print_warning "Port $PORT is currently in use"
+            
+            # Get process using the port
+            local PROCESS=$(sudo ss -tlnp | grep ":$PORT " | awk -F'pid=' '{print $2}' | awk '{print $1}' | head -1)
+            if [ -n "$PROCESS" ]; then
+                print_info "Process using port $PORT: PID $PROCESS"
+                ps -p "$PROCESS" -o pid,cmd --no-headers 2>/dev/null || true
+            fi
+            
+            # Ask if we should kill it
+            read -p "   Would you like to stop the process using port $PORT? [y/N]: " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                if [ -n "$PROCESS" ]; then
+                    print_info "Stopping process $PROCESS..."
+                    sudo kill -TERM "$PROCESS" 2>/dev/null || true
+                    sleep 2
+                    
+                    # Check if it's still running
+                    if sudo ss -tlnp | grep -q ":$PORT "; then
+                        print_warning "Process still running, forcing kill..."
+                        sudo kill -9 "$PROCESS" 2>/dev/null || true
+                        sleep 1
+                    fi
+                    
+                    # Verify port is now free
+                    if sudo ss -tlnp | grep -q ":$PORT "; then
+                        print_error "Failed to free port $PORT"
+                        return 1
+                    else
+                        print_success "Port $PORT is now available"
+                    fi
+                fi
+            else
+                print_warning "Continuing with port $PORT in use (may cause issues)"
+            fi
+        else
+            print_success "Port $PORT is available"
+        fi
+    elif command -v netstat &> /dev/null; then
+        if sudo netstat -tlnp | grep -q ":$PORT "; then
+            print_warning "Port $PORT is currently in use"
+            print_info "You may need to stop the process using this port before starting the server"
+        else
+            print_success "Port $PORT is available"
+        fi
+    else
+        print_warning "Cannot check port availability (ss/netstat not found)"
+    fi
+}
+
 configure_firewall() {
     print_header "Configuring Firewall"
     
@@ -287,7 +348,7 @@ configure_firewall() {
     # Enable firewall
     sudo ufw --force enable
     
-    print_success "Firewall configured"
+    print_success "Firewall configured (port 5000 opened)"
 }
 
 setup_systemd_service() {
@@ -454,7 +515,8 @@ main() {
     setup_ansible
     setup_orchestrator_privileges
     create_directories
-    configure_firewall
+    check_port_availability  # Check if port 5000 is available
+    configure_firewall       # Open port 5000 in firewall
     setup_systemd_service
     initialize_database
     test_installation
