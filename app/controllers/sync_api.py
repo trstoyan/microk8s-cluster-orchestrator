@@ -337,9 +337,18 @@ def disconnect():
 
 @sync_bp.route('/test', methods=['GET'])
 def test_endpoint():
-    """Test endpoint (no auth required)"""
+    """Test endpoint with version compatibility check (no auth required)"""
     return jsonify({
         'message': 'Sync API is working!',
+        'version': '1.2.0',
+        'sync_api_version': '1.0',
+        'compatible_sync_versions': ['1.0'],
+        'server_ready': True,
+        'features': {
+            'background_sync': True,
+            'progress_streaming': True,
+            'selective_sync': True
+        },
         'endpoints': [
             'POST /api/v1/sync/connect',
             'GET  /api/v1/sync/inventory',

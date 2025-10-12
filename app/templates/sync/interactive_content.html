@@ -264,12 +264,36 @@ function connectToRemote() {
         })
         .then(data => {
             console.log('[SYNC] ✅ Connection test successful:', data);
+            
+            // Check version compatibility
+            if (data.sync_api_version) {
+                console.log('[SYNC] Remote sync API version:', data.sync_api_version);
+                console.log('[SYNC] Remote server version:', data.version);
+                console.log('[SYNC] Remote server ready:', data.server_ready);
+                console.log('[SYNC] Remote features:', data.features);
+                
+                const localSyncVersion = '1.0';  // Our sync API version
+                const compatible = data.compatible_sync_versions && 
+                                 data.compatible_sync_versions.includes(localSyncVersion);
+                
+                if (!compatible) {
+                    throw new Error(`Version incompatible! Remote sync API v${data.sync_api_version}, local v${localSyncVersion}`);
+                }
+                
+                if (!data.server_ready) {
+                    throw new Error('Remote server reports it is not ready for sync operations');
+                }
+                
+                console.log('[SYNC] ✅ Version compatibility check passed');
+            }
+            
             updateConnectionStatus('Authenticating...', 'text-info');
             return compareInventories(fullUrl, username, password);
         })
         .catch(error => {
             console.error('[SYNC] Connection error:', error);
             updateConnectionStatus('Connection failed: ' + error.message, 'text-danger');
+            showError('Connection failed: ' + error.message);
         });
 }
 
