@@ -1748,9 +1748,14 @@ def get_update_status():
 @login_required
 def perform_update():
     """Perform system update."""
+    from app.utils.system_logger import log_update_start, log_update_complete, log_update_error
+    
     try:
         data = request.get_json() or {}
         strategy = data.get('strategy', 'stash')  # stash, commit, discard
+        
+        log_update_start(branch=None)
+        log_system_action(f"Update requested via web UI with strategy: {strategy}", level='INFO')
         
         # Run the update script with the specified strategy
         script_path = os.path.join(os.getcwd(), 'scripts', 'update_pi.sh')
@@ -1805,11 +1810,15 @@ def perform_update():
 @login_required
 def restart_system():
     """Restart the orchestrator system."""
+    from app.utils.system_logger import log_server_restart, log_system_action
+    
     try:
         import subprocess
         import sys
         import os
         import signal
+        
+        log_system_action("System restart requested via web UI")
         
         # Check if running as systemd service
         systemd_service = os.environ.get('SYSTEMD_SERVICE', '')
@@ -1823,11 +1832,13 @@ def restart_system():
                     timeout=30
                 )
                 if result.returncode == 0:
+                    log_server_restart()
                     return jsonify({
                         'success': True,
                         'message': f'System service {systemd_service} restarted successfully'
                     })
                 else:
+                    log_system_action(f"Failed to restart systemd service: {result.stderr}", level='ERROR')
                     return jsonify({
                         'success': False,
                         'error': f'Failed to restart service: {result.stderr}'
@@ -1873,11 +1884,13 @@ def restart_system():
                     import time
                     time.sleep(2)  # Give time for response to be sent
                     try:
+                        log_system_action("Executing restart via restart_server.sh script", level='INFO')
                         # Use restart helper script for clean restart
                         subprocess.Popen([str(restart_script)], 
                                        cwd=str(project_root),
                                        stdout=subprocess.DEVNULL,
                                        stderr=subprocess.DEVNULL)
+                        log_server_restart()
                         # Exit current process after spawning restart
                         time.sleep(1)
                         os._exit(0)
@@ -2169,9 +2182,9 @@ def get_system_logs(log_type):
         
         # Define log file paths
         log_files = {
-            'orchestrator': 'logs/orchestrator.log',
-            'ansible': 'logs/ansible.log',
-            'system': '/var/log/syslog'
+            'orchestrator': 'logs/production.log',  # Main orchestrator log
+            'ansible': 'logs/ansible.log',  # Ansible playbook execution logs
+            'system': 'logs/system.log'  # System operations log (make commands, restarts, updates)
         }
         
         if log_type not in log_files:

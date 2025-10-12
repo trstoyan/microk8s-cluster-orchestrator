@@ -637,14 +637,18 @@ service-disable:
 # Unified Smart Commands (Auto-detect best method)
 start:
 	@echo "🚀 Starting MicroK8s Orchestrator..."
+	@./scripts/system_logger.sh INFO "Starting MicroK8s Orchestrator (make start)"
 	@if systemctl list-unit-files 2>/dev/null | grep -q microk8s-orchestrator && systemctl is-enabled --quiet microk8s-orchestrator 2>/dev/null; then \
 		echo "ℹ️  Systemd service is installed and enabled"; \
 		echo "Using systemd service (recommended)..."; \
+		./scripts/system_logger.sh INFO "Using systemd service for start"; \
 		$(MAKE) service-start; \
 	else \
 		echo "ℹ️  Using background process mode"; \
+		./scripts/system_logger.sh INFO "Using background process for start"; \
 		$(MAKE) prod-start; \
 	fi
+	@./scripts/system_logger.sh SUCCESS "Orchestrator started successfully"
 
 stop:
 	@echo "🛑 Stopping MicroK8s Orchestrator..."
