@@ -529,9 +529,25 @@ async function startSync() {
     // Start listening to progress logs
     startProgressStream();
     
+    // CRITICAL: Wait for EventSource to connect before starting transfer
+    console.log('[SYNC] Waiting for progress stream to connect...');
+    addLogEntry({
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'info',
+        message: '⏳ Initializing sync operation...'
+    });
+    updateSyncProgress(5, 'Initializing...');
+    
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     const remoteUrl = document.getElementById('remote_url').value.trim();
     const remoteUsername = document.getElementById('remote_username').value.trim();
     const remotePassword = document.getElementById('remote_password').value;
+    
+    console.log('[SYNC] Starting transfer API call...');
+    console.log('[SYNC] Remote URL:', remoteUrl);
+    console.log('[SYNC] Username:', remoteUsername);
+    console.log('[SYNC] Selected nodes:', selectedNodes.length, 'clusters:', selectedClusters.length);
     
     try {
         const response = await fetch('/sync/api/transfer', {
@@ -551,31 +567,15 @@ async function startSync() {
         });
         
         const result = await response.json();
+        console.log('[SYNC] Transfer API response:', result);
         
-        if (result.success) {
-            updateSyncProgress(100, '✅ Sync completed successfully!');
-            
-            // Enable close button
-            const closeBtn = document.getElementById('sync_close_btn');
-            if (closeBtn) {
-                closeBtn.disabled = false;
-                closeBtn.onclick = function() {
-                    // Close stream if still open
-                    if (window.syncProgressStream) {
-                        window.syncProgressStream.close();
-                    }
-                    modal.hide();
-                    showSuccess('Sync completed! Items transferred successfully.');
-                    // Refresh the comparison
-                    compareServers();
-                };
-            }
-        } else {
-            updateSyncProgress(0, '❌ Sync failed: ' + result.error);
+        if (!result.success) {
+            // Only show error if the transfer failed to START
+            updateSyncProgress(0, '❌ Failed to start sync');
             addLogEntry({
                 timestamp: new Date().toLocaleTimeString(),
                 level: 'error',
-                message: 'Sync failed: ' + result.error
+                message: 'Failed to start sync: ' + result.error
             });
             
             // Enable close button
@@ -587,9 +587,19 @@ async function startSync() {
                         window.syncProgressStream.close();
                     }
                     modal.hide();
-                    showError('Sync failed: ' + result.error);
+                    showError('Failed to start sync: ' + result.error);
                 };
             }
+        } else {
+            // Transfer started successfully
+            console.log('[SYNC] ✅ Transfer operation started:', result.operation_id);
+            addLogEntry({
+                timestamp: new Date().toLocaleTimeString(),
+                level: 'success',
+                message: `✅ Transfer operation started (ID: ${result.operation_id})`
+            });
+            // Progress updates will come via SSE stream
+            // Don't close modal or show completion here - wait for SSE "completed" message
         }
     } catch (error) {
         console.error('[SYNC] Error during sync:', error);
@@ -669,12 +679,44 @@ function startProgressStream() {
         closeBtn.disabled = true;
     }
     
+    // Close existing stream if any
+    if (window.syncProgressStream) {
+        console.log('[SYNC] Closing existing progress stream');
+        window.syncProgressStream.close();
+    }
+    
     // Use EventSource for Server-Sent Events
+    console.log('[SYNC] Creating EventSource for /sync/api/progress-stream');
     const eventSource = new EventSource('/sync/api/progress-stream');
+    window.syncProgressStream = eventSource;
+    
+    eventSource.onopen = function(event) {
+        console.log('[SYNC] ✅ Progress stream connected');
+        addLogEntry({
+            timestamp: new Date().toLocaleTimeString(),
+            level: 'info',
+            message: '📡 Connected to progress stream'
+        });
+    };
+    
+    eventSource.onerror = function(event) {
+        console.error('[SYNC] ❌ Progress stream error:', event);
+        addLogEntry({
+            timestamp: new Date().toLocaleTimeString(),
+            level: 'error',
+            message: '❌ Progress stream connection error'
+        });
+        
+        // Try to reconnect after a delay
+        if (eventSource.readyState === EventSource.CLOSED) {
+            console.log('[SYNC] Stream closed, will reconnect...');
+        }
+    };
     
     eventSource.onmessage = function(event) {
-        const log = JSON.parse(event.data);
-        console.log('[SYNC-PROGRESS]', log);
+        try {
+            const log = JSON.parse(event.data);
+            console.log('[SYNC-PROGRESS]', log);
         
         // Add log entry to console
         addLogEntry(log);
@@ -706,36 +748,44 @@ function startProgressStream() {
         // Update progress bar based on keywords
         if (log.message.includes('Preparing') || log.message.includes('Starting')) {
             updateSyncProgress(10, log.message);
-        } else if (log.message.includes('Connecting') || log.message.includes('Login')) {
-            updateSyncProgress(20, log.message);
+        } else if (log.message.includes('Connecting') || log.message.includes('Login') || log.message.includes('authenticated')) {
+            updateSyncProgress(25, log.message);
         } else if (log.message.includes('Fetching') || log.message.includes('Prepared')) {
             updateSyncProgress(40, log.message);
-        } else if (log.message.includes('Transferring')) {
+        } else if (log.message.includes('Transferring') && !log.message.includes('transferred')) {
             updateSyncProgress(60, log.message);
         } else if (log.message.includes('transferred')) {
-            updateSyncProgress(80, log.message);
-        } else if (log.message.includes('completed') || log.message.includes('Complete')) {
+            updateSyncProgress(85, log.message);
+        } else if (log.message.includes('🎉') || log.message.includes('completed') || log.message.includes('Complete')) {
             updateSyncProgress(100, log.message);
             
             // Enable close button when done
             if (closeBtn) {
                 closeBtn.disabled = false;
+                closeBtn.classList.remove('btn-secondary');
+                closeBtn.classList.add('btn-success');
+                closeBtn.innerHTML = '<i class="bi bi-check-circle"></i> Close & Refresh';
+                closeBtn.onclick = function() {
+                    if (window.syncProgressStream) {
+                        window.syncProgressStream.close();
+                    }
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('progressModal'));
+                    modal.hide();
+                    showSuccess('✅ Sync completed! Refreshing comparison...');
+                    setTimeout(() => {
+                        // Re-run the comparison to show updated results
+                        const connectBtn = document.querySelector('button[onclick*="connectToRemote"]');
+                        if (connectBtn) {
+                            connectBtn.click();
+                        }
+                    }, 500);
+                };
             }
         }
-    };
-    
-    eventSource.onerror = function(error) {
-        console.log('[SYNC] Progress stream closed or error:', error);
-        eventSource.close();
-        
-        // Enable close button on error
-        if (closeBtn) {
-            closeBtn.disabled = false;
+        } catch (parseError) {
+            console.error('[SYNC] Error parsing log entry:', parseError, 'Raw data:', event.data);
         }
     };
-    
-    // Store reference to close later
-    window.syncProgressStream = eventSource;
 }
 
 function updateConnectionStatus(message, className) {

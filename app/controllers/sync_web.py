@@ -265,9 +265,11 @@ def interactive_bare():
 @login_required
 def api_transfer():
     """
-    Transfer selected items to remote server with progress logging
+    Transfer selected items to remote server with progress logging.
+    Runs in background thread to allow live progress streaming.
     """
     import logging
+    import threading
     logger = logging.getLogger(__name__)
     progress = get_progress_logger()
     
@@ -285,121 +287,142 @@ def api_transfer():
     operation_id = str(uuid.uuid4())[:8]
     progress.start_operation(operation_id)
     
-    try:
-        # Ensure URL has protocol
-        if not remote_url.startswith('http://') and not remote_url.startswith('https://'):
-            remote_url = 'http://' + remote_url
-        remote_url = remote_url.rstrip('/')
-        
-        progress.info(f'📦 Preparing to transfer {len(selected_items.get("nodes", []))} nodes, {len(selected_items.get("clusters", []))} clusters')
-        
-        # Login to remote server
-        progress.info(f'🔐 Connecting to {remote_url}...')
-        session = requests.Session()
-        
-        login_response = session.post(
-            f"{remote_url}/auth/login",
-            data={'username': remote_username, 'password': remote_password},
-            timeout=10,
-            allow_redirects=False
-        )
-        
-        if login_response.status_code not in [200, 302]:
-            progress.error(f'❌ Login failed (status {login_response.status_code})')
-            return jsonify({'success': False, 'error': 'Authentication failed'}), 401
-        
-        progress.success('✅ Connected and authenticated')
-        
-        # Get selected items from local database
-        from app.models.flask_models import Node, Cluster
-        
-        sync_data = {
-            'nodes': [],
-            'clusters': []
-        }
-        
-        # Fetch selected nodes
-        if selected_items.get('nodes'):
-            progress.info(f'📤 Fetching {len(selected_items["nodes"])} nodes from local database...')
-            for node_id in selected_items['nodes']:
-                node = Node.query.get(int(node_id))
-                if node:
-                    sync_data['nodes'].append({
-                        'hostname': node.hostname,
-                        'ip_address': node.ip_address,
-                        'ssh_user': node.ssh_user,
-                        'ssh_port': node.ssh_port,
-                        'cluster_id': node.cluster_id,
-                        'notes': node.notes,
-                        'tags': node.tags
-                    })
-            progress.success(f'✅ Prepared {len(sync_data["nodes"])} nodes for transfer')
-        
-        # Fetch selected clusters
-        if selected_items.get('clusters'):
-            progress.info(f'📤 Fetching {len(selected_items["clusters"])} clusters from local database...')
-            for cluster_id in selected_items['clusters']:
-                cluster = Cluster.query.get(int(cluster_id))
-                if cluster:
-                    sync_data['clusters'].append({
-                        'name': cluster.name,
-                        'description': cluster.description,
-                        'ha_enabled': cluster.ha_enabled,
-                        'network_cidr': cluster.network_cidr,
-                        'service_cidr': cluster.service_cidr
-                    })
-            progress.success(f'✅ Prepared {len(sync_data["clusters"])} clusters for transfer')
-        
-        # Transfer nodes to remote
-        if sync_data['nodes']:
-            progress.info(f'⬆️ Transferring {len(sync_data["nodes"])} nodes to remote server...')
-            for idx, node_data in enumerate(sync_data['nodes'], 1):
-                progress.info(f'  └─ [{idx}/{len(sync_data["nodes"])}] Transferring node: {node_data["hostname"]}')
-                try:
-                    response = session.post(
-                        f"{remote_url}/api/nodes",
-                        json=node_data,
-                        timeout=30
-                    )
-                    if response.status_code in [200, 201]:
-                        progress.success(f'    ✅ {node_data["hostname"]} transferred')
-                    else:
-                        progress.warning(f'    ⚠️ {node_data["hostname"]} may already exist (status {response.status_code})')
-                except Exception as e:
-                    progress.error(f'    ❌ Failed to transfer {node_data["hostname"]}: {str(e)}')
-        
-        # Transfer clusters to remote
-        if sync_data['clusters']:
-            progress.info(f'⬆️ Transferring {len(sync_data["clusters"])} clusters to remote server...')
-            for idx, cluster_data in enumerate(sync_data['clusters'], 1):
-                progress.info(f'  └─ [{idx}/{len(sync_data["clusters"])}] Transferring cluster: {cluster_data["name"]}')
-                try:
-                    response = session.post(
-                        f"{remote_url}/api/clusters",
-                        json=cluster_data,
-                        timeout=30
-                    )
-                    if response.status_code in [200, 201]:
-                        progress.success(f'    ✅ {cluster_data["name"]} transferred')
-                    else:
-                        progress.warning(f'    ⚠️ {cluster_data["name"]} may already exist (status {response.status_code})')
-                except Exception as e:
-                    progress.error(f'    ❌ Failed to transfer {cluster_data["name"]}: {str(e)}')
-        
-        progress.complete(f'Transfer completed! {len(sync_data["nodes"])} nodes, {len(sync_data["clusters"])} clusters')
-        
-        return jsonify({
-            'success': True,
-            'transferred': {
-                'nodes': len(sync_data['nodes']),
-                'clusters': len(sync_data['clusters'])
+    logger.info(f"[SYNC] Starting transfer operation {operation_id}")
+    progress.info(f'🚀 Starting sync operation {operation_id}...')
+    
+    # Run transfer in background thread
+    def run_transfer():
+        try:
+            _execute_transfer(operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger)
+        except Exception as e:
+            logger.error(f"[SYNC] Background transfer error: {str(e)}")
+            progress.error(f'❌ Transfer failed: {str(e)}')
+    
+    thread = threading.Thread(target=run_transfer, daemon=True)
+    thread.start()
+    
+    # Return immediately so client can start listening to SSE
+    return jsonify({
+        'success': True,
+        'operation_id': operation_id,
+        'message': 'Transfer started - connect to progress stream to monitor'
+    })
+
+
+def _execute_transfer(operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger):
+    """Execute the actual transfer logic in background"""
+    # Need to work within Flask app context for database access
+    from flask import current_app
+    from app.models.database import db
+    
+    with current_app.app_context():
+        try:
+            # Ensure URL has protocol
+            if not remote_url.startswith('http://') and not remote_url.startswith('https://'):
+                remote_url = 'http://' + remote_url
+            remote_url = remote_url.rstrip('/')
+            
+            progress.info(f'📦 Preparing to transfer {len(selected_items.get("nodes", []))} nodes, {len(selected_items.get("clusters", []))} clusters')
+            
+            # Login to remote server
+            progress.info(f'🔐 Connecting to {remote_url}...')
+            session = requests.Session()
+            
+            login_response = session.post(
+                f"{remote_url}/auth/login",
+                data={'username': remote_username, 'password': remote_password},
+                timeout=10,
+                allow_redirects=False
+            )
+            
+            if login_response.status_code not in [200, 302]:
+                progress.error(f'❌ Login failed (status {login_response.status_code})')
+                return
+            
+            progress.success('✅ Connected and authenticated')
+            
+            # Get selected items from local database
+            from app.models.flask_models import Node, Cluster
+            
+            sync_data = {
+                'nodes': [],
+                'clusters': []
             }
-        })
-        
-    except Exception as e:
-        logger.error(f"[SYNC] Transfer error: {str(e)}")
-        progress.error(f'❌ Transfer failed: {str(e)}')
-        return jsonify({'success': False, 'error': str(e)}), 500
+            
+            # Fetch selected nodes
+            if selected_items.get('nodes'):
+                progress.info(f'📤 Fetching {len(selected_items["nodes"])} nodes from local database...')
+                for node_id in selected_items['nodes']:
+                    node = Node.query.get(int(node_id))
+                    if node:
+                        sync_data['nodes'].append({
+                            'hostname': node.hostname,
+                            'ip_address': node.ip_address,
+                            'ssh_user': node.ssh_user,
+                            'ssh_port': node.ssh_port,
+                            'cluster_id': node.cluster_id,
+                            'notes': node.notes,
+                            'tags': node.tags
+                        })
+                progress.success(f'✅ Prepared {len(sync_data["nodes"])} nodes for transfer')
+            
+            # Fetch selected clusters
+            if selected_items.get('clusters'):
+                progress.info(f'📤 Fetching {len(selected_items["clusters"])} clusters from local database...')
+                for cluster_id in selected_items['clusters']:
+                    cluster = Cluster.query.get(int(cluster_id))
+                    if cluster:
+                        sync_data['clusters'].append({
+                            'name': cluster.name,
+                            'description': cluster.description,
+                            'ha_enabled': cluster.ha_enabled,
+                            'network_cidr': cluster.network_cidr,
+                            'service_cidr': cluster.service_cidr
+                        })
+                progress.success(f'✅ Prepared {len(sync_data["clusters"])} clusters for transfer')
+            
+            # Transfer nodes to remote
+            if sync_data['nodes']:
+                progress.info(f'⬆️ Transferring {len(sync_data["nodes"])} nodes to remote server...')
+                for idx, node_data in enumerate(sync_data['nodes'], 1):
+                    progress.info(f'  └─ [{idx}/{len(sync_data["nodes"])}] Transferring node: {node_data["hostname"]}')
+                    try:
+                        response = session.post(
+                            f"{remote_url}/api/nodes",
+                            json=node_data,
+                            timeout=30
+                        )
+                        if response.status_code in [200, 201]:
+                            progress.success(f'    ✅ {node_data["hostname"]} transferred')
+                        else:
+                            progress.warning(f'    ⚠️ {node_data["hostname"]} may already exist (status {response.status_code})')
+                    except Exception as e:
+                        progress.error(f'    ❌ Failed to transfer {node_data["hostname"]}: {str(e)}')
+            
+            # Transfer clusters to remote
+            if sync_data['clusters']:
+                progress.info(f'⬆️ Transferring {len(sync_data["clusters"])} clusters to remote server...')
+                for idx, cluster_data in enumerate(sync_data['clusters'], 1):
+                    progress.info(f'  └─ [{idx}/{len(sync_data["clusters"])}] Transferring cluster: {cluster_data["name"]}')
+                    try:
+                        response = session.post(
+                            f"{remote_url}/api/clusters",
+                            json=cluster_data,
+                            timeout=30
+                        )
+                        if response.status_code in [200, 201]:
+                            progress.success(f'    ✅ {cluster_data["name"]} transferred')
+                        else:
+                            progress.warning(f'    ⚠️ {cluster_data["name"]} may already exist (status {response.status_code})')
+                    except Exception as e:
+                        progress.error(f'    ❌ Failed to transfer {cluster_data["name"]}: {str(e)}')
+            
+            progress.complete(f'🎉 Transfer completed! {len(sync_data["nodes"])} nodes, {len(sync_data["clusters"])} clusters')
+            logger.info(f"[SYNC] Transfer operation {operation_id} completed successfully")
+            
+        except Exception as e:
+            logger.error(f"[SYNC] Transfer error in operation {operation_id}: {str(e)}")
+            progress.error(f'❌ Transfer failed: {str(e)}')
 
 
 @sync_web_bp.route('/api/progress-stream')
