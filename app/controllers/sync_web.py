@@ -9,11 +9,15 @@ import requests
 import json
 import time
 import traceback
+import logging
 
 from app.services.sync_service import SyncService
 from app.utils.progress_logger import get_progress_logger
 
 sync_web_bp = Blueprint('sync_web', __name__, url_prefix='/sync')
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 
 @sync_web_bp.route('/')
@@ -67,9 +71,6 @@ def connect():
 @login_required
 def compare():
     """Compare inventories"""
-    import logging
-    logger = logging.getLogger(__name__)
-    
     data = request.get_json()
     remote_url = data.get('remote_url')
     remote_username = data.get('username', '')
@@ -281,8 +282,6 @@ def api_transfer():
     # CRITICAL: Print BEFORE any imports to catch early failures
     print(f"\n{'='*60}\n[SYNC-DEBUG] api_transfer() called!\n{'='*60}\n", flush=True)
     
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info("[SYNC] ========== api_transfer endpoint called ==========")
     
     # Handle OPTIONS request for CORS preflight

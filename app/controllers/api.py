@@ -4,7 +4,7 @@ import os
 import subprocess
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
@@ -2835,9 +2835,7 @@ def generate_sync_token():
     """
     try:
         from app.utils.encryption import SyncToken
-        from datetime import datetime, timedelta
         
-        logger = logging.getLogger(__name__)
         token_manager = SyncToken()
         
         # Get parameters from request (optional)

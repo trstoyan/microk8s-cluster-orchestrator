@@ -4,11 +4,15 @@ import os
 import json
 import re
 import subprocess
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from ..models.database import db
 from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
 from .network_monitor import NetworkMonitorService
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 class OrchestrationService:
     """Service for orchestrating MicroK8s operations using Ansible."""
@@ -18,6 +22,7 @@ class OrchestrationService:
         self.playbooks_dir = os.path.join(self.ansible_dir, 'playbooks')
         self.inventory_dir = os.path.join(self.ansible_dir, 'inventory')
         self.network_monitor = NetworkMonitorService()
+        self.logger = logger  # Instance reference to module logger
     
     def _get_ansible_playbook_path(self) -> str:
         """Get the path to ansible-playbook executable, preferring virtual environment."""
