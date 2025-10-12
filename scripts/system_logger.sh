@@ -59,7 +59,7 @@ export LOG_FILE
 export PROJECT_ROOT
 
 # If called directly, log the arguments
-if [ "${BASH_SOURCE[0]}" -eq "$0" ]; then
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     if [ $# -lt 2 ]; then
         echo "Usage: $0 <LEVEL> <MESSAGE>"
         echo "Levels: INFO, SUCCESS, WARNING, ERROR, COMMAND"

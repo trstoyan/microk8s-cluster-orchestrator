@@ -278,31 +278,49 @@ def api_transfer():
     Runs in background thread to allow live progress streaming.
     Note: Manually checks authentication instead of @login_required decorator
     """
+    # CRITICAL: Print BEFORE any imports to catch early failures
+    print(f"\n{'='*60}\n[SYNC-DEBUG] api_transfer() called!\n{'='*60}\n", flush=True)
+    
     import logging
     logger = logging.getLogger(__name__)
+    logger.info("[SYNC] ========== api_transfer endpoint called ==========")
     
     # Handle OPTIONS request for CORS preflight
     if request.method == 'OPTIONS':
         logger.info("[SYNC] Handling OPTIONS preflight request")
+        print("[SYNC-DEBUG] OPTIONS request", flush=True)
         return '', 204
+    
+    print(f"[SYNC-DEBUG] POST request, checking auth...", flush=True)
     
     # Manual authentication check (instead of @login_required which causes 302 redirect)
     from flask_login import current_user
+    print(f"[SYNC-DEBUG] Imported current_user", flush=True)
+    
     if not current_user.is_authenticated:
+        print(f"[SYNC-DEBUG] User NOT authenticated!", flush=True)
         logger.warning(f"[SYNC] Unauthenticated transfer attempt from {request.remote_addr}")
         return jsonify({'success': False, 'error': 'Authentication required'}), 401
     
+    print(f"[SYNC-DEBUG] User authenticated: {current_user.username}", flush=True)
     logger.info(f"[SYNC] Authenticated user: {current_user.username}")
     
-    import threading
-    progress = get_progress_logger()
-    
+    print(f"[SYNC-DEBUG] Getting request data...", flush=True)
     data = request.get_json()
+    print(f"[SYNC-DEBUG] Got data: {type(data)}", flush=True)
+    
+    import threading
+    print(f"[SYNC-DEBUG] Getting progress logger...", flush=True)
+    progress = get_progress_logger()
+    print(f"[SYNC-DEBUG] Got progress logger", flush=True)
+    
     logger.info(f"[SYNC] Received transfer request data: {list(data.keys()) if data else 'None'}")
     remote_url = data.get('remote_url', '').strip()
     remote_username = data.get('remote_username')
     remote_password = data.get('remote_password')
     selected_items = data.get('selected_items', {})
+    
+    print(f"[SYNC-DEBUG] Parsed request: URL={remote_url}, items={selected_items.keys()}", flush=True)
     
     if not remote_url:
         return jsonify({'success': False, 'error': 'Remote URL required'}), 400
@@ -310,18 +328,25 @@ def api_transfer():
     # Start operation with unique ID
     import uuid
     operation_id = str(uuid.uuid4())[:8]
+    print(f"[SYNC-DEBUG] Operation ID: {operation_id}", flush=True)
+    
+    print(f"[SYNC-DEBUG] Starting operation...", flush=True)
     progress.start_operation(operation_id)
+    print(f"[SYNC-DEBUG] Operation started in progress logger", flush=True)
     
     logger.info(f"[SYNC] Starting transfer operation {operation_id}")
     logger.info(f"[SYNC] Remote URL: {remote_url}, Username: {remote_username}")
     logger.info(f"[SYNC] Selected items: {len(selected_items.get('nodes', []))} nodes, {len(selected_items.get('clusters', []))} clusters")
     progress.info(f'🚀 Starting sync operation {operation_id}...')
     
+    print(f"[SYNC-DEBUG] Getting app object...", flush=True)
     # Get Flask app for background thread
     app = current_app._get_current_object()
+    print(f"[SYNC-DEBUG] Got app object", flush=True)
     
     # Run transfer in background thread
     def run_transfer():
+        print(f"[SYNC-DEBUG] Inside run_transfer function", flush=True)
         logger.info(f"[SYNC] Background thread started for operation {operation_id}")
         try:
             _execute_transfer(app, operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger)
@@ -330,16 +355,22 @@ def api_transfer():
             logger.error(f"[SYNC] Traceback:", exc_info=True)
             progress.error(f'❌ Transfer failed: {str(e)}')
     
+    print(f"[SYNC-DEBUG] Creating thread...", flush=True)
     thread = threading.Thread(target=run_transfer, daemon=True, name=f"sync-{operation_id}")
+    print(f"[SYNC-DEBUG] Starting thread...", flush=True)
     thread.start()
+    print(f"[SYNC-DEBUG] Thread started: {thread.name}", flush=True)
     logger.info(f"[SYNC] Background thread started: {thread.name}, is_alive={thread.is_alive()}")
     
+    print(f"[SYNC-DEBUG] Returning response...", flush=True)
     # Return immediately so client can start listening to SSE
-    return jsonify({
+    response = jsonify({
         'success': True,
         'operation_id': operation_id,
         'message': 'Transfer started - connect to progress stream to monitor'
     })
+    print(f"[SYNC-DEBUG] Response created, returning...", flush=True)
+    return response
 
 
 def _execute_transfer(app, operation_id, remote_url, remote_username, remote_password, selected_items, progress, logger):
