@@ -128,10 +128,20 @@ def compare():
             try:
                 # Log response content for debugging
                 logger.info(f"[SYNC] Nodes response content length: {len(nodes_response.content)}")
-                logger.info(f"[SYNC] Nodes response first 200 chars: {nodes_response.text[:200]}")
+                logger.info(f"[SYNC] Nodes response content type: {nodes_response.headers.get('Content-Type')}")
+                logger.info(f"[SYNC] Nodes response first 500 chars: {nodes_response.text[:500]}")
                 
-                remote_nodes = nodes_response.json()
+                # Try to parse JSON
+                try:
+                    remote_nodes = nodes_response.json()
+                    logger.info(f"[SYNC] ✅ Parsed {len(remote_nodes)} nodes from remote")
+                except ValueError as json_err:
+                    logger.error(f"[SYNC] Failed to parse nodes JSON: {json_err}")
+                    logger.error(f"[SYNC] Full response text: {nodes_response.text}")
+                    raise
+                
                 remote_clusters = clusters_response.json()
+                logger.info(f"[SYNC] ✅ Parsed {len(remote_clusters)} clusters from remote")
                 
                 remote_inv = {
                     'metadata': {
