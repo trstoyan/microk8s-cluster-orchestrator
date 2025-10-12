@@ -271,19 +271,34 @@ def interactive_bare():
     return render_template('sync/interactive_bare.html')
 
 
-@sync_web_bp.route('/api/transfer', methods=['POST'])
-@login_required
+@sync_web_bp.route('/api/transfer', methods=['POST', 'OPTIONS'])
 def api_transfer():
     """
     Transfer selected items to remote server with progress logging.
     Runs in background thread to allow live progress streaming.
+    Note: Manually checks authentication instead of @login_required decorator
     """
     import logging
-    import threading
     logger = logging.getLogger(__name__)
+    
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        logger.info("[SYNC] Handling OPTIONS preflight request")
+        return '', 204
+    
+    # Manual authentication check (instead of @login_required which causes 302 redirect)
+    from flask_login import current_user
+    if not current_user.is_authenticated:
+        logger.warning(f"[SYNC] Unauthenticated transfer attempt from {request.remote_addr}")
+        return jsonify({'success': False, 'error': 'Authentication required'}), 401
+    
+    logger.info(f"[SYNC] Authenticated user: {current_user.username}")
+    
+    import threading
     progress = get_progress_logger()
     
     data = request.get_json()
+    logger.info(f"[SYNC] Received transfer request data: {list(data.keys()) if data else 'None'}")
     remote_url = data.get('remote_url', '').strip()
     remote_username = data.get('remote_username')
     remote_password = data.get('remote_password')

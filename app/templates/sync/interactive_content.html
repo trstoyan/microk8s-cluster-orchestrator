@@ -611,6 +611,7 @@ async function startSync() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(transferPayload),
+            credentials: 'same-origin',  // Include session cookie
             signal: controller.signal
         }).finally(() => {
             clearTimeout(timeoutId);
