@@ -159,6 +159,41 @@ else
     echo "🔄 Remote has $REMOTE_COMMITS new commit(s) to pull"
 fi
 
+# Clean up old backups (keep only last 5)
+echo "🧹 Cleaning old backups..."
+if [ -d "$CURRENT_DIR/backups" ]; then
+    OLD_BACKUP_COUNT=$(find "$CURRENT_DIR/backups" -maxdepth 1 -type d -name "backup-*" 2>/dev/null | wc -l)
+    if [ "$OLD_BACKUP_COUNT" -gt 5 ]; then
+        echo "   Found $OLD_BACKUP_COUNT old backups, keeping only the last 5..."
+        find "$CURRENT_DIR/backups" -maxdepth 1 -type d -name "backup-*" -printf '%T@ %p\n' 2>/dev/null | \
+            sort -n | head -n -5 | cut -d' ' -f2- | while read old_backup; do
+            echo "   🗑️  Removing old backup: $(basename "$old_backup")"
+            rm -rf "$old_backup"
+        done
+        echo "   ✅ Cleaned up old backups"
+    else
+        echo "   ℹ️  Found $OLD_BACKUP_COUNT backup(s), no cleanup needed"
+    fi
+fi
+
+# Check available disk space
+echo "💽 Checking disk space..."
+AVAILABLE_SPACE=$(df "$CURRENT_DIR" | tail -1 | awk '{print $4}')
+REQUIRED_SPACE=1048576  # 1GB in KB
+if [ "$AVAILABLE_SPACE" -lt "$REQUIRED_SPACE" ]; then
+    echo "⚠️  WARNING: Low disk space!"
+    echo "   Available: $(df -h "$CURRENT_DIR" | tail -1 | awk '{print $4}')"
+    echo "   Recommended: At least 1GB free"
+    read -p "   Continue anyway? [y/N]: " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "❌ Update cancelled due to low disk space"
+        exit 1
+    fi
+else
+    echo "   ✅ Sufficient disk space: $(df -h "$CURRENT_DIR" | tail -1 | awk '{print $4}') available"
+fi
+
 # Create backup of current state
 echo "💾 Creating backup of current state..."
 BACKUP_DIR="$TMP_DIR/backup-$TIMESTAMP"
@@ -172,37 +207,37 @@ BACKUP_TIMEOUT=600
 # Check if pv (pipe viewer) is available for progress bar
 if command -v pv >/dev/null 2>&1; then
     echo "📊 Creating backup with progress indicator..."
-    # Calculate directory size first (excluding .venv, .git)
-    DIR_SIZE=$(du -sb --exclude=.venv --exclude=.git --exclude=__pycache__ --exclude=node_modules "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo "0")
-    echo "   📁 Directory size (excluding .venv): $(du -sh --exclude=.venv --exclude=.git --exclude=__pycache__ "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+    # Calculate directory size first (excluding .venv, .git, backups)
+    DIR_SIZE=$(du -sb --exclude=.venv --exclude=.git --exclude=__pycache__ --exclude=node_modules --exclude=backups "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo "0")
+    echo "   📁 Directory size (excluding .venv, backups): $(du -sh --exclude=.venv --exclude=.git --exclude=__pycache__ --exclude=backups "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
     echo "   📊 Starting backup..."
     
-    # Create backup with progress bar (excluding .venv, .git, __pycache__)
-    tar -cf - -C "$CURRENT_DIR" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' . | pv -s "$DIR_SIZE" -p -t -e -r | tar -xf - -C "$BACKUP_DIR"
+    # Create backup with progress bar (excluding .venv, .git, __pycache__, backups)
+    tar -cf - -C "$CURRENT_DIR" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' --exclude='backups' . | pv -s "$DIR_SIZE" -p -t -e -r | tar -xf - -C "$BACKUP_DIR"
     
     if [ $? -eq 0 ]; then
         echo "✅ Backup created successfully (excluded .venv for faster backup)"
     else
         echo "❌ Backup failed, trying alternative method..."
-        rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc'
+        rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='backups'
     fi
 else
     echo "📊 Creating backup (no progress bar available)..."
     echo "   Installing 'pv' package will show progress bars for file operations"
-    echo "   📁 Directory size (excluding .venv): $(du -sh --exclude=.venv --exclude=.git --exclude=__pycache__ "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
+    echo "   📁 Directory size (excluding .venv, backups): $(du -sh --exclude=.venv --exclude=.git --exclude=__pycache__ --exclude=backups "$CURRENT_DIR" 2>/dev/null | cut -f1 || echo 'Unknown')"
     echo "   📊 Starting backup..."
     
     # Check if rsync is available
     if command -v rsync &> /dev/null; then
-        echo "   🔄 Using rsync for backup (excluding .venv, .git, __pycache__)..."
-        timeout $BACKUP_TIMEOUT rsync -a --progress "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' 2>&1 | while read line; do
+        echo "   🔄 Using rsync for backup (excluding .venv, .git, __pycache__, backups)..."
+        timeout $BACKUP_TIMEOUT rsync -a --progress "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' --exclude='backups' 2>&1 | while read line; do
             echo "   $line"
         done
         
         if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "❌ Rsync with progress failed or timed out, trying rsync without progress..."
             echo "   🔄 Using basic rsync for backup..."
-            rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules'
+            rsync -a "$CURRENT_DIR/" "$BACKUP_DIR/" --exclude='.venv' --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' --exclude='backups'
             if [ $? -eq 0 ]; then
                 echo "✅ Backup completed with rsync (excluded .venv for faster backup)"
             else
@@ -229,7 +264,7 @@ else
         # Copy everything except excluded directories
         for item in "$CURRENT_DIR"/*; do
             basename=$(basename "$item")
-            if [ "$basename" != ".venv" ] && [ "$basename" != ".git" ] && [ "$basename" != "node_modules" ]; then
+            if [ "$basename" != ".venv" ] && [ "$basename" != ".git" ] && [ "$basename" != "node_modules" ] && [ "$basename" != "backups" ]; then
                 cp -a "$item" "$BACKUP_DIR/" 2>&1 | sed 's/^/   /' || true
             fi
         done
