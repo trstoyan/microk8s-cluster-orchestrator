@@ -371,6 +371,48 @@ function loadSyncContent() {
     // Load sync interface in iframe (bare version without sidebar)
     const syncContainer = document.getElementById('sync-content-container');
     syncContainer.innerHTML = `
+        <!-- Token Generation Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-key"></i> Sync Token Generator</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-3">
+                    <i class="bi bi-info-circle text-primary"></i> 
+                    Generate a secure, single-use token to allow OTHER servers to sync FROM this server.
+                    This token is more secure than using passwords.
+                </p>
+                
+                <button id="generateTokenBtn" class="btn btn-primary" onclick="generateSyncToken()">
+                    <i class="fas fa-plus-circle"></i> Generate Sync Token
+                </button>
+                
+                <div id="tokenDisplay" class="mt-3" style="display: none;">
+                    <div class="alert alert-success">
+                        <h6 class="alert-heading">
+                            <i class="fas fa-check-circle"></i> Token Generated Successfully!
+                        </h6>
+                        <p class="mb-2">Copy this token and paste it in the OTHER server's sync form:</p>
+                        <div class="input-group mb-3">
+                            <input type="text" id="syncTokenValue" class="form-control font-monospace" 
+                                   readonly style="font-size: 0.85rem;">
+                            <button class="btn btn-outline-secondary" onclick="copySyncToken()">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                        <small class="text-muted">
+                            <strong>Security Info:</strong><br>
+                            • <i class="bi bi-clock"></i> Expires in: <span id="tokenExpiry">1 hour</span><br>
+                            • <i class="bi bi-shield-check"></i> Single use only<br>
+                            • <i class="bi bi-trash"></i> Automatically revoked after use<br>
+                            • <i class="bi bi-lock"></i> JWT-based authentication
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Sync Interface -->
         <div class="card border-0">
             <div class="card-body p-0">
                 <iframe src="${window.location.origin}/sync/interactive-bare" 
@@ -933,6 +975,72 @@ function clearLogsTab() {
             alert('Error clearing logs: ' + error.message);
         });
     }
+}
+
+// Token Generation Functions
+function generateSyncToken() {
+    const btn = document.getElementById('generateTokenBtn');
+    const tokenDisplay = document.getElementById('tokenDisplay');
+    
+    // Disable button and show loading
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+    
+    fetch('/api/sync/generate-token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            expires_in: 3600,  // 1 hour
+            max_uses: 1  // Single use
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Display token
+            document.getElementById('syncTokenValue').value = data.token;
+            document.getElementById('tokenExpiry').textContent = `${data.expires_in / 60} minutes`;
+            tokenDisplay.style.display = 'block';
+            
+            // Show success message
+            console.log('[TOKEN] Generated successfully:', data);
+            
+            // Re-enable button
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plus-circle"></i> Generate New Token';
+        } else {
+            alert(`Error generating token: ${data.error}`);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plus-circle"></i> Generate Sync Token';
+        }
+    })
+    .catch(error => {
+        console.error('[TOKEN] Generation error:', error);
+        alert(`Failed to generate token: ${error.message}`);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus-circle"></i> Generate Sync Token';
+    });
+}
+
+function copySyncToken() {
+    const tokenInput = document.getElementById('syncTokenValue');
+    tokenInput.select();
+    document.execCommand('copy');
+    
+    // Visual feedback
+    const btn = event.target.closest('button');
+    const originalHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+    btn.classList.remove('btn-outline-secondary');
+    btn.classList.add('btn-success');
+    
+    setTimeout(() => {
+        btn.innerHTML = originalHTML;
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline-secondary');
+    }, 2000);
 }
 </script>
 {% endblock %}

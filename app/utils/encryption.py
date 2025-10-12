@@ -147,55 +147,146 @@ class SyncEncryption:
 
 
 class SyncToken:
-    """Manage sync tokens for authentication"""
+    """Manage sync tokens for authentication with JWT and single-use support"""
     
     def __init__(self):
-        self.tokens = {}
+        self.tokens = {}  # In production, use Redis or database
+        self.secret_key = os.getenv('SECRET_KEY', 'fallback-secret-key-change-in-production')
     
-    def create_token(self, server_id: str, expires_in: int = 3600) -> str:
+    def create_token(self, server_id: str, expires_in: int = 3600, max_uses: int = 1) -> str:
         """
-        Create a new sync token
+        Create a new JWT sync token with usage tracking
         
         Args:
             server_id: Identifier for the server
-            expires_in: Token expiration time in seconds
+            expires_in: Token expiration time in seconds (default 1 hour)
+            max_uses: Maximum times token can be used (default 1 = single-use)
             
         Returns:
-            Generated token
+            JWT token string
         """
-        token = SyncEncryption.generate_token()
-        
         import time
-        self.tokens[token] = {
+        import jwt
+        
+        token_id = secrets.token_urlsafe(16)
+        expires_at = time.time() + expires_in
+        
+        # JWT payload
+        payload = {
+            'token_id': token_id,
             'server_id': server_id,
-            'created_at': time.time(),
-            'expires_at': time.time() + expires_in
+            'expires_at': expires_at,
+            'iat': time.time(),
+            'type': 'sync'
+        }
+        
+        # Generate JWT
+        token = jwt.encode(payload, self.secret_key, algorithm='HS256')
+        
+        # Store token metadata for usage tracking
+        self.tokens[token_id] = {
+            'server_id': server_id,
+            'expires_at': expires_at,
+            'max_uses': max_uses,
+            'uses': 0,
+            'revoked': False,
+            'created_at': time.time()
         }
         
         return token
     
     def validate_token(self, token: str) -> bool:
-        """Validate a sync token"""
-        if token not in self.tokens:
-            return False
+        """
+        Validate token and increment use counter
         
+        Returns:
+            True if valid, False otherwise
+        """
         import time
-        token_data = self.tokens[token]
+        import jwt
         
-        if time.time() > token_data['expires_at']:
-            del self.tokens[token]
+        try:
+            # Decode JWT
+            payload = jwt.decode(token, self.secret_key, algorithms=['HS256'])
+            token_id = payload.get('token_id')
+            
+            if not token_id or token_id not in self.tokens:
+                return False
+            
+            token_info = self.tokens[token_id]
+            
+            # Check if revoked
+            if token_info['revoked']:
+                return False
+            
+            # Check expiration
+            if time.time() > token_info['expires_at']:
+                # Auto-cleanup expired token
+                del self.tokens[token_id]
+                return False
+            
+            # Check usage limit
+            if token_info['uses'] >= token_info['max_uses']:
+                return False
+            
+            # Increment use counter
+            token_info['uses'] += 1
+            token_info['last_used'] = time.time()
+            
+            # Auto-revoke if max uses reached
+            if token_info['uses'] >= token_info['max_uses']:
+                token_info['revoked'] = True
+            
+            return True
+            
+        except jwt.ExpiredSignatureError:
             return False
-        
-        return True
+        except jwt.InvalidTokenError:
+            return False
+        except Exception:
+            return False
     
-    def revoke_token(self, token: str):
-        """Revoke a sync token"""
-        if token in self.tokens:
-            del self.tokens[token]
+    def revoke_token(self, token: str) -> bool:
+        """
+        Manually revoke a token
+        
+        Returns:
+            True if revoked, False if not found
+        """
+        import jwt
+        
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=['HS256'])
+            token_id = payload.get('token_id')
+            
+            if token_id in self.tokens:
+                self.tokens[token_id]['revoked'] = True
+                return True
+        except:
+            pass
+        return False
     
     def get_token_info(self, token: str) -> dict:
-        """Get information about a token"""
-        return self.tokens.get(token)
+        """
+        Get metadata about a token
+        
+        Returns:
+            Token info dict or None if not found
+        """
+        import jwt
+        
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=['HS256'])
+            token_id = payload.get('token_id')
+            
+            if token_id in self.tokens:
+                info = self.tokens[token_id].copy()
+                info['token_id'] = token_id
+                info['server_id'] = payload.get('server_id')
+                return info
+        except:
+            pass
+        return None
 
 
 if __name__ == '__main__':

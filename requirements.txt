@@ -37,3 +37,4 @@ psutil>=5.9.0
 # Local RAG System Dependencies (Zero External Dependencies)
 # Uses only built-in Python libraries + SQLite
 # No external AI/ML services required - runs completely locally
+PyJWT>=2.8.0

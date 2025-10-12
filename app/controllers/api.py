@@ -2822,3 +2822,56 @@ def add_discovered_nodes(operation_id):
             'success': False,
             'error': str(e)
         }), 500
+
+
+@bp.route('/sync/generate-token', methods=['POST'])
+@login_required
+def generate_sync_token():
+    """
+    Generate a one-time sync token for secure server-to-server sync
+    
+    Returns:
+        JSON response with token, expiration, and usage info
+    """
+    try:
+        from app.utils.encryption import SyncToken
+        from datetime import datetime, timedelta
+        
+        logger = logging.getLogger(__name__)
+        token_manager = SyncToken()
+        
+        # Get parameters from request (optional)
+        data = request.get_json() or {}
+        expires_in = data.get('expires_in', 3600)  # Default 1 hour
+        max_uses = data.get('max_uses', 1)  # Default single-use
+        
+        # Generate token
+        server_id = f"orchestrator-{current_user.username}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        token = token_manager.create_token(
+            server_id=server_id,
+            expires_in=expires_in,
+            max_uses=max_uses
+        )
+        
+        expires_at = datetime.now() + timedelta(seconds=expires_in)
+        
+        logger.info(f"[SYNC-TOKEN] Generated token for {current_user.username}: {server_id}")
+        logger.info(f"[SYNC-TOKEN] Expires: {expires_at}, Max uses: {max_uses}")
+        
+        return jsonify({
+            'success': True,
+            'token': token,
+            'expires_in': expires_in,
+            'expires_at': expires_at.isoformat(),
+            'max_uses': max_uses,
+            'uses_remaining': max_uses,
+            'server_id': server_id,
+            'message': 'Token generated successfully. This token can be used for secure sync operations.'
+        })
+        
+    except Exception as e:
+        logger.error(f"[SYNC-TOKEN] Error generating token: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
