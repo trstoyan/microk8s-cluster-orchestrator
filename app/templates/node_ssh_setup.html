@@ -67,17 +67,19 @@
                 <div class="alert alert-success mb-3">
                     <h6><i class="bi bi-rocket-fill"></i> Automated One-Liner Setup</h6>
                     <p class="mb-2">Run this command on <strong>{{ node.hostname }}</strong> to automatically configure SSH access:</p>
+                    <p class="mb-0"><strong>⚠️ Important:</strong> Run as the SSH user (<code>{{ node.ssh_user }}</code>), NOT with sudo! The script will handle permissions automatically.</p>
                 </div>
                 
                 <div class="mb-3">
                     <label class="form-label"><strong>Copy and paste this on the node:</strong></label>
                     <div class="input-group">
                         <input type="text" class="form-control font-monospace bg-dark text-light" id="curl-command" 
-                               value="curl -sSL http://{{ request.host }}/setup/node-ssh?node_id={{ node.id }} | bash" readonly>
+                               value="curl -sSL http://{{ orchestrator_ip }}:{{ orchestrator_port }}/setup/node-ssh?node_id={{ node.id }} | bash" readonly>
                         <button class="btn btn-success" onclick="copyToClipboard('curl-command')">
                             <i class="bi bi-clipboard"></i> Copy
                         </button>
                     </div>
+                    <small class="text-muted">Run as user <strong>{{ node.ssh_user }}</strong>. If you accidentally run with sudo, the script will automatically switch to the correct user.</small>
                 </div>
                 
                 <div class="accordion" id="quickSetupDetails">
@@ -92,13 +94,17 @@
                                 <p>This automated script will:</p>
                                 <ul>
                                     <li>✅ Check all prerequisites (SSH, permissions, etc.)</li>
+                                    <li>✅ Automatically switch to correct user if run with sudo</li>
                                     <li>✅ Create <code>~/.ssh</code> directory if needed</li>
+                                    <li>✅ Fix ownership if files are owned by wrong user (e.g., root)</li>
                                     <li>✅ Add the orchestrator's public key to <code>authorized_keys</code></li>
                                     <li>✅ Set correct file permissions (700 for directory, 600 for keys)</li>
+                                    <li>✅ Configure passwordless sudo for orchestrator operations</li>
                                     <li>✅ Verify SSH server is running</li>
                                     <li>✅ Remove old keys if updating</li>
+                                    <li>✅ Test connection back to orchestrator</li>
                                 </ul>
-                                <p class="mb-0"><strong>Safe to run multiple times</strong> - it's idempotent and won't create duplicates.</p>
+                                <p class="mb-0"><strong>Safe to run multiple times</strong> - it's idempotent and won't create duplicates. Works even with permission issues!</p>
                             </div>
                         </div>
                     </div>

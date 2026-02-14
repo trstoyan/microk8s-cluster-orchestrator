@@ -1,6 +1,12 @@
 # MicroK8s Cluster Orchestrator - Local Development Configuration
 # This configuration is used for local development and testing
 
+# Server configuration
+server:
+  # Orchestrator IP address that nodes will use to connect back
+  orchestrator_ip: "10.25.8.16"  # Set to your orchestrator's IP
+  port: 5000
+
 # Database configuration
 database:
   url: "sqlite:///data/orchestrator_dev.db"

@@ -3,8 +3,11 @@
 # MicroK8s Cluster Orchestrator - Node SSH Setup Script
 # This script automatically configures SSH access for the orchestrator
 #
-# Usage:
+# Usage (run as the SSH user, NOT with sudo):
 #   curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=1 | bash
+#
+# Or if you accidentally run with sudo, the script will automatically switch to the correct user:
+#   sudo curl -sSL http://orchestrator:5000/setup/node-ssh?node_id=1 | bash
 #
 
 set -e
@@ -51,9 +54,14 @@ print_warning() {
 
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
-    print_error "Please do NOT run this script as root!"
-    print_status "Run it as the user that will be used for SSH access: $SSH_USER"
-    exit 1
+    print_error "This script is running as root (via sudo)!"
+    print_status "This script should run as the SSH user: $SSH_USER"
+    print_status ""
+    print_status "The script will now switch to user $SSH_USER and continue..."
+    
+    # Re-execute the script as the target user
+    exec sudo -u "$SSH_USER" bash -c "$(curl -sSL http://${ORCHESTRATOR_IP}:5000/setup/node-ssh?node_id=${NODE_ID})"
+    exit 0
 fi
 
 # Check if running as correct user
@@ -162,17 +170,68 @@ echo ""
 # Create .ssh directory if it doesn't exist
 if [ ! -d "$SSH_DIR" ]; then
     print_status "Creating SSH directory: $SSH_DIR"
-    mkdir -p "$SSH_DIR"
-    chmod 700 "$SSH_DIR"
-    print_success "SSH directory created"
+    if mkdir -p "$SSH_DIR" 2>/dev/null; then
+        chmod 700 "$SSH_DIR"
+        print_success "SSH directory created"
+    else
+        print_error "Failed to create SSH directory: $SSH_DIR"
+        print_status "Trying with sudo..."
+        sudo mkdir -p "$SSH_DIR"
+        sudo chown "$CURRENT_USER:$CURRENT_USER" "$SSH_DIR"
+        chmod 700 "$SSH_DIR"
+        print_success "SSH directory created (with sudo)"
+    fi
+else
+    # Check and fix ownership if needed
+    SSH_DIR_OWNER=$(stat -c '%U' "$SSH_DIR" 2>/dev/null || stat -f '%Su' "$SSH_DIR" 2>/dev/null)
+    if [ "$SSH_DIR_OWNER" != "$CURRENT_USER" ]; then
+        print_warning "SSH directory is owned by '$SSH_DIR_OWNER' instead of '$CURRENT_USER'"
+        print_status "Fixing ownership..."
+        sudo chown "$CURRENT_USER:$CURRENT_USER" "$SSH_DIR"
+        print_success "Ownership fixed"
+    fi
+    # Ensure correct permissions
+    chmod 700 "$SSH_DIR" 2>/dev/null || sudo chmod 700 "$SSH_DIR"
 fi
 
 # Create or update authorized_keys
+# First, check if authorized_keys exists as a directory (bug from previous run)
+if [ -d "$AUTH_KEYS" ]; then
+    print_error "authorized_keys exists as a directory instead of a file!"
+    print_status "Removing the directory and creating as a file..."
+    if rmdir "$AUTH_KEYS" 2>/dev/null; then
+        print_success "Directory removed"
+    else
+        print_warning "Could not remove directory, trying with sudo..."
+        sudo rm -rf "$AUTH_KEYS"
+        print_success "Directory removed (with sudo)"
+    fi
+fi
+
 if [ ! -f "$AUTH_KEYS" ]; then
     print_status "Creating authorized_keys file: $AUTH_KEYS"
-    touch "$AUTH_KEYS"
-    chmod 600 "$AUTH_KEYS"
-    print_success "authorized_keys file created"
+    if touch "$AUTH_KEYS" 2>/dev/null; then
+        chmod 600 "$AUTH_KEYS"
+        print_success "authorized_keys file created"
+    else
+        print_error "Failed to create authorized_keys file: $AUTH_KEYS"
+        print_status "Trying with sudo..."
+        sudo touch "$AUTH_KEYS"
+        sudo chown "$CURRENT_USER:$CURRENT_USER" "$AUTH_KEYS"
+        chmod 600 "$AUTH_KEYS"
+        print_success "authorized_keys file created (with sudo)"
+    fi
+else
+    # Check and fix ownership if needed
+    AUTH_KEYS_OWNER=$(stat -c '%U' "$AUTH_KEYS" 2>/dev/null || stat -f '%Su' "$AUTH_KEYS" 2>/dev/null)
+    if [ "$AUTH_KEYS_OWNER" != "$CURRENT_USER" ]; then
+        print_warning "authorized_keys is owned by '$AUTH_KEYS_OWNER' instead of '$CURRENT_USER'"
+        print_status "Fixing ownership..."
+        sudo chown "$CURRENT_USER:$CURRENT_USER" "$AUTH_KEYS"
+        print_success "Ownership fixed"
+    fi
+    # Ensure correct permissions
+    chmod 600 "$AUTH_KEYS" 2>/dev/null || sudo chmod 600 "$AUTH_KEYS"
 fi
 
 # Prepare key with comment

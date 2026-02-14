@@ -188,8 +188,14 @@ def setup_node_ssh_script():
     if not node:
         return f"Error: Node with ID {node_id} not found", 404
     
-    # Get orchestrator IP (try to detect from request)
-    orchestrator_ip = request.host.split(':')[0]
+    # Get orchestrator IP using the network utility
+    from ..utils.network import get_orchestrator_ip
+    from ..utils.config import ConfigManager
+    
+    config = ConfigManager()
+    config_ip = config.get('server', {}).get('orchestrator_ip', '')
+    fallback_ip = request.host.split(':')[0] if request.host else None
+    orchestrator_ip = get_orchestrator_ip(config_ip, fallback_ip)
     
     # Read the template script
     import os
@@ -234,7 +240,22 @@ def node_ssh_setup(node_id):
         flash('SSH key not generated for this node.', 'error')
         return redirect(url_for('web.nodes'))
     
-    return render_template('node_ssh_setup.html', node=node)
+    # Get orchestrator IP and port for the setup command
+    from ..utils.network import get_orchestrator_ip, get_server_port
+    from ..utils.config import ConfigManager
+    
+    config = ConfigManager()
+    config_ip = config.get('server', {}).get('orchestrator_ip', '')
+    config_port = config.get('server', {}).get('port', 5000)
+    fallback_ip = request.host.split(':')[0] if request.host else None
+    
+    orchestrator_ip = get_orchestrator_ip(config_ip, fallback_ip)
+    orchestrator_port = get_server_port(config_port, 5000)
+    
+    return render_template('node_ssh_setup.html', 
+                          node=node, 
+                          orchestrator_ip=orchestrator_ip,
+                          orchestrator_port=orchestrator_port)
 
 @bp.route('/nodes/<int:node_id>/test-ssh', methods=['POST'])
 @login_required

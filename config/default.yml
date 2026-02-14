@@ -1,6 +1,13 @@
 # MicroK8s Cluster Orchestrator - Default Configuration
 # This is the default configuration file that will be used if no other config is found
 
+# Server configuration
+server:
+  # Orchestrator IP address that nodes will use to connect back
+  # Leave empty to auto-detect, or set explicitly (e.g., "192.168.1.100")
+  orchestrator_ip: ""
+  port: 5000
+
 # Database configuration
 database:
   url: "sqlite:///data/orchestrator.db"
