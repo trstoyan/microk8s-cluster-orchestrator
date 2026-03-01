@@ -59,11 +59,30 @@ except ImportError:
 # Add app directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 
-from app.models.database import get_session, init_database
+from app import create_app
+from app.models.database import db
 from app.models.flask_models import Node, Cluster, Operation, RouterSwitch
 from app.models.network_lease import NetworkLease, NetworkInterface
 from app.services.cli_orchestrator import CLIOrchestrationService
 from app.utils.config import config
+
+_APP = None
+_APP_CTX = None
+
+
+def ensure_app_context():
+    """Create and push a Flask app context for CLI DB operations."""
+    global _APP, _APP_CTX
+    if _APP is None:
+        _APP = create_app()
+        _APP_CTX = _APP.app_context()
+        _APP_CTX.push()
+
+
+def get_session():
+    """Get the active SQLAlchemy session bound to the Flask app."""
+    ensure_app_context()
+    return db.session
 
 # Colorama is already initialized above if available
 
@@ -96,8 +115,8 @@ def cli(ctx, config_file, verbose):
         config.config_file = config_file
         config.load_config()
     
-    # Initialize database
-    init_database()
+    # Initialize and bind Flask app/database context.
+    ensure_app_context()
     
     # Run any pending migrations
     try:
@@ -220,7 +239,7 @@ def list_nodes(format):
                 print_info("No nodes found.")
                 return
             
-            headers = ['ID', 'Hostname', 'IP Address', 'Status', 'MicroK8s', 'Cluster', 'Last Seen']
+            headers = ['ID', 'Hostname', 'IP Address', 'Role', 'Status', 'MicroK8s', 'Cluster', 'Last Seen']
             rows = []
             
             for node in nodes:
@@ -231,6 +250,7 @@ def list_nodes(format):
                     node.id,
                     node.hostname,
                     node.ip_address,
+                    'control-plane' if node.is_control_plane else 'worker',
                     node.status,
                     node.microk8s_status,
                     cluster_name,
@@ -249,8 +269,9 @@ def list_nodes(format):
 @click.option('--port', '-p', default=22, help='SSH port')
 @click.option('--cluster-id', type=int, help='Cluster ID to assign node to')
 @click.option('--notes', help='Additional notes')
-@click.option('--generate-ssh-key', is_flag=True, default=True, help='Generate SSH key pair (default: True)')
-def add_node(hostname, ip, user, port, cluster_id, notes, generate_ssh_key):
+@click.option('--control-plane/--worker', default=False, help='Set node role (default: worker)')
+@click.option('--generate-ssh-key/--no-generate-ssh-key', default=True, help='Generate SSH key pair (default: True)')
+def add_node(hostname, ip, user, port, cluster_id, notes, control_plane, generate_ssh_key):
     """Add a new node."""
     session = get_session()
     try:
@@ -274,7 +295,8 @@ def add_node(hostname, ip, user, port, cluster_id, notes, generate_ssh_key):
             ssh_user=user,
             ssh_port=port,
             cluster_id=cluster_id,
-            notes=notes
+            notes=notes,
+            is_control_plane=control_plane
         )
         
         session.add(node)
@@ -317,6 +339,7 @@ def add_node(hostname, ip, user, port, cluster_id, notes, generate_ssh_key):
         session.commit()
         
         print_success(f"Node '{hostname}' added successfully with ID {node.id}.")
+        print_info(f"Role: {'control-plane' if node.is_control_plane else 'worker'}")
         
         if generate_ssh_key:
             print_info("\n" + "="*60)
@@ -343,7 +366,9 @@ def add_node(hostname, ip, user, port, cluster_id, notes, generate_ssh_key):
 @click.option('--cluster-id', '-c', type=int, help='Update cluster assignment (use 0 to remove from cluster)')
 @click.option('--tags', '-t', help='Update node tags (comma-separated)')
 @click.option('--notes', '-n', help='Update node notes')
-def update_node(node_id, hostname, ip, ssh_user, ssh_port, cluster_id, tags, notes):
+@click.option('--control-plane', 'is_control_plane', flag_value=True, default=None, help='Mark node as control plane')
+@click.option('--worker', 'is_control_plane', flag_value=False, help='Mark node as worker')
+def update_node(node_id, hostname, ip, ssh_user, ssh_port, cluster_id, tags, notes, is_control_plane):
     """Update node details."""
     session = get_session()
     try:
@@ -398,6 +423,12 @@ def update_node(node_id, hostname, ip, ssh_user, ssh_port, cluster_id, tags, not
             old_notes = node.notes or 'None'
             node.notes = notes
             print_info(f"  - Notes: {old_notes} → {notes}")
+
+        if is_control_plane is not None:
+            old_role = 'control-plane' if node.is_control_plane else 'worker'
+            node.is_control_plane = is_control_plane
+            new_role = 'control-plane' if node.is_control_plane else 'worker'
+            print_info(f"  - Role: {old_role} → {new_role}")
         
         # Update timestamp
         node.updated_at = datetime.utcnow()
@@ -1762,11 +1793,10 @@ def show_network_lease(lease_id):
 def check_longhorn_prerequisites(node_id, hostname, check_all):
     """Check Longhorn prerequisites on nodes."""
     try:
-        from app.models.database import db
         from app.models.flask_models import Node
         from app.services.orchestrator import OrchestrationService
         
-        session = db.create_session()
+        session = get_session()
         orchestrator = OrchestrationService()
         
         try:
@@ -1829,11 +1859,10 @@ def check_longhorn_prerequisites(node_id, hostname, check_all):
 def install_longhorn_prerequisites(node_id, hostname, install_all):
     """Install Longhorn prerequisites on nodes."""
     try:
-        from app.models.database import db
         from app.models.flask_models import Node
         from app.services.orchestrator import OrchestrationService
         
-        session = db.create_session()
+        session = get_session()
         orchestrator = OrchestrationService()
         
         try:
@@ -1894,11 +1923,10 @@ def install_longhorn_prerequisites(node_id, hostname, install_all):
 def setup_new_node(node_id):
     """Setup a new node with all prerequisites and MicroK8s."""
     try:
-        from app.models.database import db
         from app.models.flask_models import Node
         from app.services.orchestrator import OrchestrationService
         
-        session = db.create_session()
+        session = get_session()
         orchestrator = OrchestrationService()
         
         try:
@@ -2196,7 +2224,8 @@ def init_system(force):
         # Initialize database using the proper script
         import subprocess
         script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'init_db.py')
-        if force or not os.path.exists(config.get('database.path', 'cluster_data.db')):
+        db_path = os.path.abspath(os.environ.get('DATABASE_PATH', config.get('database.path', 'cluster_data.db')))
+        if force or not os.path.exists(db_path):
             cmd = [sys.executable, script_path]
             if force:
                 cmd.append('--force')
@@ -2204,7 +2233,9 @@ def init_system(force):
             if result.returncode == 0:
                 print_success("Database initialized.")
             else:
-                print_error(f"Database initialization failed: {result.stderr}")
+                stderr = result.stderr.strip() or "Unknown database initialization error"
+                print_error(f"Database initialization failed: {stderr}")
+                raise click.ClickException("Database initialization failed")
         else:
             print_warning("Database already exists. Use --force to reinitialize.")
         
@@ -3227,7 +3258,7 @@ def wake_node(node_id, retries, delay):
         from app.models.database import db
         from app.models.flask_models import Node
         
-        init_database()
+        ensure_app_context()
         session = db.session
         
         node = session.query(Node).filter(Node.id == node_id).first()
@@ -3262,7 +3293,7 @@ def wake_cluster(cluster_id, retries, delay):
         from app.models.database import db
         from app.models.flask_models import Cluster
         
-        init_database()
+        ensure_app_context()
         session = db.session
         
         cluster = session.query(Cluster).filter(Cluster.id == cluster_id).first()
@@ -3306,7 +3337,7 @@ def wol_status(node_id):
         from app.models.database import db
         from app.models.flask_models import Node
         
-        init_database()
+        ensure_app_context()
         session = db.session
         
         node = session.query(Node).filter(Node.id == node_id).first()
@@ -3362,7 +3393,7 @@ def enable_wol(node_id):
         from app.models.database import db
         from app.models.flask_models import Node
         
-        init_database()
+        ensure_app_context()
         session = db.session
         
         node = session.query(Node).filter(Node.id == node_id).first()
@@ -3394,7 +3425,7 @@ def disable_wol(node_id):
         from app.models.database import db
         from app.models.flask_models import Node
         
-        init_database()
+        ensure_app_context()
         session = db.session
         
         node = session.query(Node).filter(Node.id == node_id).first()
@@ -3426,7 +3457,7 @@ def collect_mac_addresses(node_ids):
         from app.models.database import db
         from app.models.flask_models import Node
         
-        init_database()
+        ensure_app_context()
         session = db.session
         
         # Parse node IDs
@@ -3484,7 +3515,7 @@ def configure_wol(node_id, mac_address, method, port, broadcast, enable, virtual
         from app.models.database import db
         from app.models.flask_models import Node
         
-        init_database()
+        ensure_app_context()
         session = db.session
         
         node = session.query(Node).filter(Node.id == node_id).first()

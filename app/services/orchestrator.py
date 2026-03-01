@@ -20,9 +20,30 @@ class OrchestrationService:
     def __init__(self):
         self.ansible_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'ansible')
         self.playbooks_dir = os.path.join(self.ansible_dir, 'playbooks')
-        self.inventory_dir = os.path.join(self.ansible_dir, 'inventory')
+        self.inventory_dir = self._resolve_writable_inventory_dir(
+            os.path.join(self.ansible_dir, 'inventory')
+        )
         self.network_monitor = NetworkMonitorService()
         self.logger = logger  # Instance reference to module logger
+
+    def _resolve_writable_inventory_dir(self, preferred_dir: str) -> str:
+        """Return a writable inventory directory, with a temp fallback."""
+        try:
+            os.makedirs(preferred_dir, exist_ok=True)
+            test_file = os.path.join(preferred_dir, '.write_test')
+            with open(test_file, 'w', encoding='utf-8') as f:
+                f.write('ok')
+            os.remove(test_file)
+            return preferred_dir
+        except Exception:
+            fallback_dir = os.path.join('/tmp', 'microk8s-orchestrator-inventory')
+            os.makedirs(fallback_dir, exist_ok=True)
+            logger.warning(
+                "Inventory directory '%s' is not writable; using fallback '%s'",
+                preferred_dir,
+                fallback_dir
+            )
+            return fallback_dir
     
     def _get_ansible_playbook_path(self) -> str:
         """Get the path to ansible-playbook executable, preferring virtual environment."""
@@ -125,6 +146,16 @@ class OrchestrationService:
                 'is_control_plane': node.is_control_plane,
                 'ssh_key_fingerprint': node.ssh_key_fingerprint
             }
+
+        # Fail fast if any target node is not ready. Partial execution causes
+        # misleading "success" status for cluster-wide operations.
+        if ssh_issues:
+            issues_text = "\n".join(ssh_issues)
+            raise ValueError(f"SSH validation failed for inventory generation:\n{issues_text}")
+
+        # Guard against empty inventories: ansible may return 0 with "no hosts matched".
+        if not inventory['all']['children']['microk8s_nodes']['hosts']:
+            raise ValueError("No SSH-ready nodes available for inventory generation")
         
         # Add common variables
         inventory['all']['children']['microk8s_nodes']['vars'] = {
@@ -140,12 +171,6 @@ class OrchestrationService:
         inventory_file = os.path.join(self.inventory_dir, f'temp_inventory_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
         with open(inventory_file, 'w') as f:
             json.dump(inventory, f, indent=2)
-        
-        # Log SSH issues if any
-        if ssh_issues:
-            logger.warning("SSH connection issues found:")
-            for issue in ssh_issues:
-                logger.warning(f"  - {issue}")
         
         return inventory_file
     
@@ -194,6 +219,7 @@ class OrchestrationService:
         
         cmd = [
             ansible_playbook_cmd,
+            '--forks', '1',
             '-i', inventory_file,
             playbook_path
         ]
@@ -205,9 +231,31 @@ class OrchestrationService:
             # Log the command being executed for debugging
             cmd_str = ' '.join(cmd)
             print(f"Executing: {cmd_str}")
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd=self.ansible_dir)
+
+            # Use writable temp paths for constrained/runtime-sandboxed environments.
+            env = os.environ.copy()
+            env.setdefault('ANSIBLE_HOME', '/tmp/.ansible')
+            env.setdefault('ANSIBLE_LOCAL_TEMP', '/tmp/ansible-local-tmp')
+            # Use /tmp for remote temp to avoid ownership conflicts when switching
+            # between connection user and become user across tasks.
+            env.setdefault('ANSIBLE_REMOTE_TEMP', '/tmp')
+            env.setdefault('ANSIBLE_LOG_PATH', '/tmp/ansible.log')
+            os.makedirs(env['ANSIBLE_HOME'], exist_ok=True)
+            os.makedirs(env['ANSIBLE_LOCAL_TEMP'], exist_ok=True)
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=self.ansible_dir,
+                env=env
+            )
             success = result.returncode == 0
+
+            stdout_lower = (result.stdout or "").lower()
+            stderr_lower = (result.stderr or "").lower()
+            if "no hosts matched" in stdout_lower or "no hosts matched" in stderr_lower:
+                success = False
             
             # Provide more detailed output
             output_parts = []
@@ -1407,6 +1455,19 @@ class OrchestrationService:
                 if not os.path.exists(playbook_path):
                     self._update_operation_status(operation, 'failed', success=False, error_message=f'Playbook not found: {playbook_path}')
                     return {'success': False, 'error': f'Playbook not found: {playbook_path}'}
+
+                # Validate SSH reachability/sudo before running Ansible.
+                all_ready, ssh_issues = self._validate_ssh_connections(nodes)
+                if not all_ready:
+                    issues_text = "\n".join(ssh_issues)
+                    self._update_operation_status(
+                        operation,
+                        'failed',
+                        success=False,
+                        output=issues_text,
+                        error_message='SSH connection validation failed'
+                    )
+                    return {'success': False, 'error': f'SSH validation failed: {issues_text}'}
                 
                 # Generate inventory
                 inventory_file = self._generate_inventory(nodes)
@@ -1432,6 +1493,15 @@ class OrchestrationService:
             if 'operation' in locals():
                 self._update_operation_status(operation, 'failed', success=False, error_message=str(e))
             return {'success': False, 'error': str(e)}
+
+    def run_operation(self, operation_id: int) -> bool:
+        """
+        Backward-compatible wrapper used by legacy CLI commands.
+
+        Returns True on success, False on failure.
+        """
+        result = self.execute_pending_operation(operation_id)
+        return bool(result.get('success'))
     
     def _parse_and_store_longhorn_results(self, ansible_output: str, nodes: list[Node]):
         """Parse Longhorn prerequisites check results and update node records."""

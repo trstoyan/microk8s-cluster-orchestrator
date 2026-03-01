@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from ..models.database import get_session
 from ..models.flask_models import Node, Cluster, Operation
+from .orchestrator import OrchestrationService
 
 class CLIOrchestrationService:
     """Service for orchestrating MicroK8s operations using Ansible (CLI version)."""
@@ -15,6 +16,11 @@ class CLIOrchestrationService:
         self.ansible_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'ansible')
         self.playbooks_dir = os.path.join(self.ansible_dir, 'playbooks')
         self.inventory_dir = os.path.join(self.ansible_dir, 'inventory')
+        self._core_service = OrchestrationService()
+
+    def __getattr__(self, name):
+        """Fallback to the main orchestration service for methods not implemented here."""
+        return getattr(self._core_service, name)
     
     def _create_operation(self, session, operation_type: str, operation_name: str, 
                          description: str, node: Optional[Node] = None, 

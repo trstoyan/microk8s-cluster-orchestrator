@@ -3,7 +3,6 @@
   hosts: microk8s_nodes
   become: yes
   gather_facts: yes
-  serial: 1
   
   vars:
     control_plane_nodes: "{{ groups['microk8s_nodes'] | select('match', '.*control.*') | list }}"
@@ -13,6 +12,28 @@
     - name: Identify control plane node
       set_fact:
         is_control_plane: "{{ inventory_hostname == groups['microk8s_nodes'][0] or 'control' in inventory_hostname }}"
+
+    - name: Ensure localhost IPv4 entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.0\.1\s+localhost(\s|$)'
+        line: '127.0.0.1 localhost'
+        create: yes
+        insertafter: BOF
+
+    - name: Ensure localhost IPv6 entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^::1\s+localhost(\s|$)'
+        line: '::1 localhost ip6-localhost ip6-loopback'
+        create: yes
+
+    - name: Ensure local hostname entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s+'
+        line: "127.0.1.1 {{ inventory_hostname }}"
+        create: yes
     
     - name: Wait for MicroK8s to be ready
       command: microk8s status --wait-ready
@@ -35,28 +56,206 @@
       when: is_control_plane and groups['microk8s_nodes'] | length > 1
       changed_when: false
     
-    - name: Extract join command
+    - name: Determine preferred control plane join IP
       set_fact:
-        join_command: "{{ join_token_output.stdout_lines | select('match', 'microk8s join.*') | first }}"
+        preferred_join_ip: >-
+          {{
+            (
+              ansible_all_ipv4_addresses
+              | default([])
+              | reject('equalto', '127.0.0.1')
+              | reject('equalto', ansible_default_ipv4.address | default(''))
+              | list
+              | first
+            )
+            | default(ansible_default_ipv4.address | default(''), true)
+          }}
+      when: is_control_plane and groups['microk8s_nodes'] | length > 1
+
+    - name: Ensure control plane API advertises cluster IP
+      lineinfile:
+        path: /var/snap/microk8s/current/args/kube-apiserver
+        regexp: '^--advertise-address=.*$'
+        line: "--advertise-address={{ preferred_join_ip }}"
+      when: is_control_plane and groups['microk8s_nodes'] | length > 1
+      register: control_plane_advertise_address
+
+    - name: Restart control plane kubelite after advertise address update
+      systemd:
+        name: snap.microk8s.daemon-kubelite
+        state: restarted
+      when:
+        - is_control_plane
+        - groups['microk8s_nodes'] | length > 1
+        - control_plane_advertise_address.changed
+
+    - name: Wait for Kubernetes service endpoint to include control plane cluster IP
+      command: microk8s kubectl get endpoints kubernetes -o jsonpath='{.subsets[0].addresses[*].ip}'
+      register: kubernetes_service_endpoints
+      retries: 30
+      delay: 4
+      until:
+        - kubernetes_service_endpoints.rc == 0
+        - preferred_join_ip in kubernetes_service_endpoints.stdout
+      changed_when: false
+      when: is_control_plane and groups['microk8s_nodes'] | length > 1
+
+    - name: Extract join commands
+      set_fact:
+        join_commands: "{{ join_token_output.stdout_lines | select('match', 'microk8s join.*') | list }}"
+      when: is_control_plane and groups['microk8s_nodes'] | length > 1
+
+    - name: Select best join command
+      set_fact:
+        join_command: >-
+          {{
+            (
+              join_commands
+              | select('search', preferred_join_ip | default(''))
+              | list
+              | first
+            )
+            | default(join_commands | first)
+          }}
       when: is_control_plane and groups['microk8s_nodes'] | length > 1
     
-    - name: Store join command for other nodes
+    - name: Get worker-specific join token from control plane
+      command: microk8s add-node
+      delegate_to: "{{ groups['microk8s_nodes'][0] }}"
+      register: worker_join_token_output
+      changed_when: false
+      throttle: 1
+      when: not is_control_plane and groups['microk8s_nodes'] | length > 1
+
+    - name: Extract worker join commands
       set_fact:
-        cluster_join_command: "{{ hostvars[groups['microk8s_nodes'][0]]['join_command'] }}"
+        worker_join_commands: "{{ worker_join_token_output.stdout_lines | select('match', 'microk8s join.*') | list }}"
+      throttle: 1
+      when: not is_control_plane and groups['microk8s_nodes'] | length > 1
+
+    - name: Select worker join command
+      set_fact:
+        worker_join_command: >-
+          {{
+            (
+              (
+                worker_join_commands
+                | select('search', hostvars[groups['microk8s_nodes'][0]].preferred_join_ip | default(''))
+                | list
+                | first
+              )
+              | default(worker_join_commands | first)
+            )
+            ~ (
+              '' if (
+                (
+                  worker_join_commands
+                  | select('search', hostvars[groups['microk8s_nodes'][0]].preferred_join_ip | default(''))
+                  | list
+                  | first
+                )
+                | default(worker_join_commands | first)
+              ) is search('--worker')
+              else ' --worker'
+            )
+          }}
+      throttle: 1
       when: not is_control_plane and groups['microk8s_nodes'] | length > 1
     
     # Worker nodes join
     - name: Join worker nodes to cluster
-      command: "{{ cluster_join_command }}"
+      command: "{{ worker_join_command }}"
+      throttle: 1
       when: 
         - not is_control_plane
         - groups['microk8s_nodes'] | length > 1
-        - cluster_join_command is defined
+        - worker_join_command is defined
       register: join_result
-      changed_when: "'already known to dqlite' not in join_result.stderr"
+      changed_when: >-
+        'already known to dqlite' not in
+        ((join_result.stdout | default('')) ~ (join_result.stderr | default('')))
       failed_when: 
         - join_result.rc != 0
-        - "'already known to dqlite' not in join_result.stderr"
+        - >-
+          'already known to dqlite' not in
+          ((join_result.stdout | default('')) ~ (join_result.stderr | default('')))
+
+    - name: Disable worker API proxy endpoint auto-refresh for static lab topology
+      lineinfile:
+        path: /var/snap/microk8s/current/args/apiserver-proxy
+        regexp: '^--refresh-interval\s+.*$'
+        line: '--refresh-interval 0s'
+      when:
+        - not is_control_plane
+        - groups['microk8s_nodes'] | length > 1
+
+    - name: Force worker API proxy to use control plane cluster IP
+      copy:
+        dest: /var/snap/microk8s/current/args/traefik/provider.yaml
+        mode: '0644'
+        content: |
+          tcp:
+            routers:
+              Router-1:
+                rule: HostSNI(`*`)
+                service: kube-apiserver
+                tls:
+                  passthrough: true
+            services:
+              kube-apiserver:
+                loadBalancer:
+                  servers:
+                  - address: {{ hostvars[groups['microk8s_nodes'][0]].preferred_join_ip | default(hostvars[groups['microk8s_nodes'][0]].ansible_host) }}:16443
+      when:
+        - not is_control_plane
+        - groups['microk8s_nodes'] | length > 1
+      register: worker_proxy_config
+
+    - name: Restart worker API proxy after join
+      systemd:
+        name: snap.microk8s.daemon-apiserver-proxy
+        state: restarted
+      when:
+        - not is_control_plane
+        - groups['microk8s_nodes'] | length > 1
+
+    - name: Restart worker kubelite after join
+      systemd:
+        name: snap.microk8s.daemon-kubelite
+        state: restarted
+      when:
+        - not is_control_plane
+        - groups['microk8s_nodes'] | length > 1
+
+    - name: Wait for worker local API proxy to respond
+      uri:
+        url: https://127.0.0.1:16443/healthz
+        method: GET
+        validate_certs: false
+        status_code:
+          - 200
+          - 401
+      register: worker_local_api_health
+      retries: 12
+      delay: 5
+      until: worker_local_api_health.status in [200, 401]
+      when:
+        - not is_control_plane
+        - groups['microk8s_nodes'] | length > 1
+
+    - name: Wait for worker node registration on control plane
+      command: "microk8s kubectl get node {{ inventory_hostname }} --no-headers"
+      delegate_to: "{{ groups['microk8s_nodes'][0] }}"
+      register: worker_registration
+      retries: 18
+      delay: 10
+      until:
+        - worker_registration.rc == 0
+        - "' Ready ' in worker_registration.stdout"
+      changed_when: false
+      when:
+        - not is_control_plane
+        - groups['microk8s_nodes'] | length > 1
     
     # Enable addons on control plane
     - name: Enable DNS addon

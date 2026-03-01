@@ -460,6 +460,9 @@ class Operation(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     
     # Relationships
+    node = db.relationship("Node", backref="operations")
+    cluster = db.relationship("Cluster", backref="operations")
+    router_switch = db.relationship("RouterSwitch", backref="operations")
     user = db.relationship("User", backref="operations")
     
     # Metadata
@@ -970,4 +973,3 @@ node_group_memberships = db.Table('node_group_memberships',
     db.Column('node_id', db.Integer, db.ForeignKey('nodes.id'), primary_key=True),
     db.Column('created_at', db.DateTime, default=datetime.utcnow)
 )
-

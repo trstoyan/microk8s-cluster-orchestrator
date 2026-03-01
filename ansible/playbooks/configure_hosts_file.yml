@@ -67,6 +67,28 @@
         mode: '0644'
         backup: yes
       register: hosts_update
+
+    - name: Ensure localhost IPv4 entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.0\.1\s+localhost(\s|$)'
+        line: '127.0.0.1 localhost'
+        create: yes
+        insertafter: BOF
+
+    - name: Ensure localhost IPv6 entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^::1\s+localhost(\s|$)'
+        line: '::1 localhost ip6-localhost ip6-loopback'
+        create: yes
+
+    - name: Ensure local hostname entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s+'
+        line: "127.0.1.1 {{ ansible_hostname }}"
+        create: yes
     
     - name: Display updated hosts file
       debug:

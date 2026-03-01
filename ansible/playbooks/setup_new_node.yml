@@ -1,6 +1,6 @@
 ---
 - name: Setup new node for MicroK8s cluster with Longhorn support
-  hosts: new_nodes
+  hosts: microk8s_nodes
   become: yes
   gather_facts: yes
   serial: 1
@@ -47,6 +47,7 @@
     
     microk8s_ports:
       - 16443  # API server
+      - 25000  # Cluster join API
       - 10250  # Kubelet API
       - 10251  # Scheduler
       - 10252  # Controller manager
@@ -138,8 +139,30 @@
     - name: Allow SSH through firewall
       ufw:
         rule: allow
-        port: "{{ ansible_ssh_port | default(22) }}"
+        port: "22"
         proto: tcp
+
+    - name: Ensure localhost IPv4 entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.0\.1\s+localhost(\s|$)'
+        line: '127.0.0.1 localhost'
+        create: yes
+        insertafter: BOF
+
+    - name: Ensure localhost IPv6 entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^::1\s+localhost(\s|$)'
+        line: '::1 localhost ip6-localhost ip6-loopback'
+        create: yes
+
+    - name: Ensure local hostname entry exists
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s+'
+        line: "127.0.1.1 {{ ansible_hostname }}"
+        create: yes
     
     - name: Enable firewall
       ufw:
