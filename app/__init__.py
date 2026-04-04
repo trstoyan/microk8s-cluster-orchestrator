@@ -5,6 +5,7 @@ from flask_login import LoginManager
 from datetime import datetime
 import json
 import logging
+import os
 from .models.database import init_database
 from .utils.config import config
 
@@ -19,14 +20,15 @@ def create_app():
     # Initialize database
     init_database(app)
 
-    # Apply pending schema migrations before serving requests so new model
-    # columns exist on upgraded databases.
-    try:
-        from .utils.migration_manager import MigrationManager
-        migration_manager = MigrationManager()
-        migration_manager.run_all_pending_migrations()
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Automatic migration check failed: %s", exc)
+    # Apply pending schema migrations only when explicitly enabled.
+    # Startup should stay fast and predictable for CLI/web smoke paths.
+    if os.environ.get("ORCHESTRATOR_AUTO_MIGRATE", "").lower() in {"1", "true", "yes", "on"}:
+        try:
+            from .utils.migration_manager import MigrationManager
+            migration_manager = MigrationManager()
+            migration_manager.run_all_pending_migrations()
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Automatic migration check failed: %s", exc)
     
     # Initialize Flask-Login
     login_manager = LoginManager()
