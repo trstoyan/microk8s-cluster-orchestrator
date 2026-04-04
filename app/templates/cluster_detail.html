@@ -21,7 +21,7 @@
         </button>
         <ul class="dropdown-menu">
             <li><a class="dropdown-item" href="#" onclick="setupCluster({{ cluster.id }})">
-                <i class="bi bi-gear"></i> Setup Cluster
+                <i class="bi bi-gear"></i> Bootstrap {{ cluster.runtime_label }}
             </a></li>
             <li><a class="dropdown-item" href="#" onclick="scanCluster({{ cluster.id }})">
                 <i class="bi bi-search"></i> Scan Cluster
@@ -94,6 +94,14 @@
                                         </div>
                                     </div>
                                 </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Runtime:</strong></td>
+                                <td><span class="badge bg-info">{{ cluster.runtime_label }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Provider:</strong></td>
+                                <td><span class="badge bg-secondary">{{ cluster.provider_label }}</span></td>
                             </tr>
                             <tr>
                                 <td><strong>HA Enabled:</strong></td>
@@ -198,8 +206,10 @@
                                 <th>Hostname</th>
                                 <th>IP Address</th>
                                 <th>Status</th>
-                                <th>MicroK8s</th>
+                                <th>Runtime</th>
+                                <th>Runtime Status</th>
                                 <th>Role</th>
+                                <th>Provider</th>
                                 <th>Wake-on-LAN</th>
                                 <th>Last Seen</th>
                                 <th>Actions</th>
@@ -225,15 +235,16 @@
                                         <span class="badge bg-secondary">{{ node.status }}</span>
                                     {% endif %}
                                 </td>
+                                <td><span class="badge bg-info">{{ node.runtime_label }}</span></td>
                                 <td>
-                                    {% if node.microk8s_status == 'running' %}
-                                        <span class="badge bg-success">{{ node.microk8s_status }}</span>
-                                    {% elif node.microk8s_status == 'installed' %}
-                                        <span class="badge bg-warning">{{ node.microk8s_status }}</span>
-                                    {% elif node.microk8s_status == 'not_installed' %}
-                                        <span class="badge bg-secondary">{{ node.microk8s_status }}</span>
+                                    {% if node.runtime_status == 'running' %}
+                                        <span class="badge bg-success">{{ node.runtime_status }}</span>
+                                    {% elif node.runtime_status == 'installed' %}
+                                        <span class="badge bg-warning">{{ node.runtime_status }}</span>
+                                    {% elif node.runtime_status == 'not_installed' %}
+                                        <span class="badge bg-secondary">{{ node.runtime_status }}</span>
                                     {% else %}
-                                        <span class="badge bg-danger">{{ node.microk8s_status }}</span>
+                                        <span class="badge bg-danger">{{ node.runtime_status }}</span>
                                     {% endif %}
                                 </td>
                                 <td>
@@ -243,6 +254,7 @@
                                         <span class="badge bg-secondary">Worker</span>
                                     {% endif %}
                                 </td>
+                                <td><span class="badge bg-secondary">{{ node.provider_label }}</span></td>
                                 <td>
                                     {% if node.wol_configured %}
                                         <span class="badge bg-success" title="{{ node.wol_description }}">
@@ -277,9 +289,9 @@
                                             <li><a class="dropdown-item" href="{{ url_for('web.node_hardware_report', node_id=node.id) }}">
                                                 <i class="bi bi-cpu"></i> Hardware Report
                                             </a></li>
-                                            {% if node.microk8s_status == 'not_installed' %}
+                                            {% if node.runtime_status == 'not_installed' and node.supports_runtime_install %}
                                             <li><a class="dropdown-item" href="#" onclick="installMicroK8s({{ node.id }})">
-                                                <i class="bi bi-download"></i> Install MicroK8s
+                                                <i class="bi bi-download"></i> Install {{ node.runtime_label }}
                                             </a></li>
                                             {% endif %}
                                             <li><hr class="dropdown-divider"></li>
@@ -794,7 +806,7 @@ function collectMacAddress(nodeId, hostname) {
 
 // Cluster management functions
 function setupCluster(clusterId) {
-    if (confirm('Setup this cluster? This will configure MicroK8s on all nodes.')) {
+    if (confirm('Bootstrap this cluster? This will configure the selected Kubernetes runtime on all nodes.')) {
         fetch(`/api/clusters/${clusterId}/setup`, {
             method: 'POST',
             headers: {
@@ -898,7 +910,7 @@ function checkForDiscoveredNodes(operationId, clusterId) {
 }
 
 function configureHosts(clusterId, clusterName) {
-    const confirmMessage = `Configure /etc/hosts file for cluster '${clusterName}'?\n\nThis will:\n- Backup original /etc/hosts files\n- Add hostname-to-IP mappings for all cluster nodes\n- Verify hostname resolution works correctly\n- Test DNS resolution for all nodes\n\nThis is essential for MicroK8s HA cluster communication.`;
+    const confirmMessage = `Configure /etc/hosts file for cluster '${clusterName}'?\n\nThis will:\n- Backup original /etc/hosts files\n- Add hostname-to-IP mappings for all cluster nodes\n- Verify hostname resolution works correctly\n- Test DNS resolution for all nodes\n\nThis is essential for stable cluster communication.`;
     
     if (confirm(confirmMessage)) {
         // Create a form and submit it to the web endpoint

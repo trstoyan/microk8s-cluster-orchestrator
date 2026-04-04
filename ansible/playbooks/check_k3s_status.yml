@@ -1,0 +1,98 @@
+---
+- name: Check k3s node status and health
+  hosts: k3s_nodes
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Check if k3s server binary is installed
+      command: which k3s
+      register: k3s_binary
+      failed_when: false
+      changed_when: false
+
+    - name: Check if k3s agent binary is installed
+      command: which k3s-agent
+      register: k3s_agent_binary
+      failed_when: false
+      changed_when: false
+
+    - name: Check k3s server service state
+      command: systemctl is-active k3s
+      register: k3s_server_state
+      failed_when: false
+      changed_when: false
+
+    - name: Check k3s agent service state
+      command: systemctl is-active k3s-agent
+      register: k3s_agent_state
+      failed_when: false
+      changed_when: false
+
+    - name: Read k3s version
+      shell: |
+        if command -v k3s >/dev/null 2>&1; then
+          k3s --version | head -n1 | awk '{print $3}'
+        elif command -v k3s-agent >/dev/null 2>&1; then
+          k3s-agent --version | head -n1 | awk '{print $3}'
+        else
+          echo unknown
+        fi
+      args:
+        executable: /bin/bash
+      register: k3s_version_check
+      failed_when: false
+      changed_when: false
+
+    - name: Check node registration from control plane
+      shell: |
+        if systemctl is-active --quiet k3s; then
+          k3s kubectl get node "{{ ansible_hostname }}" -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/control-plane}'
+        else
+          echo ""
+        fi
+      args:
+        executable: /bin/bash
+      register: control_plane_label
+      failed_when: false
+      changed_when: false
+
+    - name: Check disk usage
+      command: df -h /
+      register: disk_usage
+      changed_when: false
+
+    - name: Check memory usage
+      command: free -h
+      register: memory_usage
+      changed_when: false
+
+    - name: Check system load
+      command: uptime
+      register: system_load
+      changed_when: false
+
+    - name: Compile health report
+      set_fact:
+        health_report:
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          hostname: "{{ ansible_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address | default(ansible_host) }}"
+          os_version: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          kernel_version: "{{ ansible_kernel }}"
+          cpu_cores: "{{ ansible_processor_vcpus }}"
+          memory_gb: "{{ (ansible_memtotal_mb / 1024) | round(2) }}"
+          disk_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first / 1024 / 1024 / 1024) | round(2) }}"
+          kubernetes_distribution: "k3s"
+          kubernetes_installed: "{{ k3s_binary.rc == 0 or k3s_agent_binary.rc == 0 }}"
+          kubernetes_running: "{{ k3s_server_state.stdout == 'active' or k3s_agent_state.stdout == 'active' }}"
+          kubernetes_version: "{{ k3s_version_check.stdout | trim }}"
+          service_active: "{{ k3s_server_state.stdout == 'active' or k3s_agent_state.stdout == 'active' }}"
+          is_control_plane: "{{ k3s_server_state.stdout == 'active' or (control_plane_label.stdout | trim) != '' }}"
+          disk_usage: "{{ disk_usage.stdout }}"
+          memory_usage: "{{ memory_usage.stdout }}"
+          system_load: "{{ system_load.stdout }}"
+
+    - name: Display health report
+      debug:
+        var: health_report

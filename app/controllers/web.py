@@ -41,10 +41,34 @@ def nodes():
     nodes = Node.query.all()
     return render_template('nodes.html', nodes=nodes)
 
+@bp.route('/providers/virtualbox')
+@login_required
+def virtualbox_inventory():
+    """VirtualBox VM inventory page."""
+    from ..services.virtualbox_service import VirtualBoxService
+    service = VirtualBoxService()
+    vms = service.list_vms()
+    clusters = Cluster.query.order_by(Cluster.name).all()
+    return render_template('virtualbox_inventory.html', vms=vms, clusters=clusters)
+
 @bp.route('/nodes/add', methods=['GET', 'POST'])
 @login_required
 def add_node():
     """Add a new node."""
+    prefill = {
+        'hostname': request.args.get('hostname', ''),
+        'ip_address': request.args.get('ip_address', ''),
+        'ssh_user': request.args.get('ssh_user', 'ubuntu'),
+        'ssh_port': request.args.get('ssh_port', 22),
+        'cluster_id': request.args.get('cluster_id', ''),
+        'notes': request.args.get('notes', ''),
+        'virtualization_provider': request.args.get('virtualization_provider', ''),
+        'provider_vm_name': request.args.get('provider_vm_name', ''),
+        'provider_vm_group': request.args.get('provider_vm_group', ''),
+        'provider_metadata': request.args.get('provider_metadata', ''),
+        'is_control_plane': request.args.get('is_control_plane', '').lower() in ('1', 'true', 'yes'),
+    }
+
     if request.method == 'POST':
         try:
             # Create the node first
@@ -54,7 +78,13 @@ def add_node():
                 ssh_user=request.form.get('ssh_user', 'ubuntu'),
                 ssh_port=int(request.form.get('ssh_port', 22)),
                 cluster_id=request.form.get('cluster_id') or None,
-                notes=request.form.get('notes')
+                notes=request.form.get('notes'),
+                is_control_plane='is_control_plane' in request.form,
+                virtualization_provider=request.form.get('virtualization_provider') or 'generic',
+                provider_vm_name=request.form.get('provider_vm_name') or None,
+                provider_vm_group=request.form.get('provider_vm_group') or None,
+                provider_metadata=request.form.get('provider_metadata') or None,
+                is_virtual_node=(request.form.get('virtualization_provider') or 'generic') != 'generic'
             )
             db.session.add(node)
             db.session.flush()  # Get the node ID
@@ -119,7 +149,7 @@ def add_node():
             return redirect(url_for('web.add_node'))
     
     clusters = Cluster.query.all()
-    return render_template('add_node.html', clusters=clusters)
+    return render_template('add_node.html', clusters=clusters, prefill=prefill)
 
 @bp.route('/nodes/<int:node_id>/edit', methods=['GET', 'POST'])
 @login_required
@@ -136,6 +166,12 @@ def edit_node(node_id):
             node.ssh_user = request.form.get('ssh_user', 'ubuntu')
             node.ssh_port = int(request.form.get('ssh_port', 22))
             node.cluster_id = request.form.get('cluster_id') or None
+            node.is_control_plane = 'is_control_plane' in request.form
+            node.virtualization_provider = request.form.get('virtualization_provider') or 'generic'
+            node.provider_vm_name = request.form.get('provider_vm_name') or None
+            node.provider_vm_group = request.form.get('provider_vm_group') or None
+            node.provider_metadata = request.form.get('provider_metadata') or None
+            node.is_virtual_node = node.virtualization_provider != 'generic'
             node.notes = request.form.get('notes')
             
             # Update tags if provided
@@ -688,7 +724,7 @@ def node_detail(node_id):
         'failed_operations': len([op for op in recent_operations if not op.success]),
         'wol_configured': node.wol_configured,
         'ssh_ready': node.ssh_connection_ready,
-        'microk8s_ready': node.microk8s_status == 'running'
+        'microk8s_ready': node.runtime_status == 'running'
     }
     
     return render_template('node_detail.html', 
@@ -813,7 +849,9 @@ def add_cluster():
                 description=request.form.get('description'),
                 ha_enabled='ha_enabled' in request.form,
                 network_cidr=request.form.get('network_cidr', '10.1.0.0/16'),
-                service_cidr=request.form.get('service_cidr', '10.152.183.0/24')
+                service_cidr=request.form.get('service_cidr', '10.152.183.0/24'),
+                kubernetes_distribution=request.form.get('kubernetes_distribution', 'microk8s'),
+                infrastructure_provider=request.form.get('infrastructure_provider', 'generic')
             )
             db.session.add(cluster)
             db.session.commit()

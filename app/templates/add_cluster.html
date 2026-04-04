@@ -28,6 +28,27 @@
 
                     <div class="row">
                         <div class="col-md-6 mb-3">
+                            <label for="kubernetes_distribution" class="form-label">Kubernetes Runtime</label>
+                            <select class="form-select" id="kubernetes_distribution" name="kubernetes_distribution">
+                                <option value="microk8s">MicroK8s</option>
+                                <option value="k3s">k3s</option>
+                            </select>
+                            <div class="form-text">Select the Kubernetes distribution this cluster will run.</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="infrastructure_provider" class="form-label">Infrastructure Provider</label>
+                            <select class="form-select" id="infrastructure_provider" name="infrastructure_provider">
+                                <option value="generic">Generic</option>
+                                <option value="virtualbox">VirtualBox</option>
+                                <option value="baremetal">Bare Metal</option>
+                                <option value="proxmox">Proxmox</option>
+                            </select>
+                            <div class="form-text">Track where this cluster is hosted.</div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
                             <label for="network_cidr" class="form-label">Network CIDR</label>
                             <input type="text" class="form-control" id="network_cidr" name="network_cidr" 
                                    value="10.1.0.0/16" placeholder="10.1.0.0/16">
@@ -102,9 +123,9 @@
                 <p class="mb-2">After creating the cluster:</p>
                 <ol class="mb-0">
                     <li>Add nodes to the cluster</li>
-                    <li>Install MicroK8s on each node</li>
-                    <li>Run the cluster setup to join nodes together</li>
-                    <li>Enable additional addons as needed</li>
+                    <li>Prepare SSH access for every node</li>
+                    <li>Run cluster setup/bootstrap for the selected runtime</li>
+                    <li>Validate cluster health and drift with a cluster scan</li>
                 </ol>
             </div>
         </div>
@@ -132,6 +153,18 @@ document.getElementById('name').addEventListener('input', function() {
         
         networkInput.value = `10.${networkOctet}.0.0/16`;
         serviceInput.value = `10.152.${serviceOctet}.0/24`;
+    }
+});
+
+document.getElementById('kubernetes_distribution').addEventListener('change', function() {
+    const networkInput = document.getElementById('network_cidr');
+    const serviceInput = document.getElementById('service_cidr');
+    if (this.value === 'k3s') {
+        networkInput.value = '10.42.0.0/16';
+        serviceInput.value = '10.43.0.0/16';
+    } else {
+        networkInput.value = '10.1.0.0/16';
+        serviceInput.value = '10.152.183.0/24';
     }
 });
 </script>

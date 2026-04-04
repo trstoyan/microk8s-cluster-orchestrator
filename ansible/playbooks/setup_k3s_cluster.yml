@@ -1,0 +1,120 @@
+---
+- name: Bootstrap k3s cluster
+  hosts: cluster_nodes
+  become: yes
+  gather_facts: yes
+
+  vars:
+    primary_control_plane_host: >-
+      {{
+        (
+          groups['cluster_nodes']
+          | map('extract', hostvars)
+          | selectattr('is_control_plane', 'equalto', true)
+          | map(attribute='inventory_hostname')
+          | list
+          | first
+        )
+        | default(groups['cluster_nodes'][0], true)
+      }}
+    k3s_disable_components: "{{ k3s_disable_components | default(['traefik']) }}"
+    k3s_write_kubeconfig_mode: "{{ k3s_write_kubeconfig_mode | default('644') }}"
+    k3s_server_exec: >-
+      server --write-kubeconfig-mode {{ k3s_write_kubeconfig_mode }}
+      --cluster-cidr {{ network_cidr }}
+      --service-cidr {{ service_cidr }}
+      {% for component in k3s_disable_components %} --disable {{ component }}{% endfor %}
+
+  tasks:
+    - name: Ensure k3s prerequisites are installed
+      apt:
+        name:
+          - curl
+          - ca-certificates
+        state: present
+        update_cache: yes
+
+    - name: Install primary k3s server
+      shell: |
+        set -o pipefail
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_EXEC="{{ k3s_server_exec | trim }}" \
+          sh -
+      args:
+        executable: /bin/bash
+        creates: /etc/systemd/system/k3s.service
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Wait for primary node token
+      wait_for:
+        path: /var/lib/rancher/k3s/server/node-token
+        timeout: 180
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Read cluster join token
+      slurp:
+        path: /var/lib/rancher/k3s/server/node-token
+      register: k3s_node_token
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Wait for k3s API on primary control plane
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 6443
+        timeout: 180
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Propagate cluster token
+      set_fact:
+        shared_k3s_token: "{{ hostvars[primary_control_plane_host].k3s_node_token.content | b64decode | trim }}"
+        shared_k3s_url: "https://{{ hostvars[primary_control_plane_host].ansible_host }}:6443"
+      when: inventory_hostname != primary_control_plane_host
+
+    - name: Install additional control plane servers
+      shell: |
+        set -o pipefail
+        curl -sfL https://get.k3s.io | \
+          K3S_URL="{{ shared_k3s_url }}" \
+          K3S_TOKEN="{{ shared_k3s_token }}" \
+          INSTALL_K3S_EXEC="{{ k3s_server_exec | trim }}" \
+          sh -
+      args:
+        executable: /bin/bash
+        creates: /etc/systemd/system/k3s.service
+      when:
+        - inventory_hostname != primary_control_plane_host
+        - is_control_plane | default(false)
+
+    - name: Install worker agents
+      shell: |
+        set -o pipefail
+        curl -sfL https://get.k3s.io | \
+          K3S_URL="{{ shared_k3s_url }}" \
+          K3S_TOKEN="{{ shared_k3s_token }}" \
+          INSTALL_K3S_EXEC="agent" \
+          sh -
+      args:
+        executable: /bin/bash
+        creates: /etc/systemd/system/k3s-agent.service
+      when:
+        - inventory_hostname != primary_control_plane_host
+        - not (is_control_plane | default(false))
+
+    - name: Wait for all nodes to register on primary control plane
+      command: k3s kubectl get nodes --no-headers
+      register: registered_nodes
+      retries: 18
+      delay: 10
+      until:
+        - registered_nodes.rc == 0
+        - registered_nodes.stdout_lines | length >= groups['cluster_nodes'] | length
+      changed_when: false
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Display k3s bootstrap summary
+      debug:
+        msg:
+          - "k3s cluster bootstrap completed"
+          - "Primary control plane: {{ primary_control_plane_host }}"
+          - "Registered nodes: {{ registered_nodes.stdout_lines | default([]) | length }}"
+      when: inventory_hostname == primary_control_plane_host

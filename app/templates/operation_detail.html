@@ -261,12 +261,16 @@
                             </td>
                         </tr>
                         <tr>
-                            <td><strong>MicroK8s:</strong></td>
+                            <td><strong>Runtime:</strong></td>
+                            <td><span class="badge bg-info">{{ operation.node.runtime_label }}</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Runtime Status:</strong></td>
                             <td>
-                                {% if operation.node.microk8s_status == 'running' %}
-                                    <span class="badge bg-success">{{ operation.node.microk8s_status }}</span>
+                                {% if operation.node.runtime_status == 'running' %}
+                                    <span class="badge bg-success">{{ operation.node.runtime_status }}</span>
                                 {% else %}
-                                    <span class="badge bg-secondary">{{ operation.node.microk8s_status }}</span>
+                                    <span class="badge bg-secondary">{{ operation.node.runtime_status }}</span>
                                 {% endif %}
                             </td>
                         </tr>

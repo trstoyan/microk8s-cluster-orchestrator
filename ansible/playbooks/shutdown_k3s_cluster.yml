@@ -1,0 +1,48 @@
+---
+- name: Shutdown k3s cluster
+  hosts: cluster_nodes
+  become: yes
+  vars:
+    shutdown_timeout: "{{ shutdown_timeout | default(300) }}"
+    graceful_shutdown: "{{ graceful_shutdown | default(true) }}"
+
+  tasks:
+    - name: Display shutdown information
+      debug:
+        msg: |
+          Cluster: {{ cluster_name }}
+          Runtime: k3s
+          Shutdown type: {{ 'Graceful' if graceful_shutdown else 'Force' }}
+          Timeout: {{ shutdown_timeout }} seconds
+
+    - name: Stop k3s server service when present
+      systemd:
+        name: k3s
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Stop k3s agent service when present
+      systemd:
+        name: k3s-agent
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Wait for shutdown grace period
+      wait_for:
+        timeout: "{{ shutdown_timeout if graceful_shutdown else 30 }}"
+
+    - name: Force kill remaining k3s processes
+      shell: |
+        pkill -f /usr/local/bin/k3s || true
+        pkill -f /usr/local/bin/k3s-agent || true
+      when: not graceful_shutdown
+      ignore_errors: true
+
+    - name: Display shutdown completion message
+      debug:
+        msg: |
+          k3s cluster shutdown completed successfully.
+          Cluster: {{ cluster_name }}
+          Node: {{ inventory_hostname }}

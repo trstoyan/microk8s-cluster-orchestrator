@@ -250,12 +250,25 @@ class PlaybookService:
         """Generate Ansible inventory from nodes."""
         inventory = {
             'all': {
-                'hosts': {},
-                'vars': {}
+                'children': {
+                    'cluster_nodes': {
+                        'hosts': {},
+                        'vars': {}
+                    },
+                    'microk8s_nodes': {
+                        'hosts': {},
+                        'vars': {}
+                    },
+                    'k3s_nodes': {
+                        'hosts': {},
+                        'vars': {}
+                    }
+                }
             }
         }
         
         for node in nodes:
+            runtime = node.cluster_runtime if hasattr(node, 'cluster_runtime') else 'microk8s'
             host_vars = {
                 'ansible_host': node.ip_address,
                 'ansible_user': node.ssh_user,
@@ -263,6 +276,8 @@ class PlaybookService:
                 'ansible_ssh_private_key_file': node.ssh_key_path,
                 'hostname': node.hostname,
                 'microk8s_status': node.microk8s_status,
+                'kubernetes_status': getattr(node, 'kubernetes_status', node.microk8s_status),
+                'cluster_runtime': runtime,
                 'is_control_plane': node.is_control_plane
             }
             
@@ -272,8 +287,10 @@ class PlaybookService:
                 if cluster:
                     host_vars['cluster_name'] = cluster.name
             
-            inventory['all']['hosts'][node.hostname] = host_vars
-        
+            inventory['all']['children']['cluster_nodes']['hosts'][node.hostname] = host_vars
+            inventory['all']['children']['microk8s_nodes']['hosts'][node.hostname] = dict(host_vars)
+            inventory['all']['children']['k3s_nodes']['hosts'][node.hostname] = dict(host_vars)
+
         return yaml.dump(inventory, default_flow_style=False)
     
     def validate_yaml(self, yaml_content: str) -> Tuple[bool, str]:
@@ -519,6 +536,78 @@ class PlaybookService:
                     'required': []
                 }),
                 'tags': 'microk8s,addons,configuration',
+                'is_system': True
+            },
+            {
+                'name': 'Bootstrap k3s Cluster',
+                'description': 'Bootstrap a k3s server/agent cluster from the current inventory',
+                'category': 'k3s',
+                'yaml_content': '''---
+- name: Bootstrap k3s Cluster
+  hosts: cluster_nodes
+  become: yes
+  vars:
+    primary_control_plane_host: "{{ groups['cluster_nodes'][0] }}"
+  tasks:
+    - name: Install prerequisites
+      apt:
+        name:
+          - curl
+          - ca-certificates
+        state: present
+        update_cache: yes
+
+    - name: Install primary control plane
+      shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_EXEC="server --write-kubeconfig-mode 644 --disable traefik" \
+          sh -
+      args:
+        executable: /bin/bash
+      when: inventory_hostname == primary_control_plane_host
+''',
+                'variables_schema': json.dumps({
+                    'type': 'object',
+                    'properties': {
+                        'network_cidr': {'type': 'string', 'default': '10.42.0.0/16'},
+                        'service_cidr': {'type': 'string', 'default': '10.43.0.0/16'},
+                    },
+                    'required': []
+                }),
+                'tags': 'k3s,bootstrap,cluster',
+                'is_system': True
+            },
+            {
+                'name': 'Check k3s Health',
+                'description': 'Check whether k3s or k3s-agent is installed and running',
+                'category': 'k3s',
+                'yaml_content': '''---
+- name: Check k3s Health
+  hosts: cluster_nodes
+  become: yes
+  tasks:
+    - name: Check server state
+      command: systemctl is-active k3s
+      register: k3s_server
+      failed_when: false
+      changed_when: false
+
+    - name: Check agent state
+      command: systemctl is-active k3s-agent
+      register: k3s_agent
+      failed_when: false
+      changed_when: false
+
+    - name: Display state
+      debug:
+        msg: "server={{ k3s_server.stdout | default('missing') }} agent={{ k3s_agent.stdout | default('missing') }}"
+''',
+                'variables_schema': json.dumps({
+                    'type': 'object',
+                    'properties': {},
+                    'required': []
+                }),
+                'tags': 'k3s,health,monitoring',
                 'is_system': True
             },
             {

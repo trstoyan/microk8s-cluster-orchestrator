@@ -68,12 +68,50 @@
                                         {% for cluster in clusters %}
                                         <option value="{{ cluster.id }}" 
                                                 {% if node.cluster_id == cluster.id %}selected{% endif %}>
-                                            {{ cluster.name }}
+                                            {{ cluster.name }} ({{ cluster.runtime_label }})
                                         </option>
                                         {% endfor %}
                                     </select>
                                     <div class="form-text">Assign this node to a cluster</div>
                                 </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" id="is_control_plane" name="is_control_plane"
+                                                   {% if node.is_control_plane %}checked{% endif %}>
+                                            <label class="form-check-label" for="is_control_plane">
+                                                Control plane node
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="virtualization_provider" class="form-label">Infrastructure Provider</label>
+                                            <input type="text" class="form-control" id="virtualization_provider" name="virtualization_provider"
+                                                   value="{{ node.virtualization_provider or 'generic' }}">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="provider_vm_name" class="form-label">Provider VM Name</label>
+                                            <input type="text" class="form-control" id="provider_vm_name" name="provider_vm_name"
+                                                   value="{{ node.provider_vm_name or '' }}">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="provider_vm_group" class="form-label">Provider VM Group</label>
+                                            <input type="text" class="form-control" id="provider_vm_group" name="provider_vm_group"
+                                                   value="{{ node.provider_vm_group or '' }}">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <input type="hidden" id="provider_metadata" name="provider_metadata" value="{{ node.provider_metadata or '' }}">
 
                                 <div class="mb-3">
                                     <label for="tags" class="form-label">Tags</label>

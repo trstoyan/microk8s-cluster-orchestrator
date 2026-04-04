@@ -50,6 +50,12 @@ def create_node():
             ssh_port=data.get('ssh_port', 22),
             ssh_key_path=data.get('ssh_key_path'),
             cluster_id=data.get('cluster_id'),
+            is_control_plane=data.get('is_control_plane', False),
+            virtualization_provider=data.get('virtualization_provider', 'generic'),
+            provider_vm_name=data.get('provider_vm_name'),
+            provider_vm_group=data.get('provider_vm_group'),
+            provider_metadata=data.get('provider_metadata'),
+            is_virtual_node=bool(data.get('virtualization_provider')),
             tags=data.get('tags'),
             notes=data.get('notes')
         )
@@ -82,7 +88,11 @@ def update_node(node_id):
         changes = {}
         
         # Update allowed fields
-        allowed_fields = ['hostname', 'ip_address', 'ssh_user', 'ssh_port', 'cluster_id', 'tags', 'notes']
+        allowed_fields = [
+            'hostname', 'ip_address', 'ssh_user', 'ssh_port', 'cluster_id',
+            'tags', 'notes', 'is_control_plane', 'virtualization_provider',
+            'provider_vm_name', 'provider_vm_group', 'provider_metadata'
+        ]
         
         for field in allowed_fields:
             if field in data:
@@ -109,6 +119,8 @@ def update_node(node_id):
                 
                 setattr(node, field, new_value)
                 changes[field] = {'old': old_value, 'new': new_value}
+
+        node.is_virtual_node = bool(node.virtualization_provider and node.virtualization_provider != 'generic')
         
         # Update timestamp
         from datetime import datetime
@@ -166,7 +178,9 @@ def create_cluster():
             ha_enabled=data.get('ha_enabled', False),
             addons=data.get('addons'),
             network_cidr=data.get('network_cidr', '10.1.0.0/16'),
-            service_cidr=data.get('service_cidr', '10.152.183.0/24')
+            service_cidr=data.get('service_cidr', '10.152.183.0/24'),
+            kubernetes_distribution=data.get('kubernetes_distribution', 'microk8s'),
+            infrastructure_provider=data.get('infrastructure_provider', 'generic')
         )
         db.session.add(cluster)
         db.session.commit()
@@ -181,6 +195,33 @@ def get_cluster(cluster_id):
     """Get a specific cluster."""
     cluster = Cluster.query.get_or_404(cluster_id)
     return jsonify(cluster.to_dict())
+
+@bp.route('/providers/virtualbox/vms', methods=['GET'])
+@login_required
+def list_virtualbox_vms():
+    """List VirtualBox VMs visible on the orchestrator host."""
+    try:
+        from ..services.virtualbox_service import VirtualBoxService
+        service = VirtualBoxService()
+        return jsonify(service.list_vms())
+    except Exception as e:
+        logger.exception("Failed to query VirtualBox inventory")
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/providers/virtualbox/vms/<vm_name>/prefill', methods=['GET'])
+@login_required
+def get_virtualbox_vm_prefill(vm_name):
+    """Get prefill data for adopting a VirtualBox VM as a managed node."""
+    try:
+        from ..services.virtualbox_service import VirtualBoxService
+        service = VirtualBoxService()
+        prefill = service.build_node_prefill(vm_name)
+        if not prefill:
+            return jsonify({'error': f'VirtualBox VM "{vm_name}" not found'}), 404
+        return jsonify(prefill)
+    except Exception as e:
+        logger.exception("Failed to build VirtualBox prefill for %s", vm_name)
+        return jsonify({'error': str(e)}), 500
 
 # Router/Switch endpoints
 @bp.route('/router-switches', methods=['GET'])

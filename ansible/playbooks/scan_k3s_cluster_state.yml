@@ -1,0 +1,135 @@
+---
+- name: Scan k3s cluster state and validate configuration
+  hosts: cluster_nodes
+  become: yes
+  gather_facts: yes
+  vars:
+    primary_control_plane_host: >-
+      {{
+        (
+          groups['cluster_nodes']
+          | map('extract', hostvars)
+          | selectattr('is_control_plane', 'equalto', true)
+          | map(attribute='inventory_hostname')
+          | list
+          | first
+        )
+        | default(groups['cluster_nodes'][0], true)
+      }}
+
+  tasks:
+
+    - name: Check local k3s service health
+      shell: |
+        if systemctl is-active --quiet k3s; then
+          echo running
+        elif systemctl is-active --quiet k3s-agent; then
+          echo running
+        elif command -v k3s >/dev/null 2>&1 || command -v k3s-agent >/dev/null 2>&1; then
+          echo installed
+        else
+          echo not_installed
+        fi
+      args:
+        executable: /bin/bash
+      register: local_runtime_state
+      changed_when: false
+
+    - name: Record node runtime state
+      set_fact:
+        node_status:
+          hostname: "{{ inventory_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address | default(ansible_host) }}"
+          ready: "{{ local_runtime_state.stdout == 'running' }}"
+          roles:
+            - "{{ 'control-plane' if is_control_plane | default(false) else 'worker' }}"
+          issues: "{{ [] if local_runtime_state.stdout == 'running' else ['Runtime not active'] }}"
+
+    - name: Gather cluster node json from primary control plane
+      command: k3s kubectl get nodes -o json
+      register: cluster_nodes_json
+      changed_when: false
+      failed_when: false
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Parse cluster node json
+      set_fact:
+        parsed_cluster_nodes: "{{ (cluster_nodes_json.stdout | from_json).items if cluster_nodes_json.rc == 0 else [] }}"
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Build discovered node list
+      set_fact:
+        discovered_nodes_json: >-
+          {%- set result = [] -%}
+          {%- for item in parsed_cluster_nodes | default([]) -%}
+          {%- set addresses = item.status.addresses | default([]) -%}
+          {%- set internal = (addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | list | first) -%}
+          {%- set labels = item.metadata.labels | default({}) -%}
+          {%- set roles = [] -%}
+          {%- if 'node-role.kubernetes.io/control-plane' in labels -%}
+          {%- set _ = roles.append('control-plane') -%}
+          {%- else -%}
+          {%- set _ = roles.append('worker') -%}
+          {%- endif -%}
+          {%- set ready_conditions = item.status.conditions | default([]) | selectattr('type', 'equalto', 'Ready') | list -%}
+          {%- set is_ready = ready_conditions | selectattr('status', 'equalto', 'True') | list | length > 0 -%}
+          {%- set _ = result.append({'hostname': item.metadata.name, 'ip_address': internal, 'labels': labels, 'ready': is_ready, 'roles': roles}) -%}
+          {%- endfor -%}
+          {{ result | to_json }}
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Build k3s scan summary
+      set_fact:
+        final_scan_results:
+          overall_health: >-
+            {{
+              (parsed_cluster_nodes | default([]) | length) >= (groups['cluster_nodes'] | length)
+              and (
+                parsed_cluster_nodes
+                | default([])
+                | selectattr('status.conditions', 'defined')
+                | list
+                | length
+              ) >= 1
+            }}
+          health_score: >-
+            {{
+              100
+              - (
+                (
+                  parsed_cluster_nodes
+                  | default([])
+                  | selectattr('status.conditions', 'defined')
+                  | list
+                  | map(attribute='status.conditions')
+                  | list
+                  | sum(start=[])
+                  | selectattr('type', 'equalto', 'Ready')
+                  | rejectattr('status', 'equalto', 'True')
+                  | list
+                  | length
+                ) * 20
+              )
+            }}
+          cluster_info:
+            runtime: "k3s"
+            total_nodes: "{{ parsed_cluster_nodes | default([]) | length }}"
+            expected_nodes: "{{ groups['cluster_nodes'] | length }}"
+          nodes_status: "{{ groups['cluster_nodes'] | map('extract', hostvars, 'node_status') | list }}"
+          issues: >-
+            {{
+              [] if (parsed_cluster_nodes | default([]) | length) >= (groups['cluster_nodes'] | length)
+              else ['Observed node count does not match expected inventory']
+            }}
+          scan_timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Emit structured scan results
+      debug:
+        msg: "CLUSTER_SCAN_RESULTS: {{ final_scan_results | to_json }}"
+      when: inventory_hostname == primary_control_plane_host
+
+    - name: Emit discovered nodes json
+      debug:
+        msg: "DISCOVERED_NODES_JSON: {{ discovered_nodes_json }}"
+      when: inventory_hostname == primary_control_plane_host

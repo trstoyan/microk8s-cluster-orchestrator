@@ -47,16 +47,20 @@
                                 </td>
                             </tr>
                             <tr>
-                                <td><strong>MicroK8s Status:</strong></td>
+                                <td><strong>Runtime:</strong></td>
+                                <td><span class="badge bg-info">{{ node.runtime_label }}</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Runtime Status:</strong></td>
                                 <td>
-                                    {% if node.microk8s_status == 'running' %}
-                                        <span class="badge bg-success">{{ node.microk8s_status }}</span>
-                                    {% elif node.microk8s_status == 'installed' %}
-                                        <span class="badge bg-info">{{ node.microk8s_status }}</span>
-                                    {% elif node.microk8s_status == 'not_installed' %}
+                                    {% if node.runtime_status == 'running' %}
+                                        <span class="badge bg-success">{{ node.runtime_status }}</span>
+                                    {% elif node.runtime_status == 'installed' %}
+                                        <span class="badge bg-info">{{ node.runtime_status }}</span>
+                                    {% elif node.runtime_status == 'not_installed' %}
                                         <span class="badge bg-secondary">not installed</span>
                                     {% else %}
-                                        <span class="badge bg-warning">{{ node.microk8s_status }}</span>
+                                        <span class="badge bg-warning">{{ node.runtime_status }}</span>
                                     {% endif %}
                                 </td>
                             </tr>
@@ -528,9 +532,9 @@
                     <button type="button" class="btn btn-outline-primary" onclick="checkStatus({{ node.id }})">
                         <i class="bi bi-arrow-clockwise"></i> Check Status
                     </button>
-                    {% if node.microk8s_status == 'not_installed' %}
+                    {% if node.runtime_status == 'not_installed' and node.supports_runtime_install %}
                     <button type="button" class="btn btn-outline-success" onclick="installMicroK8s({{ node.id }})">
-                        <i class="bi bi-download"></i> Install MicroK8s
+                        <i class="bi bi-download"></i> Install {{ node.runtime_label }}
                     </button>
                     <button type="button" class="btn btn-success" onclick="setupNewNode({{ node.id }})">
                         <i class="bi bi-gear"></i> Complete Setup
@@ -596,7 +600,7 @@
                                 <i class="bi bi-x-circle text-danger fs-4"></i>
                             {% endif %}
                         </div>
-                        <small class="text-muted">MicroK8s Ready</small>
+                        <small class="text-muted">Runtime Ready</small>
                     </div>
                 </div>
             </div>

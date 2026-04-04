@@ -1,10 +1,10 @@
 # ⚡ MicroK8s Cluster Orchestrator
 
-A comprehensive, agnostic system for managing MicroK8s clusters using Ansible automation and a Python application. This orchestrator provides a complete solution for deploying, configuring, monitoring, and troubleshooting MicroK8s clusters across multiple nodes.
+A runtime-aware cluster orchestration system for managing `microk8s` and `k3s` clusters with Ansible automation and a Python application. The repository name is legacy, but the platform now supports multiple Kubernetes runtimes and infrastructure providers, including VirtualBox-based node adoption.
 
 > **Built for developers who understand that AI is just really advanced autocompletion** 🧠⚡
 
-![MicroK8s Cluster Orchestrator](https://img.shields.io/badge/MicroK8s-Orchestrator-blue?style=for-the-badge&logo=kubernetes)
+![Kubernetes Cluster Orchestrator](https://img.shields.io/badge/Kubernetes-Orchestrator-blue?style=for-the-badge&logo=kubernetes)
 ![Python](https://img.shields.io/badge/Python-3.8+-blue?style=flat-square&logo=python)
 ![Flask](https://img.shields.io/badge/Flask-2.0+-green?style=flat-square&logo=flask)
 ![Ansible](https://img.shields.io/badge/Ansible-Automation-red?style=flat-square&logo=ansible)
@@ -17,7 +17,7 @@ A comprehensive, agnostic system for managing MicroK8s clusters using Ansible au
 
 ## ⚠️ Disclaimer
 
-This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd. or the MicroK8s project. MicroK8s is a trademark of Canonical Ltd. This tool is an independent management interface for MicroK8s clusters.
+This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd. or the MicroK8s project. MicroK8s is a trademark of Canonical Ltd. This tool is an independent management interface for self-managed Kubernetes clusters, including MicroK8s and k3s.
 
 ## ✨ Features
 
@@ -26,6 +26,9 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
   - **Auto-Discovery**: Scan clusters to find nodes already joined but not in orchestrator
   - One-click bulk addition of discovered nodes with automatic SSH key generation
   - Friendly duplicate detection with helpful error messages and edit links
+- **Runtime-Aware Clusters**: Manage `microk8s` and `k3s` clusters from the same control plane
+- **Provider Metadata**: Track infrastructure provider details for nodes and clusters
+- **VirtualBox Inventory Adoption**: Discover host VMs and prefill node onboarding for existing VirtualBox-backed environments
 - **Cluster Orchestration**: Automated cluster setup, configuration, and graceful shutdown
 - **Web Dashboard**: Modern, responsive tabbed interface for system management
   - Overview: Quick status and system actions
@@ -53,11 +56,11 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
 - **Auto-Verification**: Setup script automatically tests connection and updates node status
 
 ### 🌐 **Network & Communication**
-- **Hosts File Configuration**: Automatic `/etc/hosts` configuration for MicroK8s HA clusters
+- **Hosts File Configuration**: Automatic `/etc/hosts` configuration for Kubernetes HA clusters
   - Ensures proper hostname resolution across all cluster nodes
   - Creates backups of original files before modification
   - Validates hostname resolution and DNS functionality
-  - Essential for MicroK8s High Availability cluster communication
+  - Essential for reliable control-plane and east-west cluster communication
 
 ### 🔄 **Live Server Sync**
 - **Real-Time Data Synchronization**: Sync orchestrator data between multiple servers
@@ -73,7 +76,7 @@ This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd.
 
 ### 🎨 **Playbook Editor**
 - **Visual Drag-and-Drop Interface**: Build Ansible playbooks without YAML knowledge
-- **Template Library**: Pre-built templates for common MicroK8s operations
+- **Template Library**: Pre-built templates for common cluster operations, including MicroK8s and k3s
 - **Target Selection System**: Flexible node targeting (all nodes, clusters, groups, individual)
 - **Real-time YAML Preview**: Live generation of Ansible YAML from visual components
 - **Execution Engine**: Background Ansible execution with real-time monitoring
@@ -177,7 +180,7 @@ The system follows a modular architecture with clear separation of concerns:
           ┌─────────────────┼───────────────────────────┐
           │                 │                           │
     ┌─────▼─────┐    ┌──────▼──────┐         ┌─────────▼─────────┐
-    │  SQLite   │    │   Ansible   │         │   MicroK8s Nodes │
+    │  SQLite   │    │   Ansible   │         │ Kubernetes Nodes │
     │ Database  │    │ Playbooks   │         │   (Target Hosts)  │
     │ + RAG KB  │    │ + Docs      │         │                   │
     └───────────┘    └─────────────┘         └───────────────────┘
@@ -193,7 +196,7 @@ The system follows a modular architecture with clear separation of concerns:
 - **SSH**: Access to target nodes
 - **Internet**: Connectivity for package downloads
 
-#### Target Nodes (MicroK8s hosts)
+#### Target Nodes (Cluster hosts)
 - **Operating System**: Ubuntu 20.04+ or similar Linux distribution
 - **Architecture**: x86_64 or ARM64
 - **Memory**: Minimum 2GB RAM (4GB+ recommended)
@@ -202,6 +205,7 @@ The system follows a modular architecture with clear separation of concerns:
 - **Privileges**: Sudo access (passwordless authentication will be configured automatically)
 - **Services**: SSH server running and accessible
 - **SSH Access**: Initial SSH access (password or existing key) for setup
+- **Supported runtimes**: `microk8s` and `k3s`
 
 ### Installation
 
@@ -264,16 +268,17 @@ cd microk8s-cluster-orchestrator
 
 2. **Create a cluster**:
    ```bash
-   python cli.py cluster add --name production --description "Production MicroK8s cluster" --ha
+   python cli.py cluster add --name production --description "Production k3s cluster" --ha --runtime k3s --provider virtualbox
    ```
 
-3. **Install MicroK8s on a node**:
+3. **List VirtualBox VMs for adoption**:
+   ```bash
+   python cli.py provider virtualbox-list
+   ```
+
+4. **Install the runtime on a standalone MicroK8s node or bootstrap a cluster**:
    ```bash
    python cli.py node install 1
-   ```
-
-4. **Setup the cluster**:
-   ```bash
    python cli.py cluster setup 1
    ```
 
@@ -335,8 +340,11 @@ python cli.py node remove 1
 # Check node status
 python cli.py node status 1
 
-# Install MicroK8s on a node
+# Install the configured runtime on a standalone installable node
 python cli.py node install 1
+
+# List local VirtualBox VMs for adoption
+python cli.py provider virtualbox-list
 ```
 
 ### Cluster Management
@@ -346,7 +354,7 @@ python cli.py node install 1
 python cli.py cluster list
 
 # Add a cluster
-python cli.py cluster add --name prod --description "Production cluster" --ha
+python cli.py cluster add --name prod --description "Production cluster" --ha --runtime k3s --provider virtualbox
 
 # Setup a cluster
 python cli.py cluster setup 1
@@ -461,12 +469,14 @@ The visual playbook editor allows you to:
 5. **Execute**: Run playbooks with real-time output
 
 ### Available Task Categories
-- **MicroK8s Operations**: Install, configure, and manage MicroK8s
+- **Kubernetes Runtime Operations**: Install, bootstrap, and manage MicroK8s or k3s
 - **System Operations**: Package management, firewall, system updates
 - **Monitoring**: Health checks, metrics collection, status monitoring
 
 ### Pre-built Templates
 - **Install MicroK8s**: Complete MicroK8s installation with user setup
+- **Bootstrap k3s Cluster**: Install and join k3s control-plane and worker nodes
+- **Check k3s Health**: Runtime-aware health inspection for k3s nodes
 - **Enable Addons**: Common addons (DNS, Dashboard, Storage, Ingress, Metrics Server)
 - **System Health Check**: Comprehensive system health assessment
 - **Update Packages**: System package management
@@ -499,7 +509,8 @@ The system uses YAML configuration files in the `config/` directory. Key setting
 
 - Database path and connection settings
 - Ansible configuration and playbook locations
-- MicroK8s default settings and network configuration
+- Kubernetes runtime defaults (`microk8s` and `k3s`)
+- VirtualBox integration settings
 - SSH connection parameters
 - Web interface settings
 

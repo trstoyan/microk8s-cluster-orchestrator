@@ -82,10 +82,18 @@ class Node(db.Model):
     status = db.Column(db.String(50), default='unknown')
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # MicroK8s specific
+    # Kubernetes runtime status
     microk8s_version = db.Column(db.String(50))
     microk8s_status = db.Column(db.String(50), default='not_installed')
+    kubernetes_version = db.Column(db.String(50))
+    kubernetes_status = db.Column(db.String(50), default='not_installed')
     is_control_plane = db.Column(db.Boolean, default=False)
+
+    # Infrastructure provider metadata
+    virtualization_provider = db.Column(db.String(50), default='generic')
+    provider_vm_name = db.Column(db.String(255))
+    provider_vm_group = db.Column(db.String(255))
+    provider_metadata = db.Column(db.Text)
     
     # System information
     os_version = db.Column(db.String(100))
@@ -240,6 +248,55 @@ class Node(db.Model):
         """Check if SSH connection is ready."""
         status = self.get_ssh_key_status()
         return status['overall_status'] == 'ready'
+
+    @property
+    def cluster_runtime(self):
+        """Get the effective cluster runtime for this node."""
+        if self.cluster and getattr(self.cluster, 'kubernetes_distribution', None):
+            return self.cluster.kubernetes_distribution
+        return 'microk8s'
+
+    @property
+    def runtime_label(self):
+        """Get human-readable runtime label."""
+        runtime = (self.cluster_runtime or 'microk8s').lower()
+        return 'k3s' if runtime == 'k3s' else 'MicroK8s'
+
+    @property
+    def runtime_status(self):
+        """Get effective runtime status across supported Kubernetes distros."""
+        return self.kubernetes_status or self.microk8s_status or 'unknown'
+
+    @property
+    def runtime_version(self):
+        """Get effective runtime version across supported Kubernetes distros."""
+        return self.kubernetes_version or self.microk8s_version
+
+    @property
+    def provider_label(self):
+        """Get human-readable provider label."""
+        provider = (self.virtualization_provider or 'generic').lower()
+        provider_labels = {
+            'generic': 'Generic',
+            'virtualbox': 'VirtualBox',
+            'proxmox': 'Proxmox',
+            'baremetal': 'Bare Metal'
+        }
+        return provider_labels.get(provider, provider.title())
+
+    @property
+    def provider_summary(self):
+        """Get a concise provider summary string."""
+        if self.provider_vm_name:
+            if self.provider_vm_group:
+                return f"{self.provider_label}: {self.provider_vm_name} ({self.provider_vm_group})"
+            return f"{self.provider_label}: {self.provider_vm_name}"
+        return self.provider_label
+
+    @property
+    def supports_runtime_install(self):
+        """Whether single-node runtime install makes sense for this node."""
+        return self.cluster_runtime != 'k3s'
     
     def get_ssh_status_description(self):
         """Get human-readable SSH key status description."""
@@ -351,12 +408,24 @@ class Node(db.Model):
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'microk8s_version': self.microk8s_version,
             'microk8s_status': self.microk8s_status,
+            'kubernetes_version': self.kubernetes_version,
+            'kubernetes_status': self.kubernetes_status,
+            'cluster_runtime': self.cluster_runtime,
+            'runtime_label': self.runtime_label,
+            'runtime_version': self.runtime_version,
+            'runtime_status': self.runtime_status,
             'is_control_plane': self.is_control_plane,
             'os_version': self.os_version,
             'kernel_version': self.kernel_version,
             'cpu_cores': self.cpu_cores,
             'memory_gb': self.memory_gb,
             'disk_gb': self.disk_gb,
+            'virtualization_provider': self.virtualization_provider,
+            'provider_vm_name': self.provider_vm_name,
+            'provider_vm_group': self.provider_vm_group,
+            'provider_metadata': self.provider_metadata,
+            'provider_label': self.provider_label,
+            'provider_summary': self.provider_summary,
             'tags': self.tags,
             'notes': self.notes,
             'cluster_id': self.cluster_id,
@@ -378,6 +447,8 @@ class Cluster(db.Model):
     addons = db.Column(db.Text)
     network_cidr = db.Column(db.String(50), default='10.1.0.0/16')
     service_cidr = db.Column(db.String(50), default='10.152.183.0/24')
+    kubernetes_distribution = db.Column(db.String(50), default='microk8s')
+    infrastructure_provider = db.Column(db.String(50), default='generic')
     
     # Status
     status = db.Column(db.String(50), default='initializing')
@@ -408,6 +479,25 @@ class Cluster(db.Model):
     def worker_count(self):
         """Get the number of worker nodes."""
         return len([n for n in self.nodes if not n.is_control_plane])
+
+    @property
+    def runtime_label(self):
+        """Get human-readable runtime label."""
+        runtime = (self.kubernetes_distribution or 'microk8s').lower()
+        return 'k3s' if runtime == 'k3s' else 'MicroK8s'
+
+    @property
+    def provider_label(self):
+        """Get human-readable infrastructure provider label."""
+        provider = (self.infrastructure_provider or 'generic').lower()
+        provider_labels = {
+            'generic': 'Generic',
+            'virtualbox': 'VirtualBox',
+            'baremetal': 'Bare Metal',
+            'proxmox': 'Proxmox',
+            'cloud': 'Cloud'
+        }
+        return provider_labels.get(provider, provider.title())
     
     def to_dict(self):
         """Convert cluster to dictionary representation."""
@@ -419,6 +509,10 @@ class Cluster(db.Model):
             'addons': self.addons,
             'network_cidr': self.network_cidr,
             'service_cidr': self.service_cidr,
+            'kubernetes_distribution': self.kubernetes_distribution,
+            'runtime_label': self.runtime_label,
+            'infrastructure_provider': self.infrastructure_provider,
+            'provider_label': self.provider_label,
             'status': self.status,
             'health_score': self.health_score,
             'node_count': self.node_count,

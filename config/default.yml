@@ -98,6 +98,22 @@ cluster:
     - "storage"
     - "metrics-server"
 
+# k3s configuration
+k3s:
+  default_channel: "stable"
+  default_disable_components:
+    - "traefik"
+  write_kubeconfig_mode: "644"
+  network:
+    cluster_cidr: "10.42.0.0/16"
+    service_cidr: "10.43.0.0/16"
+
+# VirtualBox provider integration
+virtualbox:
+  manage_binary: "VBoxManage"
+  default_bridge_adapter: ""
+  provider_tag: "virtualbox"
+
 # Hardware monitoring
 hardware:
   enabled: true

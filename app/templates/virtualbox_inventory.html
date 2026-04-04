@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}VirtualBox Inventory - Cluster Orchestrator{% endblock %}
+
+{% block header %}VirtualBox Inventory{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <p class="text-muted mb-0">Inspect host-side VirtualBox VMs and prepare them for managed node onboarding.</p>
+    </div>
+    <button class="btn btn-outline-primary" onclick="location.reload()">
+        <i class="bi bi-arrow-clockwise"></i> Refresh
+    </button>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if vms %}
+        <div class="table-responsive" style="height: 600px; overflow-y: auto;">
+            <table class="table table-hover table-sm">
+                <thead class="sticky-top bg-white">
+                    <tr>
+                        <th>Name</th>
+                        <th>State</th>
+                        <th>Role Hint</th>
+                        <th>Group</th>
+                        <th>vCPU</th>
+                        <th>Memory</th>
+                        <th>Guest IP Hint</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vm in vms %}
+                    <tr>
+                        <td>
+                            <strong>{{ vm.name }}</strong>
+                            {% if not vm.accessible %}
+                            <br><small class="text-danger">{{ vm.error }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if vm.state == 'running' %}
+                            <span class="badge bg-success">{{ vm.state }}</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ vm.state }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if vm.inferred_role == 'control-plane' %}
+                            <span class="badge bg-primary">Control Plane</span>
+                            {% elif vm.inferred_role == 'worker' %}
+                            <span class="badge bg-secondary">Worker</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">{{ vm.inferred_role }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ vm.provider_vm_group or '-' }}</td>
+                        <td>{{ vm.cpus }}</td>
+                        <td>{{ vm.memory_mb }} MB</td>
+                        <td>
+                            {% if vm.guest_ips %}
+                                {% for ip in vm.guest_ips %}
+                                <code>{{ ip }}</code><br>
+                                {% endfor %}
+                            {% else %}
+                            <span class="text-muted">No guest IP reported</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if vm.accessible %}
+                            <button class="btn btn-sm btn-primary" onclick="prepareVm('{{ vm.name }}')">
+                                <i class="bi bi-box-arrow-in-down"></i> Prepare Node
+                            </button>
+                            {% else %}
+                            <span class="text-muted">Unavailable</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="bi bi-hdd-stack fs-1 text-muted"></i>
+            <h4 class="mt-3">No VirtualBox VMs Found</h4>
+            <p class="text-muted">The orchestrator host does not currently report any VirtualBox inventory.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-body">
+        <h6><i class="bi bi-info-circle"></i> Notes</h6>
+        <ul class="mb-0">
+            <li>Guest IP hints depend on VirtualBox guest properties and may be empty even when the VM is running.</li>
+            <li>The prepare flow sends you to the existing Add Node form with provider metadata prefilled.</li>
+            <li>You still need to confirm the management IP and complete SSH onboarding for the node.</li>
+        </ul>
+    </div>
+</div>
+
+<div class="modal fade" id="prepareVmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Prepare VirtualBox VM as Node</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="prepareVmForm">
+                    <input type="hidden" id="vm-provider-metadata">
+                    <div class="mb-3">
+                        <label class="form-label">VM Name</label>
+                        <input type="text" class="form-control" id="vm-name" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Management IP / FQDN</label>
+                        <input type="text" class="form-control" id="vm-ip-address" placeholder="Required for SSH management">
+                        <div class="form-text">Confirm the bridged or otherwise reachable management address.</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">SSH User</label>
+                            <input type="text" class="form-control" id="vm-ssh-user" value="ubuntu">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">SSH Port</label>
+                            <input type="number" class="form-control" id="vm-ssh-port" value="22" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cluster</label>
+                        <select class="form-select" id="vm-cluster-id">
+                            <option value="">No cluster (assign later)</option>
+                            {% for cluster in clusters %}
+                            <option value="{{ cluster.id }}">{{ cluster.name }} ({{ cluster.runtime_label }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="vm-is-control-plane">
+                        <label class="form-check-label" for="vm-is-control-plane">Control plane node</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="redirectToAddNode()">
+                    Continue to Add Node
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentVmPrefill = null;
+
+function prepareVm(vmName) {
+    fetch(`/api/providers/virtualbox/vms/${encodeURIComponent(vmName)}/prefill`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(`Failed to prepare VM: ${data.error}`);
+                return;
+            }
+
+            currentVmPrefill = data;
+            document.getElementById('vm-name').value = data.hostname || vmName;
+            document.getElementById('vm-ip-address').value = data.ip_address || '';
+            document.getElementById('vm-ssh-user').value = data.ssh_user || 'ubuntu';
+            document.getElementById('vm-ssh-port').value = data.ssh_port || 22;
+            document.getElementById('vm-is-control-plane').checked = !!data.is_control_plane;
+            document.getElementById('vm-provider-metadata').value = data.provider_metadata || '';
+
+            const modal = new bootstrap.Modal(document.getElementById('prepareVmModal'));
+            modal.show();
+        })
+        .catch(error => {
+            alert(`Failed to load VM prefill: ${error}`);
+        });
+}
+
+function redirectToAddNode() {
+    if (!currentVmPrefill) {
+        return;
+    }
+
+    const ipAddress = document.getElementById('vm-ip-address').value.trim();
+    if (!ipAddress) {
+        alert('Management IP / FQDN is required.');
+        return;
+    }
+
+    const params = new URLSearchParams({
+        hostname: document.getElementById('vm-name').value,
+        ip_address: ipAddress,
+        ssh_user: document.getElementById('vm-ssh-user').value,
+        ssh_port: document.getElementById('vm-ssh-port').value,
+        cluster_id: document.getElementById('vm-cluster-id').value,
+        virtualization_provider: 'virtualbox',
+        provider_vm_name: currentVmPrefill.provider_vm_name || currentVmPrefill.hostname,
+        provider_vm_group: currentVmPrefill.provider_vm_group || '',
+        provider_metadata: document.getElementById('vm-provider-metadata').value,
+        is_control_plane: document.getElementById('vm-is-control-plane').checked ? 'true' : 'false',
+        notes: currentVmPrefill.notes || ''
+    });
+
+    window.location.href = `/nodes/add?${params.toString()}`;
+}
+</script>
+{% endblock %}

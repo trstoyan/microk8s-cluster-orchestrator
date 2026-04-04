@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - MicroK8s Cluster Orchestrator{% endblock %}
+{% block title %}Dashboard - Cluster Orchestrator{% endblock %}
 
 {% block header %}Dashboard{% endblock %}
 
@@ -169,6 +169,7 @@
                                 <tr>
                                     <th>Name</th>
                                     <th>Status</th>
+                                    <th>Runtime</th>
                                     <th>Nodes</th>
                                     <th>HA</th>
                                 </tr>
@@ -186,6 +187,7 @@
                                             <span class="badge bg-warning status-badge">{{ cluster.status }}</span>
                                         {% endif %}
                                     </td>
+                                    <td><span class="badge bg-info status-badge">{{ cluster.runtime_label }}</span></td>
                                     <td>{{ cluster.node_count }}</td>
                                     <td>
                                         {% if cluster.ha_enabled %}
@@ -231,7 +233,8 @@
                                 <tr>
                                     <th>Hostname</th>
                                     <th>Status</th>
-                                    <th>MicroK8s</th>
+                                    <th>Runtime</th>
+                                    <th>Status</th>
                                     <th>Longhorn</th>
                                     <th>Cluster</th>
                                 </tr>
@@ -249,15 +252,16 @@
                                             <span class="badge bg-warning status-badge">{{ node.status }}</span>
                                         {% endif %}
                                     </td>
+                                    <td><span class="badge bg-info status-badge">{{ node.runtime_label }}</span></td>
                                     <td>
-                                        {% if node.microk8s_status == 'running' %}
-                                            <span class="badge bg-success status-badge">{{ node.microk8s_status }}</span>
-                                        {% elif node.microk8s_status == 'installed' %}
-                                            <span class="badge bg-info status-badge">{{ node.microk8s_status }}</span>
-                                        {% elif node.microk8s_status == 'not_installed' %}
+                                        {% if node.runtime_status == 'running' %}
+                                            <span class="badge bg-success status-badge">{{ node.runtime_status }}</span>
+                                        {% elif node.runtime_status == 'installed' %}
+                                            <span class="badge bg-info status-badge">{{ node.runtime_status }}</span>
+                                        {% elif node.runtime_status == 'not_installed' %}
                                             <span class="badge bg-secondary status-badge">not installed</span>
                                         {% else %}
-                                            <span class="badge bg-warning status-badge">{{ node.microk8s_status }}</span>
+                                            <span class="badge bg-warning status-badge">{{ node.runtime_status }}</span>
                                         {% endif %}
                                     </td>
                                     <td>

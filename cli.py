@@ -239,7 +239,7 @@ def list_nodes(format):
                 print_info("No nodes found.")
                 return
             
-            headers = ['ID', 'Hostname', 'IP Address', 'Role', 'Status', 'MicroK8s', 'Cluster', 'Last Seen']
+            headers = ['ID', 'Hostname', 'IP Address', 'Role', 'Status', 'Runtime', 'Runtime Status', 'Provider', 'Cluster', 'Last Seen']
             rows = []
             
             for node in nodes:
@@ -252,7 +252,9 @@ def list_nodes(format):
                     node.ip_address,
                     'control-plane' if node.is_control_plane else 'worker',
                     node.status,
-                    node.microk8s_status,
+                    node.runtime_label,
+                    node.runtime_status,
+                    node.provider_label,
                     cluster_name,
                     last_seen
                 ])
@@ -677,7 +679,7 @@ def install_microk8s(node_id):
             print_error(f"Node with ID {node_id} not found.")
             return
         
-        print_info(f"Installing MicroK8s on node '{node.hostname}'...")
+        print_info(f"Installing {node.runtime_label} on node '{node.hostname}'...")
         operation = orchestrator.install_microk8s(node)
         
         print_info(f"Installation started with operation ID {operation.id}")
@@ -709,7 +711,7 @@ def list_clusters(format):
                 print_info("No clusters found.")
                 return
             
-            headers = ['ID', 'Name', 'Status', 'Nodes', 'Control Planes', 'Workers', 'HA', 'Created']
+            headers = ['ID', 'Name', 'Status', 'Runtime', 'Provider', 'Nodes', 'Control Planes', 'Workers', 'HA', 'Created']
             rows = []
             
             for cluster in clusters:
@@ -719,6 +721,8 @@ def list_clusters(format):
                     cluster.id,
                     cluster.name,
                     cluster.status,
+                    cluster.runtime_label,
+                    cluster.provider_label,
                     cluster.node_count,
                     cluster.control_plane_count,
                     cluster.worker_count,
@@ -737,7 +741,9 @@ def list_clusters(format):
 @click.option('--ha', is_flag=True, help='Enable high availability')
 @click.option('--network-cidr', default='10.1.0.0/16', help='Network CIDR')
 @click.option('--service-cidr', default='10.152.183.0/24', help='Service CIDR')
-def add_cluster(name, description, ha, network_cidr, service_cidr):
+@click.option('--runtime', 'kubernetes_distribution', type=click.Choice(['microk8s', 'k3s']), default='microk8s', help='Kubernetes runtime')
+@click.option('--provider', 'infrastructure_provider', type=click.Choice(['generic', 'virtualbox', 'baremetal', 'proxmox']), default='generic', help='Infrastructure provider')
+def add_cluster(name, description, ha, network_cidr, service_cidr, kubernetes_distribution, infrastructure_provider):
     """Add a new cluster."""
     session = get_session()
     try:
@@ -752,7 +758,9 @@ def add_cluster(name, description, ha, network_cidr, service_cidr):
             description=description,
             ha_enabled=ha,
             network_cidr=network_cidr,
-            service_cidr=service_cidr
+            service_cidr=service_cidr,
+            kubernetes_distribution=kubernetes_distribution,
+            infrastructure_provider=infrastructure_provider
         )
         
         session.add(cluster)
@@ -766,6 +774,39 @@ def add_cluster(name, description, ha, network_cidr, service_cidr):
     
     finally:
         session.close()
+
+@cli.group()
+def provider():
+    """Inspect infrastructure providers."""
+    pass
+
+@provider.command('virtualbox-list')
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table', help='Output format')
+def provider_virtualbox_list(format):
+    """List VirtualBox VMs visible on the local host."""
+    try:
+        from app.services.virtualbox_service import VirtualBoxService
+        service = VirtualBoxService()
+        vms = service.list_vms()
+        if format == 'json':
+            click.echo(json.dumps(vms, indent=2))
+            return
+
+        headers = ['Name', 'State', 'Role Hint', 'Group', 'vCPU', 'Memory MB', 'Guest IP Hint']
+        rows = []
+        for vm in vms:
+            rows.append([
+                vm.get('name'),
+                vm.get('state', 'unknown'),
+                vm.get('inferred_role', 'unknown'),
+                vm.get('provider_vm_group') or '-',
+                vm.get('cpus', 0),
+                vm.get('memory_mb', 0),
+                vm.get('management_ip_hint') or '-',
+            ])
+        click.echo(tabulate(rows, headers=headers, tablefmt='grid'))
+    except Exception as e:
+        print_error(f"Failed to query VirtualBox inventory: {e}")
 
 @cluster.command('setup')
 @click.argument('cluster_id', type=int)

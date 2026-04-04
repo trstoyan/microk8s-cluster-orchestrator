@@ -245,6 +245,12 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.virtualbox_inventory' %}active{% endif %}" href="{{ url_for('web.virtualbox_inventory') }}">
+                                <i class="bi bi-hdd-stack"></i>
+                                VirtualBox
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'web.router_switches' %}active{% endif %}" href="{{ url_for('web.router_switches') }}">
                                 <i class="bi bi-router"></i>
                                 <span class="d-none d-lg-inline">Router Switches</span>

@@ -7,7 +7,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <p class="text-muted">Manage your cluster nodes</p>
+        <p class="text-muted">Manage cluster nodes across supported runtimes and providers</p>
     </div>
     <div class="btn-group">
         <form method="POST" action="{{ url_for('web.configure_all_nodes_hosts') }}" style="display: inline;">
@@ -33,7 +33,9 @@
                             <th style="min-width: 150px;">Hostname</th>
                             <th style="min-width: 120px;">IP Address</th>
                             <th style="min-width: 80px;">Status</th>
-                            <th style="min-width: 100px;">MicroK8s Status</th>
+                            <th style="min-width: 90px;">Runtime</th>
+                            <th style="min-width: 100px;">Runtime Status</th>
+                            <th style="min-width: 110px;">Provider</th>
                             <th style="min-width: 100px;">Longhorn</th>
                             <th style="min-width: 120px;">Cluster</th>
                             <th style="min-width: 100px;">Control Plane</th>
@@ -65,17 +67,19 @@
                                     <span class="badge bg-warning">{{ node.status }}</span>
                                 {% endif %}
                             </td>
+                            <td><span class="badge bg-info">{{ node.runtime_label }}</span></td>
                             <td>
-                                {% if node.microk8s_status == 'running' %}
-                                    <span class="badge bg-success">{{ node.microk8s_status }}</span>
-                                {% elif node.microk8s_status == 'installed' %}
-                                    <span class="badge bg-info">{{ node.microk8s_status }}</span>
-                                {% elif node.microk8s_status == 'not_installed' %}
+                                {% if node.runtime_status == 'running' %}
+                                    <span class="badge bg-success">{{ node.runtime_status }}</span>
+                                {% elif node.runtime_status == 'installed' %}
+                                    <span class="badge bg-info">{{ node.runtime_status }}</span>
+                                {% elif node.runtime_status == 'not_installed' %}
                                     <span class="badge bg-secondary">not installed</span>
                                 {% else %}
-                                    <span class="badge bg-warning">{{ node.microk8s_status }}</span>
+                                    <span class="badge bg-warning">{{ node.runtime_status }}</span>
                                 {% endif %}
                             </td>
+                            <td><span class="badge bg-secondary">{{ node.provider_label }}</span></td>
                             <td>
                                 {% set longhorn_status = node.get_longhorn_status() %}
                                 {% if longhorn_status.status == 'met' %}
@@ -172,9 +176,9 @@
                                         <li><a class="dropdown-item" href="#" onclick="regenerateSSHKey({{ node.id }}, '{{ node.hostname }}')">
                                             <i class="bi bi-arrow-clockwise"></i> Regenerate SSH Key
                                         </a></li>
-                                        {% if node.microk8s_status == 'not_installed' %}
+                                        {% if node.runtime_status == 'not_installed' and node.supports_runtime_install %}
                                         <li><a class="dropdown-item" href="#" onclick="installMicroK8s({{ node.id }})">
-                                            <i class="bi bi-download"></i> Install MicroK8s
+                                            <i class="bi bi-download"></i> Install {{ node.runtime_label }}
                                         </a></li>
                                         {% endif %}
                                         <li><hr class="dropdown-divider"></li>

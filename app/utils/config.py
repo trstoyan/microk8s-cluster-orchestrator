@@ -74,6 +74,20 @@ class ConfigManager:
                     'service_cidr': '10.152.183.0/24'
                 }
             },
+            'k3s': {
+                'default_channel': 'stable',
+                'default_disable_components': ['traefik'],
+                'write_kubeconfig_mode': '644',
+                'network': {
+                    'cluster_cidr': '10.42.0.0/16',
+                    'service_cidr': '10.43.0.0/16'
+                }
+            },
+            'virtualbox': {
+                'manage_binary': 'VBoxManage',
+                'default_bridge_adapter': '',
+                'provider_tag': 'virtualbox'
+            },
             'ssh': {
                 'default_user': 'ubuntu',
                 'default_port': 22,

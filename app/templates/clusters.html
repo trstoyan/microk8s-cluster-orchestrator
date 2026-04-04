@@ -7,7 +7,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <p class="text-muted">Manage your MicroK8s clusters</p>
+        <p class="text-muted">Manage your Kubernetes clusters across supported runtimes and providers</p>
     </div>
     <a href="{{ url_for('web.add_cluster') }}" class="btn btn-primary">
         <i class="bi bi-plus"></i> Create Cluster
@@ -24,6 +24,8 @@
                             <th style="min-width: 50px;">ID</th>
                             <th style="min-width: 180px;">Name</th>
                             <th style="min-width: 80px;">Status</th>
+                            <th style="min-width: 90px;">Runtime</th>
+                            <th style="min-width: 100px;">Provider</th>
                             <th style="min-width: 60px;">Nodes</th>
                             <th style="min-width: 80px;">Control Planes</th>
                             <th style="min-width: 70px;">Workers</th>
@@ -54,6 +56,8 @@
                                     <span class="badge bg-warning">{{ cluster.status }}</span>
                                 {% endif %}
                             </td>
+                            <td><span class="badge bg-info">{{ cluster.runtime_label }}</span></td>
+                            <td><span class="badge bg-secondary">{{ cluster.provider_label }}</span></td>
                             <td>{{ cluster.node_count }}</td>
                             <td>{{ cluster.control_plane_count }}</td>
                             <td>{{ cluster.worker_count }}</td>
@@ -94,7 +98,7 @@
                                     <ul class="dropdown-menu">
                                         {% if cluster.node_count > 0 %}
                                         <li><a class="dropdown-item" href="#" onclick="setupCluster({{ cluster.id }})">
-                                            <i class="bi bi-gear"></i> Setup Cluster
+                                            <i class="bi bi-gear"></i> Bootstrap {{ cluster.runtime_label }}
                                         </a></li>
                                         <li><a class="dropdown-item" href="#" onclick="scanCluster({{ cluster.id }})">
                                             <i class="bi bi-search"></i> Scan Cluster
@@ -138,7 +142,7 @@
         <div class="card-body text-center">
             <i class="bi bi-diagram-3 fs-1 text-muted"></i>
             <h4 class="mt-3">No Clusters Found</h4>
-            <p class="text-muted">Create your first MicroK8s cluster to get started.</p>
+            <p class="text-muted">Create your first managed cluster to get started.</p>
             <a href="{{ url_for('web.add_cluster') }}" class="btn btn-primary">
                 <i class="bi bi-plus"></i> Create Your First Cluster
             </a>
@@ -150,7 +154,7 @@
 {% block scripts %}
 <script>
 function setupCluster(clusterId) {
-    if (confirm('Setup this cluster? This will configure MicroK8s on all assigned nodes.')) {
+    if (confirm('Bootstrap this cluster? This will configure the selected Kubernetes runtime on all assigned nodes.')) {
         fetch(`/api/clusters/${clusterId}/setup`, {
             method: 'POST',
             headers: {

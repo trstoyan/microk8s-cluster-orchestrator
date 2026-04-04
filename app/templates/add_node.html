@@ -17,13 +17,13 @@
                         <div class="col-md-6 mb-3">
                             <label for="hostname" class="form-label">Hostname *</label>
                             <input type="text" class="form-control" id="hostname" name="hostname" required
-                                   placeholder="e.g., node1">
+                                   placeholder="e.g., node1" value="{{ prefill.hostname }}">
                             <div class="form-text">Unique hostname for the node</div>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="ip_address" class="form-label">IP Address *</label>
                             <input type="text" class="form-control" id="ip_address" name="ip_address" required
-                                   placeholder="e.g., 192.168.1.10">
+                                   placeholder="e.g., 192.168.1.10" value="{{ prefill.ip_address }}">
                             <div class="form-text">IP address or FQDN for SSH connection</div>
                         </div>
                     </div>
@@ -32,16 +32,49 @@
                         <div class="col-md-6 mb-3">
                             <label for="ssh_user" class="form-label">SSH User</label>
                             <input type="text" class="form-control" id="ssh_user" name="ssh_user" 
-                                   value="ubuntu" placeholder="ubuntu">
+                                   value="{{ prefill.ssh_user or 'ubuntu' }}" placeholder="ubuntu">
                             <div class="form-text">SSH username (default: ubuntu)</div>
                         </div>
                         <div class="col-md-6 mb-3">
                             <label for="ssh_port" class="form-label">SSH Port</label>
                             <input type="number" class="form-control" id="ssh_port" name="ssh_port" 
-                                   value="22" min="1" max="65535">
+                                   value="{{ prefill.ssh_port or 22 }}" min="1" max="65535">
                             <div class="form-text">SSH port (default: 22)</div>
                         </div>
                     </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check form-switch mt-4">
+                                <input class="form-check-input" type="checkbox" id="is_control_plane" name="is_control_plane"
+                                       {% if prefill.is_control_plane %}checked{% endif %}>
+                                <label class="form-check-label" for="is_control_plane">
+                                    Mark as control plane node
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="virtualization_provider" class="form-label">Infrastructure Provider</label>
+                            <input type="text" class="form-control" id="virtualization_provider" name="virtualization_provider"
+                                   value="{{ prefill.virtualization_provider }}" placeholder="generic">
+                            <div class="form-text">Optional provider label such as <code>virtualbox</code></div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="provider_vm_name" class="form-label">Provider VM Name</label>
+                            <input type="text" class="form-control" id="provider_vm_name" name="provider_vm_name"
+                                   value="{{ prefill.provider_vm_name }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="provider_vm_group" class="form-label">Provider VM Group</label>
+                            <input type="text" class="form-control" id="provider_vm_group" name="provider_vm_group"
+                                   value="{{ prefill.provider_vm_group }}">
+                        </div>
+                    </div>
+
+                    <input type="hidden" id="provider_metadata" name="provider_metadata" value="{{ prefill.provider_metadata }}">
 
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> 
@@ -54,7 +87,9 @@
                         <select class="form-select" id="cluster_id" name="cluster_id">
                             <option value="">No cluster (assign later)</option>
                             {% for cluster in clusters %}
-                                <option value="{{ cluster.id }}">{{ cluster.name }}</option>
+                                <option value="{{ cluster.id }}" {% if prefill.cluster_id|string == cluster.id|string %}selected{% endif %}>
+                                    {{ cluster.name }} ({{ cluster.runtime_label }})
+                                </option>
                             {% endfor %}
                         </select>
                         <div class="form-text">You can assign the node to a cluster later</div>
@@ -63,7 +98,7 @@
                     <div class="mb-3">
                         <label for="notes" class="form-label">Notes</label>
                         <textarea class="form-control" id="notes" name="notes" rows="3"
-                                  placeholder="Optional notes about this node..."></textarea>
+                                  placeholder="Optional notes about this node...">{{ prefill.notes }}</textarea>
                     </div>
 
                     <div class="d-flex justify-content-between">

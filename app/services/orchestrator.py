@@ -1,4 +1,4 @@
-"""Core orchestration service for managing MicroK8s operations."""
+"""Core orchestration service for managing Kubernetes runtime operations."""
 
 import os
 import json
@@ -10,12 +10,13 @@ from typing import Optional, Dict, Any
 from ..models.database import db
 from ..models.flask_models import Node, Cluster, Operation, RouterSwitch
 from .network_monitor import NetworkMonitorService
+from ..utils.config import ConfigManager
 
 # Module-level logger
 logger = logging.getLogger(__name__)
 
 class OrchestrationService:
-    """Service for orchestrating MicroK8s operations using Ansible."""
+    """Service for orchestrating cluster operations using Ansible."""
     
     def __init__(self):
         self.ansible_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'ansible')
@@ -24,7 +25,67 @@ class OrchestrationService:
             os.path.join(self.ansible_dir, 'inventory')
         )
         self.network_monitor = NetworkMonitorService()
+        self.config = ConfigManager()
         self.logger = logger  # Instance reference to module logger
+
+    def _resolve_cluster_runtime(
+        self,
+        cluster: Optional[Cluster] = None,
+        node: Optional[Node] = None,
+    ) -> str:
+        """Resolve the effective Kubernetes distribution for an operation."""
+        if cluster and getattr(cluster, 'kubernetes_distribution', None):
+            return (cluster.kubernetes_distribution or 'microk8s').lower()
+        if node and node.cluster and getattr(node.cluster, 'kubernetes_distribution', None):
+            return (node.cluster.kubernetes_distribution or 'microk8s').lower()
+        return 'microk8s'
+
+    def _runtime_display_name(self, runtime: str) -> str:
+        """Return a user-facing runtime name."""
+        return 'k3s' if runtime == 'k3s' else 'MicroK8s'
+
+    def _runtime_playbook(self, operation_kind: str, runtime: str) -> Optional[str]:
+        """Return the playbook filename for a runtime-aware operation."""
+        playbook_map = {
+            'install': {
+                'microk8s': 'install_microk8s.yml',
+                'k3s': None,
+            },
+            'status': {
+                'microk8s': 'check_node_status.yml',
+                'k3s': 'check_k3s_status.yml',
+            },
+            'setup': {
+                'microk8s': 'setup_cluster.yml',
+                'k3s': 'setup_k3s_cluster.yml',
+            },
+            'scan': {
+                'microk8s': 'scan_cluster_state.yml',
+                'k3s': 'scan_k3s_cluster_state.yml',
+            },
+            'shutdown': {
+                'microk8s': 'shutdown_cluster.yml',
+                'k3s': 'shutdown_k3s_cluster.yml',
+            },
+        }
+        return playbook_map.get(operation_kind, {}).get(runtime)
+
+    def _set_node_runtime_state(
+        self,
+        node: Node,
+        runtime: str,
+        status: Optional[str] = None,
+        version: Optional[str] = None,
+    ) -> None:
+        """Update generic runtime fields and preserve MicroK8s compatibility."""
+        if status is not None:
+            node.kubernetes_status = status
+            if runtime == 'microk8s':
+                node.microk8s_status = status
+        if version:
+            node.kubernetes_version = version
+            if runtime == 'microk8s':
+                node.microk8s_version = version
 
     def _resolve_writable_inventory_dir(self, preferred_dir: str) -> str:
         """Return a writable inventory directory, with a temp fallback."""
@@ -107,7 +168,12 @@ class OrchestrationService:
         
         db.session.commit()
     
-    def _generate_inventory(self, nodes: list[Node]) -> str:
+    def _generate_inventory(
+        self,
+        nodes: list[Node],
+        runtime: str = 'microk8s',
+        cluster: Optional[Cluster] = None,
+    ) -> str:
         """Generate Ansible inventory for given nodes."""
         # Ensure inventory directory exists
         os.makedirs(self.inventory_dir, exist_ok=True)
@@ -115,7 +181,13 @@ class OrchestrationService:
         inventory = {
             'all': {
                 'children': {
+                    'cluster_nodes': {
+                        'hosts': {}
+                    },
                     'microk8s_nodes': {
+                        'hosts': {}
+                    },
+                    'k3s_nodes': {
                         'hosts': {}
                     }
                 }
@@ -137,15 +209,22 @@ class OrchestrationService:
                 continue
             
             # Add node to inventory
-            inventory['all']['children']['microk8s_nodes']['hosts'][node.hostname] = {
+            host_vars = {
                 'ansible_host': node.ip_address,
                 'ansible_user': node.ssh_user,
                 'ansible_port': node.ssh_port,
                 'ansible_ssh_private_key_file': node.ssh_key_path,
                 'node_id': node.id,
                 'is_control_plane': node.is_control_plane,
-                'ssh_key_fingerprint': node.ssh_key_fingerprint
+                'ssh_key_fingerprint': node.ssh_key_fingerprint,
+                'node_runtime': runtime,
+                'virtualization_provider': getattr(node, 'virtualization_provider', 'generic'),
+                'provider_vm_name': getattr(node, 'provider_vm_name', None),
+                'provider_vm_group': getattr(node, 'provider_vm_group', None),
             }
+            inventory['all']['children']['cluster_nodes']['hosts'][node.hostname] = host_vars
+            inventory['all']['children']['microk8s_nodes']['hosts'][node.hostname] = dict(host_vars)
+            inventory['all']['children']['k3s_nodes']['hosts'][node.hostname] = dict(host_vars)
 
         # Fail fast if any target node is not ready. Partial execution causes
         # misleading "success" status for cluster-wide operations.
@@ -154,18 +233,24 @@ class OrchestrationService:
             raise ValueError(f"SSH validation failed for inventory generation:\n{issues_text}")
 
         # Guard against empty inventories: ansible may return 0 with "no hosts matched".
-        if not inventory['all']['children']['microk8s_nodes']['hosts']:
+        if not inventory['all']['children']['cluster_nodes']['hosts']:
             raise ValueError("No SSH-ready nodes available for inventory generation")
         
         # Add common variables
-        inventory['all']['children']['microk8s_nodes']['vars'] = {
+        common_vars = {
             'ansible_python_interpreter': '/usr/bin/python3',
             'ansible_ssh_common_args': '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null',
             'ansible_become': True,  # Enable privilege escalation (sudo)
             'ansible_become_method': 'sudo',  # Use sudo for privilege escalation
             'ansible_become_user': 'root',  # Become root user
-            'ansible_become_flags': '-H -S -n'  # -n = non-interactive (no password), -H = set HOME, -S = read password from stdin (but we use -n so this is for compatibility)
+            'ansible_become_flags': '-H -S -n',  # -n = non-interactive
+            'cluster_runtime': runtime,
+            'cluster_name': cluster.name if cluster else 'ad-hoc',
+            'cluster_provider': getattr(cluster, 'infrastructure_provider', 'generic') if cluster else 'generic',
         }
+        inventory['all']['children']['cluster_nodes']['vars'] = dict(common_vars)
+        inventory['all']['children']['microk8s_nodes']['vars'] = dict(common_vars)
+        inventory['all']['children']['k3s_nodes']['vars'] = dict(common_vars)
         
         # Write inventory to temporary file
         inventory_file = os.path.join(self.inventory_dir, f'temp_inventory_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
@@ -330,24 +415,34 @@ class OrchestrationService:
     
     def _update_node_from_health_data(self, node: Node, health_data: dict) -> None:
         """Update node from parsed health data."""
-        # Update MicroK8s status
-        if 'microk8s_installed' in health_data:
+        runtime = (
+            health_data.get('kubernetes_distribution')
+            or health_data.get('runtime')
+            or node.cluster_runtime
+            or 'microk8s'
+        ).lower()
+
+        runtime_status = None
+        runtime_version = None
+
+        if runtime == 'microk8s' and 'microk8s_installed' in health_data:
             if health_data['microk8s_installed']:
-                # Check if running: either explicitly running OR service active (for worker nodes)
                 microk8s_running = health_data.get('microk8s_running', False)
                 service_active = health_data.get('service_active', False)
-                
-                # Worker nodes may not say "microk8s is running" but if service is active, they ARE running
-                if microk8s_running or service_active:
-                    node.microk8s_status = 'running'
-                else:
-                    node.microk8s_status = 'installed'
+                runtime_status = 'running' if microk8s_running or service_active else 'installed'
             else:
-                node.microk8s_status = 'not_installed'
-        
-        # Update MicroK8s version
-        if 'microk8s_version' in health_data and health_data['microk8s_version'] and health_data['microk8s_version'] != 'unknown':
-            node.microk8s_version = health_data['microk8s_version']
+                runtime_status = 'not_installed'
+            runtime_version = health_data.get('microk8s_version')
+
+        if runtime == 'k3s' and 'kubernetes_installed' in health_data:
+            if health_data['kubernetes_installed']:
+                runtime_status = 'running' if health_data.get('kubernetes_running', False) else 'installed'
+            else:
+                runtime_status = 'not_installed'
+            runtime_version = health_data.get('kubernetes_version')
+
+        if runtime_status:
+            self._set_node_runtime_state(node, runtime, status=runtime_status, version=runtime_version)
         
         # Update control plane status (actual detection from Kubernetes)
         if 'is_control_plane' in health_data:
@@ -388,28 +483,45 @@ class OrchestrationService:
     
     def _extract_health_info_from_text(self, node: Node, health_text: str, full_output: str) -> None:
         """Extract health information from text output."""
+        runtime = self._resolve_cluster_runtime(node=node)
+
         # Look for key indicators in the output
-        if 'microk8s_installed.*true' in health_text.lower() or 'microk8s_installed": true' in health_text:
-            if 'microk8s_running.*true' in health_text.lower() or 'microk8s_running": true' in health_text:
-                node.microk8s_status = 'running'
-            else:
-                node.microk8s_status = 'installed'
-        elif 'microk8s_installed.*false' in health_text.lower() or 'microk8s_installed": false' in health_text:
-            node.microk8s_status = 'not_installed'
-        elif 'Not installed' in full_output:
-            node.microk8s_status = 'not_installed'
-        # If we can't determine status from health report, try to infer from other output
-        elif 'microk8s status' in full_output.lower() and 'microk8s is running' in full_output.lower():
-            node.microk8s_status = 'running'
-        elif 'microk8s' in full_output.lower() and 'command not found' in full_output.lower():
-            node.microk8s_status = 'not_installed'
+        if runtime == 'microk8s':
+            if 'microk8s_installed.*true' in health_text.lower() or 'microk8s_installed": true' in health_text:
+                if 'microk8s_running.*true' in health_text.lower() or 'microk8s_running": true' in health_text:
+                    self._set_node_runtime_state(node, runtime, status='running')
+                else:
+                    self._set_node_runtime_state(node, runtime, status='installed')
+            elif 'microk8s_installed.*false' in health_text.lower() or 'microk8s_installed": false' in health_text:
+                self._set_node_runtime_state(node, runtime, status='not_installed')
+            elif 'Not installed' in full_output:
+                self._set_node_runtime_state(node, runtime, status='not_installed')
+            elif 'microk8s status' in full_output.lower() and 'microk8s is running' in full_output.lower():
+                self._set_node_runtime_state(node, runtime, status='running')
+            elif 'microk8s' in full_output.lower() and 'command not found' in full_output.lower():
+                self._set_node_runtime_state(node, runtime, status='not_installed')
+        else:
+            lowered = full_output.lower()
+            if 'k3s service is running' in lowered or 'k3s agent service is running' in lowered:
+                self._set_node_runtime_state(node, runtime, status='running')
+            elif 'k3s not installed' in lowered or 'command not found' in lowered:
+                self._set_node_runtime_state(node, runtime, status='not_installed')
+            elif 'k3s is installed' in lowered:
+                self._set_node_runtime_state(node, runtime, status='installed')
     
     def install_microk8s(self, node: Node) -> Operation:
         """Install MicroK8s on a node."""
+        runtime = self._resolve_cluster_runtime(node=node)
+        if runtime == 'k3s':
+            raise ValueError(
+                "Single-node runtime install is not supported for k3s worker flows. "
+                "Use cluster setup/bootstrap instead."
+            )
+
         operation = self._create_operation(
             operation_type='install',
-            operation_name='Install MicroK8s',
-            description=f'Install MicroK8s on node {node.hostname}',
+            operation_name=f'Install {self._runtime_display_name(runtime)}',
+            description=f'Install {self._runtime_display_name(runtime)} on node {node.hostname}',
             node=node,
             playbook_path='playbooks/install_microk8s.yml'
         )
@@ -417,13 +529,13 @@ class OrchestrationService:
         try:
             self._update_operation_status(operation, 'running')
             
-            inventory_file = self._generate_inventory([node])
-            playbook_path = os.path.join(self.playbooks_dir, 'install_microk8s.yml')
+            inventory_file = self._generate_inventory([node], runtime=runtime, cluster=node.cluster)
+            playbook_path = os.path.join(self.playbooks_dir, self._runtime_playbook('install', runtime))
             
             success, output = self._run_ansible_playbook(playbook_path, inventory_file)
             
             if success:
-                node.microk8s_status = 'installed'
+                self._set_node_runtime_state(node, runtime, status='installed')
                 node.status = 'online'
                 db.session.commit()
                 self._update_operation_status(operation, 'completed', success=True, output=output)
@@ -441,19 +553,21 @@ class OrchestrationService:
     
     def check_node_status(self, node: Node) -> Operation:
         """Check the status of a node."""
+        runtime = self._resolve_cluster_runtime(node=node)
+        playbook_name = self._runtime_playbook('status', runtime)
         operation = self._create_operation(
             operation_type='troubleshoot',
-            operation_name='Check Node Status',
+            operation_name=f'Check {self._runtime_display_name(runtime)} Node Status',
             description=f'Check status of node {node.hostname}',
             node=node,
-            playbook_path='playbooks/check_node_status.yml'
+            playbook_path=f'playbooks/{playbook_name}'
         )
         
         try:
             self._update_operation_status(operation, 'running')
             
-            inventory_file = self._generate_inventory([node])
-            playbook_path = os.path.join(self.playbooks_dir, 'check_node_status.yml')
+            inventory_file = self._generate_inventory([node], runtime=runtime, cluster=node.cluster)
+            playbook_path = os.path.join(self.playbooks_dir, playbook_name)
             
             success, output = self._run_ansible_playbook(playbook_path, inventory_file)
             
@@ -480,13 +594,15 @@ class OrchestrationService:
         return operation
     
     def setup_cluster(self, cluster: Cluster) -> Operation:
-        """Set up a MicroK8s cluster."""
+        """Set up a cluster using the cluster's configured runtime."""
+        runtime = self._resolve_cluster_runtime(cluster=cluster)
+        playbook_name = self._runtime_playbook('setup', runtime)
         operation = self._create_operation(
             operation_type='configure',
             operation_name='Setup Cluster',
             description=f'Setup cluster {cluster.name}',
             cluster=cluster,
-            playbook_path='playbooks/setup_cluster.yml'
+            playbook_path=f'playbooks/{playbook_name}'
         )
         
         try:
@@ -496,14 +612,15 @@ class OrchestrationService:
             if not nodes:
                 raise ValueError("Cluster has no nodes")
             
-            inventory_file = self._generate_inventory(nodes)
-            playbook_path = os.path.join(self.playbooks_dir, 'setup_cluster.yml')
+            inventory_file = self._generate_inventory(nodes, runtime=runtime, cluster=cluster)
+            playbook_path = os.path.join(self.playbooks_dir, playbook_name)
             
             extra_vars = {
                 'cluster_name': cluster.name,
                 'ha_enabled': cluster.ha_enabled,
                 'network_cidr': cluster.network_cidr,
-                'service_cidr': cluster.service_cidr
+                'service_cidr': cluster.service_cidr,
+                'kubernetes_distribution': runtime,
             }
             
             success, output = self._run_ansible_playbook(playbook_path, inventory_file, extra_vars)
@@ -982,12 +1099,14 @@ class OrchestrationService:
     
     def scan_cluster_state(self, cluster: Cluster) -> Operation:
         """Scan cluster to validate configuration and detect drift from desired state."""
+        runtime = self._resolve_cluster_runtime(cluster=cluster)
+        playbook_name = self._runtime_playbook('scan', runtime)
         operation = self._create_operation(
             operation_type='scan',
             operation_name='Scan Cluster State',
             description=f'Validate configuration and check for drift in cluster {cluster.name}',
             cluster=cluster,
-            playbook_path='playbooks/scan_cluster_state.yml'
+            playbook_path=f'playbooks/{playbook_name}'
         )
         
         try:
@@ -999,15 +1118,16 @@ class OrchestrationService:
                                             error_message="Cluster has no nodes to scan")
                 return operation
             
-            inventory_file = self._generate_inventory(nodes)
-            playbook_path = os.path.join(self.playbooks_dir, 'scan_cluster_state.yml')
+            inventory_file = self._generate_inventory(nodes, runtime=runtime, cluster=cluster)
+            playbook_path = os.path.join(self.playbooks_dir, playbook_name)
             
             extra_vars = {
                 'cluster_name': cluster.name,
+                'kubernetes_distribution': runtime,
                 'expected_ha_enabled': cluster.ha_enabled,
                 'expected_network_cidr': cluster.network_cidr,
                 'expected_service_cidr': cluster.service_cidr,
-                'expected_addons': ['dns', 'storage', 'ingress', 'dashboard']
+                'expected_addons': ['coredns', 'local-path-provisioner'] if runtime == 'k3s' else ['dns', 'storage', 'ingress', 'dashboard']
             }
             
             success, output = self._run_ansible_playbook(playbook_path, inventory_file, extra_vars)
@@ -1076,13 +1196,15 @@ class OrchestrationService:
     
     def shutdown_cluster(self, cluster: Cluster, graceful: bool = True) -> Operation:
         """Gracefully shutdown a MicroK8s cluster."""
+        runtime = self._resolve_cluster_runtime(cluster=cluster)
+        playbook_name = self._runtime_playbook('shutdown', runtime)
         shutdown_type = 'graceful' if graceful else 'force'
         operation = self._create_operation(
             operation_type='shutdown',
             operation_name=f'Shutdown Cluster ({shutdown_type})',
             description=f'{shutdown_type.title()} shutdown of cluster {cluster.name}',
             cluster=cluster,
-            playbook_path='playbooks/shutdown_cluster.yml'
+            playbook_path=f'playbooks/{playbook_name}'
         )
         
         try:
@@ -1094,8 +1216,8 @@ class OrchestrationService:
                                             error_message="Cluster has no nodes to shutdown")
                 return operation
             
-            inventory_file = self._generate_inventory(nodes)
-            playbook_path = os.path.join(self.playbooks_dir, 'shutdown_cluster.yml')
+            inventory_file = self._generate_inventory(nodes, runtime=runtime, cluster=cluster)
+            playbook_path = os.path.join(self.playbooks_dir, playbook_name)
             
             extra_vars = {
                 'cluster_name': cluster.name,
@@ -1112,7 +1234,7 @@ class OrchestrationService:
                 
                 # Update node statuses
                 for node in nodes:
-                    node.microk8s_status = 'shutdown'
+                    self._set_node_runtime_state(node, runtime, status='shutdown')
                     node.last_seen = datetime.utcnow()
                 
                 db.session.commit()
@@ -1183,6 +1305,11 @@ class OrchestrationService:
         discovered = []
         try:
             import re
+            json_match = re.search(r'DISCOVERED_NODES_JSON:\s*(\[.*\])', ansible_output, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group(1))
+                if isinstance(parsed, list):
+                    return parsed
             
             # Look for the cluster_info data which contains total_nodes count
             # Then extract node hostnames and IPs from simpler patterns
@@ -1278,16 +1405,18 @@ class OrchestrationService:
             nodes = ssh_ready_nodes
             
             # Create operation record
+            cluster_context = db.session.get(Cluster, cluster_id) if cluster_id else (nodes[0].cluster if nodes and nodes[0].cluster else None)
             operation = self._create_operation(
                 operation_type='monitoring',
                 operation_name='hardware_report',
                 description=f'Collecting hardware report for {len(nodes)} node(s)',
-                cluster=db.session.get(Cluster, cluster_id) if cluster_id else None,
+                cluster=cluster_context,
                 playbook_path='collect_hardware_report.yml'
             )
             
             # Generate inventory
-            inventory_file = self._generate_inventory(nodes)
+            runtime = self._resolve_cluster_runtime(cluster=cluster_context, node=nodes[0] if nodes else None)
+            inventory_file = self._generate_inventory(nodes, runtime=runtime, cluster=cluster_context)
             
             # Verify inventory has valid hosts
             try:
@@ -1470,7 +1599,9 @@ class OrchestrationService:
                     return {'success': False, 'error': f'SSH validation failed: {issues_text}'}
                 
                 # Generate inventory
-                inventory_file = self._generate_inventory(nodes)
+                cluster_context = cluster if cluster_id else (nodes[0].cluster if nodes and nodes[0].cluster else None)
+                runtime = self._resolve_cluster_runtime(cluster=cluster_context, node=nodes[0] if nodes else None)
+                inventory_file = self._generate_inventory(nodes, runtime=runtime, cluster=cluster_context)
                 
                 # Execute the playbook
                 success, output = self._run_ansible_playbook(playbook_path, inventory_file)
@@ -1775,7 +1906,8 @@ class OrchestrationService:
                                             error_message="SSH connection validation failed")
                 return operation
             
-            inventory_file = self._generate_inventory(nodes)
+            runtime = self._resolve_cluster_runtime(cluster=cluster, node=nodes[0] if nodes else None)
+            inventory_file = self._generate_inventory(nodes, runtime=runtime, cluster=cluster)
             playbook_path = os.path.join(self.playbooks_dir, 'configure_hosts_file.yml')
             
             extra_vars = {
