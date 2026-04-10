@@ -22,13 +22,13 @@ if not remote_url.startswith('http://') and not remote_url.startswith('https://'
 
 **Actual Network Traffic:**
 ```
-Client (10.25.8.16)            Server (10.25.8.14)
+Client (192.0.2.16)            Server (192.0.2.14)
        │                                │
        ├─── TCP Connection ────────────>│ Port 5000
        │    (No TLS handshake)          │
        │                                │
        ├─── HTTP POST /auth/login ─────>│
-       │    Host: 10.25.8.14:5000       │
+       │    Host: 192.0.2.14:5000       │
        │    Content-Type: application/x-www-form-urlencoded
        │    BODY (PLAINTEXT):            │
        │      username=admin             │
@@ -40,7 +40,7 @@ Client (10.25.8.16)            Server (10.25.8.14)
        │    BODY (PLAINTEXT):            │
        │      {                          │
        │        "hostname": "devmod-42", │
-       │        "ip_address": "10.25.8.28",
+       │        "ip_address": "192.0.2.28",
        │        "ssh_user": "sumix"      │ ← ALL VISIBLE!
        │      }                          │
        │                                │
@@ -146,19 +146,19 @@ tcpdump -i any port 5000 -A
 
 # Attacker sees:
 POST /auth/login HTTP/1.1
-Host: 10.25.8.14:5000
+Host: 192.0.2.14:5000
 Content-Length: 42
 
 username=admin&password=stoyan93Nina         ← PASSWORD VISIBLE!
 
 POST /api/nodes HTTP/1.1
-Host: 10.25.8.14:5000
+Host: 192.0.2.14:5000
 Cookie: session=.eJwlj8uKwz... 
 Content-Type: application/json
 
 {
   "hostname": "devmod-42",
-  "ip_address": "10.25.8.28",              ← ALL NODE DATA VISIBLE!
+  "ip_address": "192.0.2.28",              ← ALL NODE DATA VISIBLE!
   "ssh_user": "sumix",
   "ssh_port": 22,
   "notes": "proxmox VM with sensitive data"
@@ -209,7 +209,7 @@ enc = SyncEncryption(password="shared_secret")
 # BEFORE sending:
 node_data = {
     'hostname': 'devmod-42',
-    'ip_address': '10.25.8.28',
+    'ip_address': '192.0.2.28',
     'ssh_user': 'sumix'
 }
 

@@ -132,9 +132,9 @@ response = requests.get(
 ## 🧪 Testing Checklist:
 
 ### After Phase 2 & 3:
-- [ ] Generate token on Server A (10.25.8.14)
+- [ ] Generate token on Server A (192.0.2.14)
 - [ ] Copy token
-- [ ] Go to Server B (10.25.8.16)
+- [ ] Go to Server B (192.0.2.16)
 - [ ] Paste token in sync form
 - [ ] Click "Connect & Compare"
 - [ ] Should see comparison results

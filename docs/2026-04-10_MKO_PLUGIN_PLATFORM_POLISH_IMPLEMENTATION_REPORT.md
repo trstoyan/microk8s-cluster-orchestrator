@@ -2,7 +2,7 @@
 
 ## Scope
 
-This change set hardens MKO plugin/runtime safety and adds business-agnostic SDK/operator surfaces, without adding CTS-specific behavior.
+This change set hardens MKO plugin/runtime safety and adds business-agnostic SDK/operator surfaces, without adding downstream-project-specific behavior.
 
 ## What Was Implemented
 

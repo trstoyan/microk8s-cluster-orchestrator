@@ -1315,7 +1315,7 @@ class OrchestrationService:
             # Then extract node hostnames and IPs from simpler patterns
             
             # Pattern 1: Extract from node status lines showing addresses
-            # Format: 'addresses': [{'address': '10.25.8.68', 'type': 'InternalIP'}, {'address': 'devmod-02', 'type': 'Hostname'}]
+            # Format: 'addresses': [{'address': '192.0.2.68', 'type': 'InternalIP'}, {'address': 'devmod-02', 'type': 'Hostname'}]
             address_pattern = r"'addresses':\s*\[.*?'address':\s*'([\d.]+)',\s*'type':\s*'InternalIP'.*?'address':\s*'([\w-]+)',\s*'type':\s*'Hostname'"
             
             matches = re.finditer(address_pattern, ansible_output)

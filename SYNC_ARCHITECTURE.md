@@ -46,12 +46,12 @@
 ```
 ┌──────────────────────┐                        ┌──────────────────────┐
 │  Local Server        │                        │  Remote Server       │
-│  (10.25.8.16)        │                        │  (10.25.8.14)        │
+│  (192.0.2.16)        │                        │  (192.0.2.14)        │
 │  "SENDER"            │                        │  "RECEIVER"          │
 └──────────────────────┘                        └──────────────────────┘
          │                                                  │
          │  1. User enters remote URL + credentials        │
-         │     URL: http://10.25.8.14:5000                │
+         │     URL: http://192.0.2.14:5000                │
          │     User: admin                                 │
          │     Pass: stoyan93Nina                          │
          │                                                  │
@@ -241,10 +241,10 @@ Result:
 └─────────────────────────────────────────────────────────────────┘
 
 UI Table:
-  ☑ devmod-42      10.25.8.28    Missing on Remote
-  ☐ devmod-43      10.25.8.30    Missing on Remote
-  ☐ devmod-02      10.25.8.68    Missing on Remote
-  ☐ devmod-05      10.25.8.76    Missing on Remote
+  ☑ devmod-42      192.0.2.28    Missing on Remote
+  ☐ devmod-43      192.0.2.30    Missing on Remote
+  ☐ devmod-02      192.0.2.68    Missing on Remote
+  ☐ devmod-05      192.0.2.76    Missing on Remote
   
 User selects: [devmod-42]  (node ID: 3)
 
@@ -259,7 +259,7 @@ Query Database:
 Extract Data:
   {
     "hostname": "devmod-42",
-    "ip_address": "10.25.8.28",
+    "ip_address": "192.0.2.28",
     "ssh_user": "sumix",
     "ssh_port": 22,
     "cluster_id": 1,
@@ -273,14 +273,14 @@ Extract Data:
 └─────────────────────────────────────────────────────────────────┘
 
 HTTP Request:
-  POST http://10.25.8.14:5000/api/nodes
+  POST http://192.0.2.14:5000/api/nodes
   Headers:
     Cookie: session=xxx
     Content-Type: application/json
   Body:
     {
       "hostname": "devmod-42",
-      "ip_address": "10.25.8.28",
+      "ip_address": "192.0.2.28",
       ...
     }
 
@@ -313,7 +313,7 @@ Timeline:
   T+0s    : User clicks "Start Sync"
   T+0.02s : POST /sync/api/transfer returns (✅ Fixed!)
   T+0.5s  : Background thread starts
-  T+1s    : Thread: POST /auth/login to 10.25.8.14
+  T+1s    : Thread: POST /auth/login to 192.0.2.14
   T+11s   : ❌ TIMEOUT! (connect timeout=10s)
   
 Why?

@@ -728,7 +728,7 @@ firewall-open:
 		echo "✅ Port 5000 opened successfully"; \
 		echo ""; \
 		echo "🌐 You can now access the web interface from:"; \
-		echo "   http://10.25.8.14:5000 (from other machines)"; \
+		echo "   http://192.0.2.14:5000 (from other machines)"; \
 		echo "   http://localhost:5000 (from this machine)"; \
 	fi
 

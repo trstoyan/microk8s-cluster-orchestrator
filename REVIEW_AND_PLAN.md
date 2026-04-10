@@ -386,10 +386,10 @@ curl -X POST http://localhost:5000/api/sync/generate-token \
 
 ### Step 2: Test Token-Based Sync (After Phase 2 & 3)
 ```bash
-# Server A (10.25.8.14):
+# Server A (192.0.2.14):
 # 1. Generate token
 
-# Server B (10.25.8.16):
+# Server B (192.0.2.16):
 # 1. Paste token
 # 2. Connect
 # 3. Compare
@@ -505,4 +505,4 @@ Please let me know:
 
 4. **Timeline** - Do you want to finish today or split across sessions?
 
-5. **Testing environment** - Are both servers (10.25.8.14 and 10.25.8.16) available for testing?
+5. **Testing environment** - Are both servers (192.0.2.14 and 192.0.2.16) available for testing?

@@ -498,9 +498,9 @@ class SyncToken:
 4. Copy token
 
 ### Test 2: Token-Based Sync
-1. On remote server (10.25.8.14): Generate token
-2. On local server (10.25.8.16): 
-   - Enter remote URL: http://10.25.8.14:5000
+1. On remote server (192.0.2.14): Generate token
+2. On local server (192.0.2.16): 
+   - Enter remote URL: http://192.0.2.14:5000
    - Paste token
    - Click "Connect & Compare"
 3. Verify comparison works

@@ -2,7 +2,7 @@
 
 ## Purpose
 Polish MKO as a reusable orchestration platform without embedding project-specific business logic.
-This plan intentionally excludes CTS-specific product behavior and data semantics.
+This plan intentionally excludes downstream-project-specific product behavior and data semantics.
 
 ## Boundary Rules
 - MKO owns platform primitives: plugin lifecycle, security controls, execution guardrails, auditability.
@@ -48,5 +48,5 @@ This plan intentionally excludes CTS-specific product behavior and data semantic
 - Plugin execution lifecycle is reproducible and test-covered.
 
 ## Out of Scope
-- Any CTS-specific health model, strategy logic, or runtime diagnosis.
+- Any downstream-project-specific health model, strategy logic, or runtime diagnosis.
 - Any downstream project UI semantics inside MKO core pages.

@@ -68,7 +68,7 @@ class AddK3sVirtualBoxSupportMigrationTests(unittest.TestCase):
             )
             cursor.execute(
                 "INSERT INTO nodes (hostname, ip_address, microk8s_version, microk8s_status, is_control_plane) VALUES (?, ?, ?, ?, ?)",
-                ("cp1", "10.25.12.10", "1.30", "running", 1),
+                ("cp1", "192.0.2.10", "1.30", "running", 1),
             )
             conn.commit()
             conn.close()
