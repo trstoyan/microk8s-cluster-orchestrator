@@ -934,7 +934,7 @@ class PlaybookExecution(db.Model):
     extra_vars = db.Column(db.Text)  # Additional variables passed to Ansible
     
     # Execution status
-    status = db.Column(db.String(50), default='pending')  # pending, running, completed, failed, cancelled
+    status = db.Column(db.String(50), default='pending')  # pending, running, cancel_requested, completed, failed, cancelled
     progress_percent = db.Column(db.Integer, default=0)
     
     # Timing
@@ -1086,6 +1086,7 @@ class PluginInstallation(db.Model):
     installed_path = db.Column(db.String(1024), nullable=False)
 
     manifest_json = db.Column(db.Text, nullable=False)
+    bundle_sha256 = db.Column(db.String(64))
     enabled = db.Column(db.Boolean, default=False)
     status = db.Column(db.String(64), nullable=False, default='installed')
     last_error = db.Column(db.Text)
@@ -1113,6 +1114,7 @@ class PluginInstallation(db.Model):
             'current_commit': self.current_commit,
             'previous_commit': self.previous_commit,
             'installed_path': self.installed_path,
+            'bundle_sha256': self.bundle_sha256,
             'enabled': self.enabled,
             'status': self.status,
             'last_error': self.last_error,
@@ -1134,6 +1136,7 @@ class PluginActionAudit(db.Model):
 
     token_hash = db.Column(db.String(128), nullable=False)
     execute_reason = db.Column(db.Text, nullable=False)
+    idempotency_key = db.Column(db.String(128))
     status = db.Column(db.String(64), nullable=False, default='planned')
 
     plan_payload = db.Column(db.Text)
@@ -1159,6 +1162,7 @@ class PluginActionAudit(db.Model):
             'action_id': self.action_id,
             'token_hash': self.token_hash,
             'execute_reason': self.execute_reason,
+            'idempotency_key': self.idempotency_key,
             'status': self.status,
             'plan_payload': self.plan_payload,
             'result_payload': self.result_payload,

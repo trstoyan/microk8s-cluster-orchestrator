@@ -106,12 +106,16 @@ class ConfigManager:
                 'storage_dir': 'data/plugins',
                 'allowed_repositories': [],
                 'allowed_commits': {},
+                'signature_verifier_command': '',
                 'plan_ttl_seconds': 900,
                 'auto_apply_configmap': False,
                 'k8s': {
                     'namespace': 'orchestrator',
                     'deployment': 'microk8s-cluster-orchestrator'
                 }
+            },
+            'playbooks': {
+                'execution_timeout_seconds': 3600
             },
             'ai_assistant': {
                 'enabled': True,

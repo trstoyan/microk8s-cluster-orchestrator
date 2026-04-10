@@ -41,6 +41,7 @@
     
     .status-pending { background: #fff3cd; color: #856404; }
     .status-running { background: #d1ecf1; color: #0c5460; }
+    .status-cancel_requested { background: #ffe8a1; color: #8a5b00; }
     .status-completed { background: #d4edda; color: #155724; }
     .status-failed { background: #f8d7da; color: #721c24; }
     .status-cancelled { background: #e2e3e5; color: #383d41; }
@@ -151,6 +152,9 @@
             </a>
             <a href="{{ url_for('web.playbook_executions', status='running') }}" class="filter-tab {% if selected_status == 'running' %}active{% endif %}">
                 Running
+            </a>
+            <a href="{{ url_for('web.playbook_executions', status='cancel_requested') }}" class="filter-tab {% if selected_status == 'cancel_requested' %}active{% endif %}">
+                Cancel Requested
             </a>
             <a href="{{ url_for('web.playbook_executions', status='completed') }}" class="filter-tab {% if selected_status == 'completed' %}active{% endif %}">
                 Completed
@@ -314,7 +318,7 @@ function showOutput(executionId) {
 
 // Auto-refresh running executions every 10 seconds
 setInterval(() => {
-    const runningExecutions = document.querySelectorAll('.status-running');
+    const runningExecutions = document.querySelectorAll('.status-running, .status-cancel_requested');
     if (runningExecutions.length > 0) {
         window.location.reload();
     }

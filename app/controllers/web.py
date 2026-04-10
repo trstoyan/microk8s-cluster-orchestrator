@@ -4,7 +4,19 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from sqlalchemy.exc import IntegrityError
 from ..models.database import db
-from ..models.flask_models import Node, Cluster, Operation, RouterSwitch, User, PlaybookTemplate, CustomPlaybook, PlaybookExecution, NodeGroup
+from ..models.flask_models import (
+    Node,
+    Cluster,
+    Operation,
+    RouterSwitch,
+    User,
+    PlaybookTemplate,
+    CustomPlaybook,
+    PlaybookExecution,
+    NodeGroup,
+    PluginInstallation,
+    PluginActionAudit,
+)
 from ..models.network_lease import NetworkLease, NetworkInterface
 
 bp = Blueprint('web', __name__)
@@ -2241,3 +2253,16 @@ def node_group_detail(group_id):
         return redirect(url_for('web.node_groups'))
     
     return render_template('node_group_detail.html', group=group)
+
+
+@bp.route('/plugins')
+@login_required
+def plugins():
+    """Plugin inventory and action audit timeline."""
+    if not current_user.is_admin:
+        flash('Admin access required', 'error')
+        return redirect(url_for('web.dashboard'))
+
+    plugins = PluginInstallation.query.order_by(PluginInstallation.plugin_id.asc()).all()
+    audits = PluginActionAudit.query.order_by(PluginActionAudit.started_at.desc()).limit(100).all()
+    return render_template('plugins.html', plugins=plugins, audits=audits)

@@ -17,6 +17,11 @@ def _table_exists(cursor, table_name: str) -> bool:
     return cursor.fetchone() is not None
 
 
+def _column_exists(cursor, table_name: str, column_name: str) -> bool:
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return any(row[1] == column_name for row in cursor.fetchall())
+
+
 def run_migration():
     """Create plugin_installations and plugin_action_audits tables if missing."""
     if not DB_PATH.exists():
@@ -57,6 +62,9 @@ def run_migration():
             cursor.execute(
                 "CREATE INDEX idx_plugin_installations_enabled ON plugin_installations(enabled)"
             )
+        else:
+            if not _column_exists(cursor, "plugin_installations", "bundle_sha256"):
+                cursor.execute("ALTER TABLE plugin_installations ADD COLUMN bundle_sha256 VARCHAR(64)")
 
         if not _table_exists(cursor, "plugin_action_audits"):
             cursor.execute(
@@ -86,6 +94,31 @@ def run_migration():
             cursor.execute(
                 "CREATE INDEX idx_plugin_action_audits_status ON plugin_action_audits(status)"
             )
+        else:
+            if not _column_exists(cursor, "plugin_action_audits", "plan_payload"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN plan_payload TEXT")
+            if not _column_exists(cursor, "plugin_action_audits", "result_payload"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN result_payload TEXT")
+            if not _column_exists(cursor, "plugin_action_audits", "error_message"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN error_message TEXT")
+            if not _column_exists(cursor, "plugin_action_audits", "requested_by"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN requested_by INTEGER")
+            if not _column_exists(cursor, "plugin_action_audits", "approved_by"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN approved_by INTEGER")
+            if not _column_exists(cursor, "plugin_action_audits", "started_at"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN started_at DATETIME")
+            if not _column_exists(cursor, "plugin_action_audits", "completed_at"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN completed_at DATETIME")
+            if not _column_exists(cursor, "plugin_action_audits", "idempotency_key"):
+                cursor.execute("ALTER TABLE plugin_action_audits ADD COLUMN idempotency_key VARCHAR(128)")
+
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_plugin_action_audits_idempotency
+            ON plugin_action_audits(plugin_id, action_id, approved_by, idempotency_key)
+            WHERE idempotency_key IS NOT NULL
+            """
+        )
 
         conn.commit()
         print("Plugin platform tables migration completed successfully.")

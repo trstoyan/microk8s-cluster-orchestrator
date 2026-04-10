@@ -15,7 +15,7 @@ A runtime-aware cluster orchestration system for managing `microk8s` and `k3s` c
 
 📚 **Documentation**: See [docs/INDEX.md](docs/INDEX.md) for the complete documentation index.
 
-🧩 **Plugin Platform (v1)**: See [docs/PLUGIN_SYSTEM.md](docs/PLUGIN_SYSTEM.md) for the business-agnostic plugin contract, secure git install flow, and two-step action execution.
+🧩 **Plugin Platform (v1)**: See [docs/PLUGIN_SYSTEM.md](docs/PLUGIN_SYSTEM.md) for the business-agnostic plugin contract and [docs/PLUGIN_SDK.md](docs/PLUGIN_SDK.md) for scaffold/authoring flow.
 
 ## ⚠️ Disclaimer
 

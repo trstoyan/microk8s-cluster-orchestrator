@@ -10,20 +10,65 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from flask import current_app
-from sqlalchemy import and_, or_
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from ..models.flask_models import (
     PlaybookTemplate, CustomPlaybook, PlaybookExecution, 
     NodeGroup, Node, Cluster, db
 )
+from ..utils.config import config
 
 
 class PlaybookService:
     """Service for managing playbooks and their execution."""
+
+    _execution_lock = threading.Lock()
+    _execution_processes: Dict[int, Any] = {}
     
     def __init__(self):
         self.temp_dir = Path(tempfile.gettempdir()) / "microk8s_playbooks"
         self.temp_dir.mkdir(exist_ok=True)
+        self.execution_timeout_seconds = int(config.get('playbooks.execution_timeout_seconds', 3600) or 3600)
+
+    def _register_running_process(self, execution_id: int, process: Any) -> None:
+        with self._execution_lock:
+            self._execution_processes[execution_id] = process
+
+    def _get_running_process(self, execution_id: int) -> Optional[Any]:
+        with self._execution_lock:
+            return self._execution_processes.get(execution_id)
+
+    def _pop_running_process(self, execution_id: int) -> Optional[Any]:
+        with self._execution_lock:
+            return self._execution_processes.pop(execution_id, None)
+
+    def _terminate_process(self, execution_id: int) -> None:
+        process = self._get_running_process(execution_id)
+        if not process:
+            return
+
+        try:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except Exception:
+                    process.kill()
+        except Exception:
+            pass
+
+    def _is_cancel_requested(self, execution_id: int) -> bool:
+        execution = db.session.get(PlaybookExecution, execution_id)
+        return bool(execution and execution.status == 'cancel_requested')
+
+    def _mark_execution_cancelled(self, execution: PlaybookExecution, message: Optional[str] = None) -> None:
+        execution.status = 'cancelled'
+        execution.success = False
+        execution.progress_percent = 100
+        execution.completed_at = datetime.utcnow()
+        if message:
+            execution.error_message = message
+        db.session.commit()
     
     # Template Management
     def create_template(self, name: str, description: str, category: str, 
@@ -305,6 +350,8 @@ class PlaybookService:
                         targets: List[Dict[str, Any]], extra_vars: Dict[str, Any] = None,
                         created_by: int = None) -> PlaybookExecution:
         """Execute a playbook."""
+        self._reconcile_stale_running_executions()
+
         # Create execution record
         execution = PlaybookExecution(
             execution_name=execution_name,
@@ -318,115 +365,172 @@ class PlaybookService:
         
         db.session.add(execution)
         db.session.commit()
+
+        app = current_app._get_current_object()
         
         # Start execution in background thread
         thread = threading.Thread(
             target=self._execute_playbook_thread,
-            args=(execution.id,)
+            args=(app, execution.id),
+            name=f"playbook-exec-{execution.id}"
         )
         thread.daemon = True
         thread.start()
         
         return execution
     
-    def _execute_playbook_thread(self, execution_id: int):
-        """Execute playbook in background thread."""
-        execution = PlaybookExecution.query.get(execution_id)
-        if not execution:
-            return
-        
-        try:
-            # Update status to running
-            execution.status = 'running'
-            execution.started_at = datetime.utcnow()
-            db.session.commit()
-            
-            # Resolve targets
-            targets = json.loads(execution.targets)
-            nodes = self.resolve_targets(targets)
-            
-            if not nodes:
+    def _reconcile_stale_running_executions(self) -> None:
+        """Fail closed stale running executions that survived process restarts."""
+        stale_cutoff = datetime.utcnow().timestamp() - float(self.execution_timeout_seconds)
+        executions = PlaybookExecution.query.filter(
+            PlaybookExecution.status.in_(['running', 'cancel_requested'])
+        ).all()
+        for execution in executions:
+            reference_time = execution.started_at or execution.created_at
+            if not reference_time:
+                continue
+            if reference_time.timestamp() < stale_cutoff:
                 execution.status = 'failed'
-                execution.error_message = "No nodes found for the specified targets"
+                execution.success = False
+                execution.progress_percent = 100
                 execution.completed_at = datetime.utcnow()
-                db.session.commit()
+                execution.error_message = 'Execution lease expired before completion'
+        db.session.commit()
+
+    def _execute_playbook_thread(self, app, execution_id: int):
+        """Execute playbook in background thread."""
+        with app.app_context():
+            execution = db.session.get(PlaybookExecution, execution_id)
+            if not execution:
                 return
-            
-            # Generate inventory
-            inventory_content = self.generate_inventory(nodes)
-            execution.inventory_content = inventory_content
-            
-            # Create temporary files
+
             playbook_file = self.temp_dir / f"playbook_{execution_id}.yml"
             inventory_file = self.temp_dir / f"inventory_{execution_id}.yml"
-            
-            # Write files
-            playbook_file.write_text(execution.yaml_content)
-            inventory_file.write_text(inventory_content)
-            
-            # Prepare Ansible command
-            cmd = [
-                'ansible-playbook',
-                '-i', str(inventory_file),
-                str(playbook_file)
-            ]
-            
-            # Add extra variables
-            if execution.extra_vars:
-                extra_vars = json.loads(execution.extra_vars)
-                for key, value in extra_vars.items():
-                    cmd.extend(['-e', f'{key}={value}'])
-            
-            # Execute Ansible
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
-            
-            output_lines = []
-            while True:
-                line = process.stdout.readline()
-                if not line and process.poll() is not None:
-                    break
-                if line:
-                    output_lines.append(line)
-                    # Update progress (simplified)
-                    if 'PLAY' in line or 'TASK' in line:
-                        execution.progress_percent = min(execution.progress_percent + 5, 95)
-                        db.session.commit()
-            
-            # Get return code
-            return_code = process.poll()
-            
-            # Update execution with results
-            execution.output = ''.join(output_lines)
-            execution.completed_at = datetime.utcnow()
-            execution.success = return_code == 0
-            
-            if return_code == 0:
-                execution.status = 'completed'
-            else:
-                execution.status = 'failed'
-                execution.error_message = f"Ansible playbook failed with return code {return_code}"
-            
-            # Clean up temporary files
+
             try:
-                playbook_file.unlink()
-                inventory_file.unlink()
-            except:
-                pass
-            
-            db.session.commit()
-            
-        except Exception as e:
-            execution.status = 'failed'
-            execution.error_message = str(e)
-            execution.completed_at = datetime.utcnow()
-            db.session.commit()
+                # Respect cancellation requests made before the worker starts.
+                if execution.status == 'cancel_requested':
+                    self._mark_execution_cancelled(execution, 'Execution cancelled before start')
+                    return
+
+                execution.status = 'running'
+                execution.started_at = datetime.utcnow()
+                execution.progress_percent = max(execution.progress_percent or 0, 1)
+                db.session.commit()
+
+                targets = json.loads(execution.targets)
+                nodes = self.resolve_targets(targets)
+
+                if not nodes:
+                    execution.status = 'failed'
+                    execution.success = False
+                    execution.progress_percent = 100
+                    execution.error_message = "No nodes found for the specified targets"
+                    execution.completed_at = datetime.utcnow()
+                    db.session.commit()
+                    return
+
+                if self._is_cancel_requested(execution_id):
+                    self._mark_execution_cancelled(execution, 'Execution cancelled before dispatch')
+                    return
+
+                inventory_content = self.generate_inventory(nodes)
+                execution.inventory_content = inventory_content
+
+                playbook_file.write_text(execution.yaml_content)
+                inventory_file.write_text(inventory_content)
+
+                cmd = [
+                    'ansible-playbook',
+                    '-i', str(inventory_file),
+                    str(playbook_file)
+                ]
+
+                if execution.extra_vars:
+                    extra_vars = json.loads(execution.extra_vars)
+                    for key, value in extra_vars.items():
+                        cmd.extend(['-e', f'{key}={value}'])
+
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
+                self._register_running_process(execution_id, process)
+
+                output_lines = []
+                start_time = time.time()
+
+                while True:
+                    if self._is_cancel_requested(execution_id):
+                        self._terminate_process(execution_id)
+
+                    if time.time() - start_time > self.execution_timeout_seconds:
+                        self._terminate_process(execution_id)
+                        execution.status = 'failed'
+                        execution.success = False
+                        execution.error_message = f'Execution exceeded timeout of {self.execution_timeout_seconds} seconds'
+                        break
+
+                    line = process.stdout.readline() if process.stdout else ''
+                    if not line and process.poll() is not None:
+                        break
+                    if line:
+                        output_lines.append(line)
+                        if 'PLAY' in line or 'TASK' in line:
+                            execution.progress_percent = min((execution.progress_percent or 0) + 5, 95)
+                            db.session.commit()
+
+                return_code = process.poll()
+                was_cancelled = self._is_cancel_requested(execution_id)
+
+                execution.output = ''.join(output_lines)
+                execution.completed_at = datetime.utcnow()
+
+                if execution.status == 'failed' and execution.error_message:
+                    execution.progress_percent = 100
+                elif was_cancelled or return_code in (-15, -9):
+                    execution.status = 'cancelled'
+                    execution.success = False
+                    execution.progress_percent = 100
+                    execution.error_message = execution.error_message or 'Execution cancelled by operator'
+                elif return_code == 0:
+                    execution.status = 'completed'
+                    execution.success = True
+                    execution.progress_percent = 100
+                    execution.error_message = None
+                else:
+                    execution.status = 'failed'
+                    execution.success = False
+                    execution.progress_percent = 100
+                    execution.error_message = f"Ansible playbook failed with return code {return_code}"
+
+                db.session.commit()
+
+            except Exception as e:
+                try:
+                    execution.status = 'failed'
+                    execution.success = False
+                    execution.progress_percent = 100
+                    execution.error_message = str(e)
+                    execution.completed_at = datetime.utcnow()
+                    db.session.commit()
+                except DetachedInstanceError:
+                    db.session.rollback()
+                except Exception:
+                    db.session.rollback()
+                    raise
+            finally:
+                self._pop_running_process(execution_id)
+                for tmp_path in (playbook_file, inventory_file):
+                    try:
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+                    except Exception:
+                        pass
     
     def get_executions(self, created_by: int = None, status: str = None) -> List[PlaybookExecution]:
         """Get playbook executions with optional filtering."""
@@ -445,13 +549,18 @@ class PlaybookService:
     
     def cancel_execution(self, execution_id: int) -> bool:
         """Cancel a running playbook execution."""
-        execution = PlaybookExecution.query.get(execution_id)
-        if not execution or execution.status != 'running':
+        execution = db.session.get(PlaybookExecution, execution_id)
+        if not execution:
             return False
-        
-        execution.status = 'cancelled'
-        execution.completed_at = datetime.utcnow()
+
+        if execution.status in ('completed', 'failed', 'cancelled'):
+            return False
+
+        # Request cancellation first; worker handles deterministic terminal state.
+        execution.status = 'cancel_requested'
         db.session.commit()
+
+        self._terminate_process(execution_id)
         return True
     
     # System Templates

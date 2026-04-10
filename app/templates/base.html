@@ -282,6 +282,12 @@
                                 <span class="d-lg-none">Code</span>
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'web.plugins' %}active{% endif %}" href="{{ url_for('web.plugins') }}">
+                                <i class="bi bi-puzzle"></i>
+                                Plugins
+                            </a>
+                        </li>
                         {% if ai_config_enabled %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'web.assistant' %}active{% endif %}" href="{{ url_for('web.assistant') }}">

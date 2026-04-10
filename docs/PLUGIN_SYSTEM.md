@@ -6,9 +6,12 @@ The plugin system provides a business-agnostic extension model for checks and gu
 
 - Only admin users can install, enable, disable, rollback, or execute plugin actions.
 - Installations are restricted to allowlisted `repo_url` + pinned `commit` values.
+- Optional signature verification can be enforced via `plugins.signature_verifier_command`.
+- Installed bundles are checksummed (`bundle_sha256`) and stored with installation metadata.
 - Actions use a two-step flow:
   1. Plan action and receive a signed short-lived confirmation token.
   2. Execute with explicit reason and confirmation token.
+- `playbook_path` is validated to stay inside plugin root (path traversal is rejected).
 
 ## Manifest
 
@@ -45,14 +48,43 @@ Action fields:
 ## API Endpoints
 
 - `GET /api/plugins`
+- `GET /api/plugins/summary`
 - `POST /api/plugins/install`
 - `POST /api/plugins/{plugin_id}/enable`
 - `POST /api/plugins/{plugin_id}/disable`
 - `POST /api/plugins/{plugin_id}/rollback`
 - `POST /api/plugins/{plugin_id}/apply`
 - `GET /api/plugins/{plugin_id}/health`
+- `GET /api/plugins/{plugin_id}/audits`
 - `POST /api/plugins/{plugin_id}/actions/plan`
 - `POST /api/plugins/{plugin_id}/actions/execute`
+
+### Response Contract
+
+Success:
+
+```json
+{
+  "success": true,
+  "...": "endpoint payload"
+}
+```
+
+Error:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "machine_readable_code",
+    "message": "Human-readable message",
+    "details": {},
+    "retryable": false
+  }
+}
+```
+
+`POST /api/plugins/{plugin_id}/actions/execute` supports optional `idempotency_key` to safely deduplicate retries by the same approver.
 
 ## Cluster Apply
 
@@ -61,3 +93,10 @@ Action fields:
 Config keys:
 - `plugins.k8s.namespace`
 - `plugins.k8s.deployment`
+- `plugins.signature_verifier_command`
+- `plugins.plan_ttl_seconds`
+
+## Operator Surfaces
+
+- Web inventory page: `/plugins`
+- Includes plugin status, commit, checksum, and recent action audits.

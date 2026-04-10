@@ -1,10 +1,15 @@
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 class PluginManagerContractTests(unittest.TestCase):
@@ -94,6 +99,8 @@ class PluginManagerContractTests(unittest.TestCase):
         self.assertEqual(plugin["plugin_id"], "test_plugin")
         self.assertEqual(plugin["current_commit"], commit)
         self.assertEqual(plugin["status"], "installed")
+        self.assertIsNotNone(plugin["bundle_sha256"])
+        self.assertEqual(len(plugin["bundle_sha256"]), 64)
 
     def test_install_rejects_non_allowlisted_commit(self):
         from app.utils.config import config
@@ -130,6 +137,39 @@ class PluginManagerContractTests(unittest.TestCase):
         self.assertIsNotNone(audit)
         self.assertEqual(audit.plugin_id, "test_plugin")
         self.assertEqual(audit.action_id, "noop")
+
+    def test_execute_action_with_idempotency_key_replays_result(self):
+        from app.utils.config import config
+        from app.models.flask_models import PluginActionAudit
+
+        repo_url, commit = self._create_plugin_repo()
+        config.set("plugins.allowed_repositories", [repo_url])
+        config.set("plugins.allowed_commits", {repo_url: [commit]})
+
+        manager = self.app.extensions["plugin_manager"]
+        manager.install_from_git(repo_url, commit, self.admin_id)
+        plan = manager.plan_action("test_plugin", "noop", {}, self.admin_id)
+
+        with patch("app.services.plugin_manager.PlaybookService.execute_playbook", return_value=SimpleNamespace(id=2222)):
+            first = manager.execute_action(
+                plan["confirmation_token"],
+                "first execution",
+                self.admin_id,
+                idempotency_key="idem-1",
+            )
+            replay = manager.execute_action(
+                plan["confirmation_token"],
+                "first execution",
+                self.admin_id,
+                idempotency_key="idem-1",
+            )
+
+        self.assertFalse(first.get("replayed", False))
+        self.assertTrue(replay.get("replayed", False))
+        self.assertEqual(first["playbook_execution_id"], replay["playbook_execution_id"])
+
+        audits = PluginActionAudit.query.filter_by(plugin_id="test_plugin", action_id="noop").all()
+        self.assertEqual(len(audits), 1)
 
 
 if __name__ == "__main__":

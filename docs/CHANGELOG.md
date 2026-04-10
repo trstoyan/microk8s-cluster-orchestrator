@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Plugin platform operability page at `/plugins` with inventory + recent action audits.
+- Plugin SDK scaffold command: `scripts/plugins/create_plugin_scaffold.py`.
+- Plugin summary/audits API endpoints: `GET /api/plugins/summary` and `GET /api/plugins/{plugin_id}/audits`.
+
+### Changed
+- Plugin API responses are now contract-stable with `success` and structured error payloads.
+- Plugin action execute supports optional `idempotency_key` for safe retry deduplication.
+- Playbook execution runner is app-context-safe and supports deterministic `cancel_requested` state.
+
+### Security
+- Plugin bundle checksum (`bundle_sha256`) is persisted for installed revisions.
+- Optional signature verification hook via `plugins.signature_verifier_command`.
+- Plugin action playbook path is now constrained to plugin root (path traversal blocked).
+
 ## [1.2.0] - 2025-10-11
 
 ### 🔐 SSH & Authentication

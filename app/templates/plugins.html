@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Plugins{% endblock %}
+{% block header %}Plugins{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">Installed Plugins</h6>
+                    <h3 class="mb-0">{{ plugins|length }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">Enabled Plugins</h6>
+                    <h3 class="mb-0">{{ plugins|selectattr('enabled')|list|length }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">Recent Action Audits</h6>
+                    <h3 class="mb-0">{{ audits|length }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Plugin Inventory</h5>
+            <a href="{{ url_for('web.plugins') }}" class="btn btn-sm btn-outline-secondary">Refresh</a>
+        </div>
+        <div class="card-body p-0">
+            {% if plugins %}
+            <div class="table-responsive">
+                <table class="table table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th>Plugin</th>
+                            <th>Status</th>
+                            <th>Enabled</th>
+                            <th>Commit</th>
+                            <th>Bundle SHA256</th>
+                            <th>Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for plugin in plugins %}
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">{{ plugin.plugin_id }}</div>
+                                <small class="text-muted">{{ plugin.name }} v{{ plugin.version }}</small>
+                            </td>
+                            <td>
+                                <span class="badge {% if plugin.status in ['applied','enabled'] %}bg-success{% elif plugin.status in ['apply_failed','load_failed'] %}bg-danger{% else %}bg-secondary{% endif %}">
+                                    {{ plugin.status }}
+                                </span>
+                            </td>
+                            <td>{{ 'yes' if plugin.enabled else 'no' }}</td>
+                            <td><code>{{ plugin.current_commit[:12] if plugin.current_commit else '-' }}</code></td>
+                            <td><code>{{ plugin.bundle_sha256[:12] if plugin.bundle_sha256 else '-' }}</code></td>
+                            <td>{{ plugin.updated_at|datetimeformat if plugin.updated_at else '-' }}</td>
+                        </tr>
+                        {% if plugin.last_error %}
+                        <tr>
+                            <td colspan="6" class="text-danger small">
+                                <strong>Last error:</strong> {{ plugin.last_error }}
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-4 text-muted">No plugins installed.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Recent Plugin Action Audits</h5>
+        </div>
+        <div class="card-body p-0">
+            {% if audits %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Plugin</th>
+                            <th>Action</th>
+                            <th>Status</th>
+                            <th>Reason</th>
+                            <th>Idempotency</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for audit in audits %}
+                        <tr>
+                            <td>{{ audit.started_at|datetimeformat if audit.started_at else '-' }}</td>
+                            <td>{{ audit.plugin_id }}</td>
+                            <td>{{ audit.action_id }}</td>
+                            <td>
+                                <span class="badge {% if audit.status in ['queued','completed'] %}bg-success{% elif audit.status == 'failed' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                    {{ audit.status }}
+                                </span>
+                            </td>
+                            <td>{{ audit.execute_reason or '-' }}</td>
+                            <td><code>{{ audit.idempotency_key[:20] if audit.idempotency_key else '-' }}</code></td>
+                        </tr>
+                        {% if audit.error_message %}
+                        <tr>
+                            <td colspan="6" class="text-danger small">
+                                <strong>Error:</strong> {{ audit.error_message }}
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-4 text-muted">No plugin action audits yet.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
