@@ -14,7 +14,10 @@ def create_app():
     app = Flask(__name__)
     
     # Configure Flask settings from config
-    app.config['SECRET_KEY'] = config.get('flask.secret_key', 'change-this-in-production')
+    app.config['SECRET_KEY'] = os.environ.get(
+        'FLASK_SECRET_KEY',
+        config.get('flask.secret_key', 'change-this-in-production'),
+    )
     app.config['DEBUG'] = config.get('flask.debug', False)
     
     # Initialize database

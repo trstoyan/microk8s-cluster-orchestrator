@@ -18,6 +18,12 @@ This guide covers all deployment methods for the MicroK8s Cluster Orchestrator w
 
 ## 🚀 Quick Start
 
+For Kubernetes stack deployment, use:
+
+- `docs/DEPLOYMENT_K8S_STACK.md`
+- `deployment/k8s/*`
+- `deployment/scripts/deploy_k8s_stack.sh`
+
 ### Option 1: Using Makefile (Recommended)
 
 ```bash

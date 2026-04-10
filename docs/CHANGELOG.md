@@ -11,11 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plugin platform operability page at `/plugins` with inventory + recent action audits.
 - Plugin SDK scaffold command: `scripts/plugins/create_plugin_scaffold.py`.
 - Plugin summary/audits API endpoints: `GET /api/plugins/summary` and `GET /api/plugins/{plugin_id}/audits`.
+- Kubernetes stack deployment assets under `deployment/k8s/` and rollout script `deployment/scripts/deploy_k8s_stack.sh`.
+- Dedicated Kubernetes deployment guide: `docs/DEPLOYMENT_K8S_STACK.md`.
 
 ### Changed
 - Plugin API responses are now contract-stable with `success` and structured error payloads.
 - Plugin action execute supports optional `idempotency_key` for safe retry deduplication.
 - Playbook execution runner is app-context-safe and supports deterministic `cancel_requested` state.
+- Container startup now uses Gunicorn WSGI entrypoint and includes `kubectl` for plugin apply operations.
 
 ### Security
 - Plugin bundle checksum (`bundle_sha256`) is persisted for installed revisions.

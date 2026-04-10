@@ -16,6 +16,7 @@ A runtime-aware cluster orchestration system for managing `microk8s` and `k3s` c
 📚 **Documentation**: See [docs/INDEX.md](docs/INDEX.md) for the complete documentation index.
 
 🧩 **Plugin Platform (v1)**: See [docs/PLUGIN_SYSTEM.md](docs/PLUGIN_SYSTEM.md) for the business-agnostic plugin contract and [docs/PLUGIN_SDK.md](docs/PLUGIN_SDK.md) for scaffold/authoring flow.
+☸️ **Kubernetes Stack Assets**: See [docs/DEPLOYMENT_K8S_STACK.md](docs/DEPLOYMENT_K8S_STACK.md) for in-cluster deployment manifests and rollout script.
 
 ## ⚠️ Disclaimer
 

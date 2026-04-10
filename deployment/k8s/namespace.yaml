@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: orchestrator
+  labels:
+    app.kubernetes.io/name: microk8s-orchestrator
+    app.kubernetes.io/part-of: microk8s-platform
+

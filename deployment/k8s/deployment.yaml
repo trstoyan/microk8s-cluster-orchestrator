@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: microk8s-cluster-orchestrator
+  namespace: orchestrator
+  labels:
+    app.kubernetes.io/name: microk8s-orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: microk8s-orchestrator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: microk8s-orchestrator
+    spec:
+      serviceAccountName: mko
+      containers:
+        - name: orchestrator
+          image: ghcr.io/trstoyan/microk8s-cluster-orchestrator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+              name: http
+          env:
+            - name: DATABASE_PATH
+              value: /app/data/cluster_data.db
+            - name: ORCHESTRATOR_CONFIG
+              value: /app/config/cluster.yml
+            - name: ORCHESTRATOR_AUTO_MIGRATE
+              value: "true"
+            - name: FLASK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mko-secrets
+                  key: FLASK_SECRET_KEY
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mko-secrets
+                  key: SECRET_KEY
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: mko-data
+              mountPath: /app/data
+            - name: mko-config
+              mountPath: /app/config/cluster.yml
+              subPath: cluster.yml
+              readOnly: true
+            - name: mko-logs
+              mountPath: /app/logs
+      volumes:
+        - name: mko-data
+          persistentVolumeClaim:
+            claimName: mko-data
+        - name: mko-config
+          configMap:
+            name: mko-config
+        - name: mko-logs
+          emptyDir: {}
+

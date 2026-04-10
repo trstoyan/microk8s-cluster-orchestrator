@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: microk8s-cluster-orchestrator
+  namespace: orchestrator
+  labels:
+    app.kubernetes.io/name: microk8s-orchestrator
+spec:
+  selector:
+    app.kubernetes.io/name: microk8s-orchestrator
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+  type: ClusterIP
+

@@ -1,0 +1,23 @@
+flask:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+
+plugins:
+  enabled: true
+  storage_dir: "data/plugins"
+  auto_apply_configmap: false
+  plan_ttl_seconds: 900
+  k8s:
+    namespace: "orchestrator"
+    deployment: "microk8s-cluster-orchestrator"
+
+playbooks:
+  execution_timeout_seconds: 3600
+
+logging:
+  level: "INFO"
+  file: "logs/orchestrator.log"
+  max_size: "10MB"
+  backup_count: 5
+
