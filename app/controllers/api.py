@@ -5,7 +5,7 @@ import subprocess
 import json
 import logging
 from datetime import datetime, timedelta
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from sqlalchemy.exc import SQLAlchemyError
 from ..models.database import db
@@ -20,6 +20,13 @@ orchestrator = OrchestrationService()
 wol_service = WakeOnLANService()
 playbook_service = PlaybookService()
 logger = logging.getLogger(__name__)
+
+
+def _plugin_manager():
+    manager = current_app.extensions.get("plugin_manager")
+    if manager is None:
+        raise RuntimeError("Plugin manager is not initialized")
+    return manager
 
 @bp.route('/health', methods=['GET'])
 def health_check():
@@ -2914,3 +2921,210 @@ def generate_sync_token():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@bp.route('/plugins', methods=['GET'])
+@login_required
+def list_plugins():
+    """List installed plugin revisions and status."""
+    try:
+        manager = _plugin_manager()
+        return jsonify(manager.list_plugins())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/install', methods=['POST'])
+@login_required
+def install_plugin():
+    """Install a plugin from an allowlisted git repo and pinned commit."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        data = request.get_json() or {}
+        repo_url = (data.get('repo_url') or '').strip()
+        commit = (data.get('commit') or '').strip()
+        apply_to_cluster = bool(data.get('apply_to_cluster', False))
+
+        if not repo_url or not commit:
+            return jsonify({'error': 'repo_url and commit are required'}), 400
+
+        manager = _plugin_manager()
+        plugin = manager.install_from_git(repo_url=repo_url, commit=commit, installed_by=current_user.id)
+        if apply_to_cluster:
+            plugin = manager.apply_plugin_to_cluster(plugin['plugin_id'], current_user.id)
+
+        return jsonify({'success': True, 'plugin': plugin}), 201
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/<string:plugin_id>/enable', methods=['POST'])
+@login_required
+def enable_plugin(plugin_id):
+    """Enable a plugin (takes effect immediately only on restart-safe paths)."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        manager = _plugin_manager()
+        plugin = manager.enable_plugin(plugin_id, current_user.id)
+        return jsonify({
+            'success': True,
+            'plugin': plugin,
+            'message': 'Plugin enabled. Restart may be required for route-level integrations.'
+        })
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/<string:plugin_id>/disable', methods=['POST'])
+@login_required
+def disable_plugin(plugin_id):
+    """Disable a plugin."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        manager = _plugin_manager()
+        plugin = manager.disable_plugin(plugin_id, current_user.id)
+        return jsonify({'success': True, 'plugin': plugin})
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/<string:plugin_id>/rollback', methods=['POST'])
+@login_required
+def rollback_plugin(plugin_id):
+    """Rollback plugin to previous installed commit."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        manager = _plugin_manager()
+        plugin = manager.rollback_plugin(plugin_id, current_user.id)
+        return jsonify({
+            'success': True,
+            'plugin': plugin,
+            'message': 'Plugin rolled back. Restart may be required for route-level integrations.'
+        })
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/<string:plugin_id>/apply', methods=['POST'])
+@login_required
+def apply_plugin(plugin_id):
+    """Apply plugin bundle to the running cluster as ConfigMap + restart annotation."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        manager = _plugin_manager()
+        plugin = manager.apply_plugin_to_cluster(plugin_id, current_user.id)
+        return jsonify({'success': True, 'plugin': plugin})
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/<string:plugin_id>/health', methods=['GET'])
+@login_required
+def get_plugin_health(plugin_id):
+    """Collect plugin-provided health payload."""
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        manager = _plugin_manager()
+        payload = manager.collect_health(plugin_id)
+        return jsonify(payload)
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/<string:plugin_id>/actions/plan', methods=['POST'])
+@login_required
+def plan_plugin_action(plugin_id):
+    """Create a signed, short-lived plan token for a plugin action."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        data = request.get_json() or {}
+        action_id = (data.get('action_id') or '').strip()
+        params = data.get('params') or {}
+        if not action_id:
+            return jsonify({'error': 'action_id is required'}), 400
+
+        manager = _plugin_manager()
+        plan = manager.plan_action(
+            plugin_id=plugin_id,
+            action_id=action_id,
+            params=params,
+            planned_by=current_user.id,
+        )
+        return jsonify({'success': True, 'plan': plan})
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/plugins/<string:plugin_id>/actions/execute', methods=['POST'])
+@login_required
+def execute_plugin_action(plugin_id):
+    """Execute a previously planned plugin action using two-step confirmation token."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+
+    try:
+        from ..services.plugin_manager import PluginManagerError
+
+        data = request.get_json() or {}
+        confirmation_token = (data.get('confirmation_token') or '').strip()
+        execute_reason = (data.get('execute_reason') or '').strip()
+
+        if not confirmation_token:
+            return jsonify({'error': 'confirmation_token is required'}), 400
+        if not execute_reason:
+            return jsonify({'error': 'execute_reason is required'}), 400
+
+        manager = _plugin_manager()
+        result = manager.execute_action(
+            confirmation_token=confirmation_token,
+            execute_reason=execute_reason,
+            executed_by=current_user.id,
+        )
+
+        if result.get('plugin_id') != plugin_id:
+            return jsonify({'error': 'Token plugin_id does not match endpoint plugin_id'}), 400
+
+        return jsonify({'success': True, 'result': result, 'plugin_id': plugin_id})
+    except PluginManagerError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

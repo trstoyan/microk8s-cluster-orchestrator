@@ -101,6 +101,18 @@ class ConfigManager:
                 'max_size': '10MB',
                 'backup_count': 5
             },
+            'plugins': {
+                'enabled': True,
+                'storage_dir': 'data/plugins',
+                'allowed_repositories': [],
+                'allowed_commits': {},
+                'plan_ttl_seconds': 900,
+                'auto_apply_configmap': False,
+                'k8s': {
+                    'namespace': 'orchestrator',
+                    'deployment': 'microk8s-cluster-orchestrator'
+                }
+            },
             'ai_assistant': {
                 'enabled': True,
                 'rag_system': {

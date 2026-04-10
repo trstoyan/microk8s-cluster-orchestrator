@@ -1067,3 +1067,104 @@ node_group_memberships = db.Table('node_group_memberships',
     db.Column('node_id', db.Integer, db.ForeignKey('nodes.id'), primary_key=True),
     db.Column('created_at', db.DateTime, default=datetime.utcnow)
 )
+
+
+class PluginInstallation(db.Model):
+    """Installed plugin metadata tracked by MKO."""
+
+    __tablename__ = 'plugin_installations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    plugin_id = db.Column(db.String(255), unique=True, nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    version = db.Column(db.String(100), nullable=False)
+    mko_plugin_api = db.Column(db.String(50), nullable=False, default='v1')
+
+    repo_url = db.Column(db.String(1024), nullable=False)
+    current_commit = db.Column(db.String(64), nullable=False)
+    previous_commit = db.Column(db.String(64))
+    installed_path = db.Column(db.String(1024), nullable=False)
+
+    manifest_json = db.Column(db.Text, nullable=False)
+    enabled = db.Column(db.Boolean, default=False)
+    status = db.Column(db.String(64), nullable=False, default='installed')
+    last_error = db.Column(db.Text)
+
+    installed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    updated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+
+    installer = db.relationship("User", foreign_keys=[installed_by], backref="installed_plugins")
+    updater = db.relationship("User", foreign_keys=[updated_by], backref="updated_plugins")
+
+    installed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<PluginInstallation {self.plugin_id}@{self.current_commit}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'plugin_id': self.plugin_id,
+            'name': self.name,
+            'version': self.version,
+            'mko_plugin_api': self.mko_plugin_api,
+            'repo_url': self.repo_url,
+            'current_commit': self.current_commit,
+            'previous_commit': self.previous_commit,
+            'installed_path': self.installed_path,
+            'enabled': self.enabled,
+            'status': self.status,
+            'last_error': self.last_error,
+            'installed_by': self.installed_by,
+            'updated_by': self.updated_by,
+            'installed_at': self.installed_at.isoformat() if self.installed_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class PluginActionAudit(db.Model):
+    """Audit trail for two-step plugin action execution."""
+
+    __tablename__ = 'plugin_action_audits'
+
+    id = db.Column(db.Integer, primary_key=True)
+    plugin_id = db.Column(db.String(255), nullable=False)
+    action_id = db.Column(db.String(255), nullable=False)
+
+    token_hash = db.Column(db.String(128), nullable=False)
+    execute_reason = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(64), nullable=False, default='planned')
+
+    plan_payload = db.Column(db.Text)
+    result_payload = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+
+    requested_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    approved_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+
+    requester = db.relationship("User", foreign_keys=[requested_by], backref="requested_plugin_actions")
+    approver = db.relationship("User", foreign_keys=[approved_by], backref="approved_plugin_actions")
+
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+
+    def __repr__(self):
+        return f'<PluginActionAudit {self.plugin_id}:{self.action_id} ({self.status})>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'plugin_id': self.plugin_id,
+            'action_id': self.action_id,
+            'token_hash': self.token_hash,
+            'execute_reason': self.execute_reason,
+            'status': self.status,
+            'plan_payload': self.plan_payload,
+            'result_payload': self.result_payload,
+            'error_message': self.error_message,
+            'requested_by': self.requested_by,
+            'approved_by': self.approved_by,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }

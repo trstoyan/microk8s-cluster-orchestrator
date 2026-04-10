@@ -15,6 +15,8 @@ A runtime-aware cluster orchestration system for managing `microk8s` and `k3s` c
 
 📚 **Documentation**: See [docs/INDEX.md](docs/INDEX.md) for the complete documentation index.
 
+🧩 **Plugin Platform (v1)**: See [docs/PLUGIN_SYSTEM.md](docs/PLUGIN_SYSTEM.md) for the business-agnostic plugin contract, secure git install flow, and two-step action execution.
+
 ## ⚠️ Disclaimer
 
 This project is not affiliated with, endorsed by, or sponsored by Canonical Ltd. or the MicroK8s project. MicroK8s is a trademark of Canonical Ltd. This tool is an independent management interface for self-managed Kubernetes clusters, including MicroK8s and k3s.

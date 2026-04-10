@@ -90,5 +90,8 @@ def create_app():
     app.register_blueprint(sync_bp)  # Sync API has its own prefix
     app.register_blueprint(sync_web_bp)  # Sync web UI
     app.register_blueprint(web.bp)
+
+    from .services.plugin_manager import PluginManager
+    PluginManager().init_app(app)
     
     return app
